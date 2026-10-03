@@ -1,0 +1,316 @@
+@import "tailwindcss";
+
+:root {
+  /* ========================================
+     PACKAM BRAND COLORS
+     ======================================== */
+
+  --packam-yellow: #feb80a;
+  --packam-yellow-dark: #e5a500;
+  --packam-yellow-light: #fff4c7;
+
+  --packam-red: #f04438;
+  --packam-red-dark: #d9362b;
+  --packam-red-light: #ffe5e2;
+
+  --packam-black: #080808;
+  --packam-black-soft: #171717;
+
+  /* ========================================
+     PACKAM NEUTRALS
+     ======================================== */
+
+  --packam-cream: #fffdf7;
+  --packam-white: #ffffff;
+
+  --packam-grey-50: #fafafa;
+  --packam-grey-100: #f3f3f3;
+  --packam-grey-200: #e8e8e8;
+  --packam-grey-300: #d6d6d6;
+  --packam-grey-400: #a5a5a5;
+  --packam-grey-500: #737373;
+  --packam-grey-600: #525252;
+  --packam-grey-700: #404040;
+
+  /* ========================================
+     SEMANTIC COLORS
+     ======================================== */
+
+  --packam-success: #16803c;
+  --packam-success-light: #e9f8ee;
+
+  --packam-warning: #a15c00;
+  --packam-warning-light: #fff3d6;
+
+  --packam-error: #c92d24;
+  --packam-error-light: #ffe9e7;
+
+  --packam-info: #1769aa;
+  --packam-info-light: #e8f3fb;
+
+  /* ========================================
+     SYSTEM
+     ======================================== */
+
+  --background: var(--packam-cream);
+  --foreground: var(--packam-black);
+
+  --border: var(--packam-grey-200);
+
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 18px;
+  --radius-xl: 24px;
+  --radius-2xl: 32px;
+
+  --shadow-soft: 0 4px 20px rgba(8, 8, 8, 0.06);
+  --shadow-card: 0 8px 30px rgba(8, 8, 8, 0.08);
+  --shadow-heavy: 0 14px 40px rgba(8, 8, 8, 0.12);
+}
+
+@theme inline {
+  --color-packam-yellow: var(--packam-yellow);
+  --color-packam-yellow-dark: var(--packam-yellow-dark);
+  --color-packam-yellow-light: var(--packam-yellow-light);
+
+  --color-packam-red: var(--packam-red);
+  --color-packam-red-dark: var(--packam-red-dark);
+  --color-packam-red-light: var(--packam-red-light);
+
+  --color-packam-black: var(--packam-black);
+  --color-packam-black-soft: var(--packam-black-soft);
+
+  --color-packam-cream: var(--packam-cream);
+  --color-packam-white: var(--packam-white);
+
+  --color-packam-grey-50: var(--packam-grey-50);
+  --color-packam-grey-100: var(--packam-grey-100);
+  --color-packam-grey-200: var(--packam-grey-200);
+  --color-packam-grey-300: var(--packam-grey-300);
+  --color-packam-grey-400: var(--packam-grey-400);
+  --color-packam-grey-500: var(--packam-grey-500);
+  --color-packam-grey-600: var(--packam-grey-600);
+  --color-packam-grey-700: var(--packam-grey-700);
+
+  --color-packam-success: var(--packam-success);
+  --color-packam-success-light: var(--packam-success-light);
+
+  --color-packam-warning: var(--packam-warning);
+  --color-packam-warning-light: var(--packam-warning-light);
+
+  --color-packam-error: var(--packam-error);
+  --color-packam-error-light: var(--packam-error-light);
+
+  --color-packam-info: var(--packam-info);
+  --color-packam-info-light: var(--packam-info-light);
+}
+
+/* ========================================
+   BASE
+   ======================================== */
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  background: var(--background);
+  color: var(--foreground);
+  font-family:
+    Arial,
+    Helvetica,
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* ========================================
+   SELECTION
+   ======================================== */
+
+::selection {
+  background: var(--packam-yellow);
+  color: var(--packam-black);
+}
+
+/* ========================================
+   SCROLLBAR
+   ======================================== */
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--packam-grey-100);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--packam-grey-300);
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--packam-grey-400);
+}
+
+/* ========================================
+   PACKAM UTILITY CLASSES
+   ======================================== */
+
+.packam-container {
+  width: min(100% - 32px, 1200px);
+  margin-inline: auto;
+}
+
+.packam-card {
+  border: 1px solid var(--packam-grey-200);
+  border-radius: var(--radius-xl);
+  background: var(--packam-white);
+  box-shadow: var(--shadow-soft);
+}
+
+.packam-button-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: 0 20px;
+  border-radius: var(--radius-lg);
+  background: var(--packam-yellow);
+  color: var(--packam-black);
+  font-weight: 800;
+  transition:
+    transform 150ms ease,
+    background 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.packam-button-primary:hover {
+  background: var(--packam-yellow-dark);
+  box-shadow: 0 6px 18px rgba(254, 184, 10, 0.25);
+  transform: translateY(-1px);
+}
+
+.packam-button-primary:active {
+  transform: translateY(0);
+}
+
+.packam-button-dark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: 0 20px;
+  border-radius: var(--radius-lg);
+  background: var(--packam-black);
+  color: var(--packam-white);
+  font-weight: 800;
+  transition:
+    transform 150ms ease,
+    background 150ms ease;
+}
+
+.packam-button-dark:hover {
+  background: var(--packam-black-soft);
+  transform: translateY(-1px);
+}
+
+.packam-button-red {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: 0 20px;
+  border-radius: var(--radius-lg);
+  background: var(--packam-red);
+  color: var(--packam-white);
+  font-weight: 800;
+  transition:
+    transform 150ms ease,
+    background 150ms ease;
+}
+
+.packam-button-red:hover {
+  background: var(--packam-red-dark);
+  transform: translateY(-1px);
+}
+
+.packam-input {
+  width: 100%;
+  min-height: 48px;
+  border: 1px solid var(--packam-grey-200);
+  border-radius: var(--radius-lg);
+  background: var(--packam-white);
+  padding: 0 16px;
+  color: var(--packam-black);
+  outline: none;
+  transition:
+    border-color 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.packam-input::placeholder {
+  color: var(--packam-grey-400);
+}
+
+.packam-input:focus {
+  border-color: var(--packam-black);
+  box-shadow: 0 0 0 3px rgba(8, 8, 8, 0.06);
+}
+
+/* ========================================
+   ACCESSIBILITY
+   ======================================== */
+
+:focus-visible {
+  outline: 3px solid var(--packam-yellow);
+  outline-offset: 3px;
+}
+
+/* ========================================
+   REDUCED MOTION
+   ======================================== */
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
