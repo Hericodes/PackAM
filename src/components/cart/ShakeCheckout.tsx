@@ -12,12 +12,17 @@ let informationSeenInMemory = false;
 
 function hasSeenInformation() {
   if (informationSeenInMemory) return true;
+
   try {
-    informationSeenInMemory = window.localStorage.getItem(informationKey) === "1";
+    informationSeenInMemory =
+      window.localStorage.getItem(informationKey) === "1";
+
     return informationSeenInMemory;
   } catch {
     try {
-      informationSeenInMemory = window.sessionStorage.getItem(informationKey) === "1";
+      informationSeenInMemory =
+        window.sessionStorage.getItem(informationKey) === "1";
+
       return informationSeenInMemory;
     } catch {
       return false;
@@ -27,6 +32,7 @@ function hasSeenInformation() {
 
 function rememberInformation() {
   informationSeenInMemory = true;
+
   try {
     window.localStorage.setItem(informationKey, "1");
   } catch {
@@ -50,15 +56,18 @@ export function ShakeCheckout() {
       const isMobile =
         window.matchMedia("(pointer: coarse)").matches &&
         window.matchMedia("(max-width: 900px)").matches;
+
       const hasMotion = "DeviceMotionEvent" in window;
 
       if (!isMobile || !hasMotion) return;
 
       const alreadySeen = hasSeenInformation();
+
       setIsAvailable(true);
       setShowInformation(!alreadySeen);
       setIsArmed(alreadySeen);
     });
+
     return () => window.cancelAnimationFrame(frame);
   }, []);
 
@@ -68,8 +77,10 @@ export function ShakeCheckout() {
 
     try {
       const motion = window.DeviceMotionEvent as MotionWithPermission;
+
       if (motion.requestPermission) {
         const permission = await motion.requestPermission();
+
         if (permission !== "granted") {
           setIsAvailable(false);
           return;
@@ -89,8 +100,13 @@ export function ShakeCheckout() {
     function onMotion(event: DeviceMotionEvent) {
       const acceleration = event.acceleration;
       const withGravity = event.accelerationIncludingGravity;
+
       const magnitude = acceleration
-        ? Math.hypot(acceleration.x ?? 0, acceleration.y ?? 0, acceleration.z ?? 0)
+        ? Math.hypot(
+            acceleration.x ?? 0,
+            acceleration.y ?? 0,
+            acceleration.z ?? 0,
+          )
         : withGravity
           ? Math.abs(
               Math.hypot(
@@ -104,11 +120,13 @@ export function ShakeCheckout() {
       if (magnitude < 14 || Date.now() < cooldownUntil.current) return;
 
       cooldownUntil.current = Date.now() + 1800;
+
       setShowConfirmation(true);
       setIsArmed(false);
     }
 
     window.addEventListener("devicemotion", onMotion);
+
     return () => window.removeEventListener("devicemotion", onMotion);
   }, [isArmed, isAvailable, showConfirmation]);
 
@@ -123,10 +141,13 @@ export function ShakeCheckout() {
     }
 
     document.addEventListener("keydown", handleKeyDown);
+
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [showConfirmation]);
 
-  if (!isAvailable || (!showInformation && !showConfirmation)) return null;
+  if (!isAvailable || (!showInformation && !showConfirmation)) {
+    return null;
+  }
 
   return (
     <aside
@@ -136,10 +157,12 @@ export function ShakeCheckout() {
       {showInformation ? (
         <>
           <p className="font-bold">Shake to checkout? 👀</p>
+
           <p className="mt-1 max-w-xs text-sm leading-5 text-black/70">
             Got stuff in your cart? Give your phone a little shake and we’ll
             take you straight to checkout.
           </p>
+
           <button
             type="button"
             onClick={() => void acknowledgeInformation()}
@@ -151,23 +174,26 @@ export function ShakeCheckout() {
       ) : showConfirmation ? (
         <>
           <p className="font-bold">Checkout time? 👀</p>
+
           <p className="mt-1 text-sm text-black/70">
             Your cart is ready when you are.
           </p>
+
           <div className="mt-3 flex flex-wrap gap-2">
             <Link
               href="/checkout"
-              className="inline-flex min-h-11 items-center justify-center rounded-xl bg-black px-4 text-sm font-bold text-white transition hover:bg-black/85 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black"
+              className="inline-flex min-h-11 w-full items-center justify-center whitespace-nowrap rounded-xl bg-black px-4 text-sm font-bold text-white transition hover:bg-black/85 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black sm:w-auto"
             >
               Go to Checkout
             </Link>
+
             <button
               type="button"
               onClick={() => {
                 setShowConfirmation(false);
                 setIsArmed(true);
               }}
-              className="min-h-11 rounded-xl border border-black/15 bg-white px-4 text-sm font-semibold text-black transition hover:bg-black/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black"
+              className="min-h-11 w-full rounded-xl border border-black/15 bg-white px-4 text-sm font-semibold text-black transition hover:bg-black/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black sm:w-auto"
             >
               Keep shopping
             </button>
