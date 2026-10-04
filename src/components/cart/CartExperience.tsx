@@ -9,6 +9,7 @@ type CartSummary = { count: number; subtotal: number };
 type CartContextValue = CartSummary & { refresh: () => Promise<void>; adjust: (delta: number) => void; setSummary: (summary: CartSummary) => void };
 const CartContext = createContext<CartContextValue | null>(null);
 const shoppingPath = (path: string) => path === "/" || path === "/search" || path.startsWith("/products/") || path.startsWith("/category/");
+const cartSyncPath = (path: string) => shoppingPath(path) || path === "/checkout" || path.startsWith("/checkout/") || path.startsWith("/orders/") || path === "/orders" || path === "/product-requests" || path === "/support" || path === "/notifications" || path === "/cart";
 
 export function CartExperience({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -33,7 +34,7 @@ export function CartExperience({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (!shoppingPath(pathname)) return;
+    if (!cartSyncPath(pathname)) return;
     const timer = window.setTimeout(() => { void refresh(); }, 0);
     return () => window.clearTimeout(timer);
   }, [pathname, refresh]);

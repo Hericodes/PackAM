@@ -43,12 +43,16 @@ export default async function CheckoutPage() {
 
   const items = cart?.items ?? [];
   if (!items.length) redirect("/search");
-return (
-    <main className="min-h-screen bg-[#fffdf7] pb-28 lg:pb-20">
-      <div className="packam-container pt-6 sm:pt-10">
-        <Link href="/" className="text-sm font-bold text-black/50 hover:text-black">← Keep browsing</Link>
-        <h1 className="mt-5 text-3xl font-black tracking-tight sm:text-4xl">Checkout</h1>
-        <div className="mt-6 sm:mt-8">
+  return (
+    <main className="min-h-screen bg-[#fffdf7] pb-32 lg:pb-20">
+      <div className="packam-container pt-5 sm:pt-10">
+        <Link href="/" className="inline-flex min-h-11 items-center text-sm font-bold text-black/55 transition hover:text-black focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-black">← Keep browsing</Link>
+        <div className="mt-4 max-w-2xl">
+          <p className="text-xs font-black uppercase tracking-[0.16em] text-black/45">Secure checkout</p>
+          <h1 className="mt-2 text-3xl font-black tracking-tight sm:text-4xl">Checkout</h1>
+          <p className="mt-2 text-sm leading-6 text-black/60">Choose a delivery location, review your items, then pay securely with OPay.</p>
+        </div>
+        <div className="mt-5 sm:mt-7">
           <CheckoutClient
             items={items.map((item) => ({
               id: item.id,
@@ -66,6 +70,4 @@ return (
     </main>
   );
 }
-
-
 

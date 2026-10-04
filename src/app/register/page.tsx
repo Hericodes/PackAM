@@ -79,21 +79,21 @@ export default function RegisterPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[#fffdf7] px-6 py-10">
-      <div className="mx-auto flex min-h-[90vh] max-w-md flex-col justify-center">
+    <main className="min-h-screen bg-[#fffdf7] px-4 py-8 sm:px-6 sm:py-10">
+      <div className="mx-auto flex min-h-[85vh] max-w-md flex-col justify-center">
         <div className="mb-8">
           <Link
             href="/"
-            className="text-2xl font-black tracking-tight"
+            className="inline-flex min-h-11 items-center text-2xl font-black tracking-tight focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-black"
           >
-            Pack<span className="text-yellow-500">AM</span>
+            Pack<span className="text-yellow-600">AM</span>
           </Link>
 
-          <h1 className="mt-8 text-3xl font-black tracking-tight">
+          <h1 className="mt-6 text-3xl font-black tracking-tight sm:mt-8 sm:text-4xl">
             Create your account.
           </h1>
 
-          <p className="mt-2 text-sm leading-6 text-black/60">
+          <p className="mt-2 text-sm leading-6 text-black/70 sm:text-base">
             Join PackAM and get what you need without leaving
             where you are.
           </p>
@@ -101,9 +101,9 @@ export default function RegisterPage() {
 
         <form
           onSubmit={handleSubmit}
-          className="space-y-5"
+          className="space-y-5 rounded-3xl border border-black/5 bg-white/70 p-4 shadow-sm sm:p-6"
         >
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
               <label
                 htmlFor="firstName"
@@ -122,7 +122,7 @@ export default function RegisterPage() {
                 placeholder="Olayimika"
                 autoComplete="given-name"
                 required
-                className="w-full rounded-2xl border border-black/10 bg-white px-4 py-3 outline-none transition focus:border-black"
+                className="w-full rounded-2xl border border-black/15 bg-white px-4 py-3.5 text-base outline-none transition placeholder:text-black/45 focus-visible:border-black focus-visible:ring-2 focus-visible:ring-black/20"
               />
             </div>
 
@@ -144,7 +144,7 @@ export default function RegisterPage() {
                 placeholder="Ogunmona"
                 autoComplete="family-name"
                 required
-                className="w-full rounded-2xl border border-black/10 bg-white px-4 py-3 outline-none transition focus:border-black"
+                className="w-full rounded-2xl border border-black/15 bg-white px-4 py-3.5 text-base outline-none transition placeholder:text-black/45 focus-visible:border-black focus-visible:ring-2 focus-visible:ring-black/20"
               />
             </div>
           </div>
@@ -167,7 +167,7 @@ export default function RegisterPage() {
               placeholder="you@example.com"
               autoComplete="email"
               required
-              className="w-full rounded-2xl border border-black/10 bg-white px-4 py-3 outline-none transition focus:border-black"
+              className="w-full rounded-2xl border border-black/15 bg-white px-4 py-3.5 text-base outline-none transition placeholder:text-black/45 focus-visible:border-black focus-visible:ring-2 focus-visible:ring-black/20"
             />
           </div>
 
@@ -189,7 +189,7 @@ export default function RegisterPage() {
               placeholder="08012345678"
               autoComplete="tel"
               required
-              className="w-full rounded-2xl border border-black/10 bg-white px-4 py-3 outline-none transition focus:border-black"
+              className="w-full rounded-2xl border border-black/15 bg-white px-4 py-3.5 text-base outline-none transition placeholder:text-black/45 focus-visible:border-black focus-visible:ring-2 focus-visible:ring-black/20"
             />
           </div>
 
@@ -211,7 +211,7 @@ export default function RegisterPage() {
               placeholder="At least 8 characters"
               autoComplete="new-password"
               required
-              className="w-full rounded-2xl border border-black/10 bg-white px-4 py-3 outline-none transition focus:border-black"
+              className="w-full rounded-2xl border border-black/15 bg-white px-4 py-3.5 text-base outline-none transition placeholder:text-black/45 focus-visible:border-black focus-visible:ring-2 focus-visible:ring-black/20"
             />
           </div>
 
@@ -236,12 +236,12 @@ export default function RegisterPage() {
               placeholder="Enter your password again"
               autoComplete="new-password"
               required
-              className="w-full rounded-2xl border border-black/10 bg-white px-4 py-3 outline-none transition focus:border-black"
+              className="w-full rounded-2xl border border-black/15 bg-white px-4 py-3.5 text-base outline-none transition placeholder:text-black/45 focus-visible:border-black focus-visible:ring-2 focus-visible:ring-black/20"
             />
           </div>
 
           {error && (
-            <div className="rounded-2xl bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+            <div role="alert" className="rounded-2xl bg-red-50 px-4 py-3 text-sm font-medium leading-6 text-red-800">
               {error}
             </div>
           )}
@@ -249,7 +249,7 @@ export default function RegisterPage() {
           <button
             type="submit"
             disabled={isLoading}
-            className="w-full rounded-2xl bg-black px-5 py-3.5 font-bold text-white transition hover:bg-black/85 disabled:cursor-not-allowed disabled:opacity-50"
+            className="min-h-12 w-full rounded-2xl bg-black px-5 py-3.5 text-base font-bold text-white transition hover:bg-black/85 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black disabled:cursor-not-allowed disabled:opacity-50"
           >
             {isLoading
               ? "Creating your account..."
@@ -257,11 +257,11 @@ export default function RegisterPage() {
           </button>
         </form>
 
-        <p className="mt-6 text-center text-sm text-black/60">
+        <p className="mt-6 text-center text-sm leading-6 text-black/70">
           Already have an account?{" "}
           <Link
             href="/login"
-            className="font-bold text-black underline underline-offset-4"
+            className="inline-flex min-h-11 items-center font-bold text-black underline underline-offset-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black"
           >
             Log in
           </Link>

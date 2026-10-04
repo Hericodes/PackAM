@@ -204,8 +204,8 @@ a {
   min-height: 48px;
   padding: 0 20px;
   border-radius: var(--radius-lg);
-  background: var(--packam-yellow);
-  color: var(--packam-black);
+  background: var(--packam-black);
+  color: var(--packam-white);
   font-weight: 800;
   transition:
     transform 150ms ease,
@@ -214,8 +214,8 @@ a {
 }
 
 .packam-button-primary:hover {
-  background: var(--packam-yellow-dark);
-  box-shadow: 0 6px 18px rgba(254, 184, 10, 0.25);
+  background: var(--packam-black-soft);
+  box-shadow: var(--shadow-soft);
   transform: translateY(-1px);
 }
 
@@ -244,6 +244,43 @@ a {
   transform: translateY(-1px);
 }
 
+.packam-button-secondary,
+.packam-button-accent {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: 0 20px;
+  border-radius: var(--radius-lg);
+  color: var(--packam-black);
+  font-weight: 800;
+  transition:
+    transform 150ms ease,
+    background 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.packam-button-secondary {
+  border: 1px solid var(--packam-grey-200);
+  background: var(--packam-white);
+}
+
+.packam-button-secondary:hover {
+  background: var(--packam-grey-50);
+  transform: translateY(-1px);
+}
+
+.packam-button-accent {
+  background: var(--packam-yellow);
+}
+
+.packam-button-accent:hover {
+  background: var(--packam-yellow-dark);
+  box-shadow: 0 6px 18px rgba(254, 184, 10, 0.25);
+  transform: translateY(-1px);
+}
+
 .packam-button-red {
   display: inline-flex;
   align-items: center;
@@ -263,6 +300,34 @@ a {
 .packam-button-red:hover {
   background: var(--packam-red-dark);
   transform: translateY(-1px);
+}
+
+.packam-button-primary:active,
+.packam-button-dark:active,
+.packam-button-secondary:active,
+.packam-button-accent:active,
+.packam-button-red:active {
+  transform: translateY(0);
+}
+
+.packam-button-primary:disabled,
+.packam-button-dark:disabled,
+.packam-button-secondary:disabled,
+.packam-button-accent:disabled,
+.packam-button-red:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+  box-shadow: none;
+  transform: none;
+}
+
+.packam-button-primary:focus-visible,
+.packam-button-dark:focus-visible,
+.packam-button-secondary:focus-visible,
+.packam-button-accent:focus-visible,
+.packam-button-red:focus-visible {
+  outline: 3px solid var(--packam-yellow-dark);
+  outline-offset: 3px;
 }
 
 .packam-input {

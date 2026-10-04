@@ -13,7 +13,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
     redirect(resolvePostLoginDestination(session.user.role, callbackUrl));
   }
 
-  return <Suspense fallback={<main className="min-h-screen bg-[#fffdf7] px-6 py-10"><div className="mx-auto flex min-h-[90vh] max-w-md flex-col justify-center"><p className="text-center text-sm font-medium text-black/60">Loading PackAM...</p></div></main>}>
+  return <Suspense fallback={<main className="min-h-screen bg-[#fffdf7] px-4 py-8 sm:px-6 sm:py-10"><div className="mx-auto flex min-h-[85vh] max-w-md flex-col justify-center"><p className="text-center text-sm font-medium text-black/65">Loading PackAM...</p></div></main>}>
     <LoginForm registered={params.registered === "true"} callbackUrl={callbackUrl} />
   </Suspense>;
 }

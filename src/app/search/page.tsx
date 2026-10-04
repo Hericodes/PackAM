@@ -26,5 +26,17 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
     }),
   ]);
 
-  return <main className="min-h-screen bg-[#fffdf7]"><StudentNavbar/><div className="packam-container py-6 sm:py-10"><h1 className="text-3xl font-black tracking-tight sm:text-4xl">Find what you need</h1><LiveSearch key={`${query}:${category}`} query={query} category={category} categories={categories} initialProducts={products}/></div></main>;
+  return (
+    <main className="min-h-screen bg-[#fffdf7]">
+      <StudentNavbar />
+      <div className="packam-container py-6 sm:py-10">
+        <p className="text-xs font-black uppercase tracking-[0.16em] text-black/50">Campus marketplace</p>
+        <h1 className="mt-2 text-2xl font-black tracking-tight sm:text-4xl">Find what you need</h1>
+        <p className="mt-2 max-w-xl text-sm leading-6 text-black/60 sm:text-base">
+          Search across campus essentials, or browse a category to get started.
+        </p>
+        <LiveSearch key={`${query}:${category}`} query={query} category={category} categories={categories} initialProducts={products} />
+      </div>
+    </main>
+  );
 }

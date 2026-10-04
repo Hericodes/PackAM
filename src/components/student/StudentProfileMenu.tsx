@@ -65,7 +65,7 @@ export function StudentProfileMenu({
           setError("");
           setIsOpen((open) => !open);
         }}
-        className="flex h-10 w-10 items-center justify-center rounded-xl border border-black/10 bg-white text-sm font-bold text-black transition hover:border-black/20 hover:bg-black/[0.02] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black"
+        className="flex h-11 w-11 items-center justify-center rounded-xl border border-black/10 bg-white text-sm font-bold text-black transition hover:border-black/20 hover:bg-black/[0.02] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black"
       >
         {initial}
       </button>
@@ -79,7 +79,7 @@ export function StudentProfileMenu({
             <Link
               href="/orders"
               onClick={() => setIsOpen(false)}
-              className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition hover:bg-black/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-black"
+              className="flex min-h-11 items-center gap-3 rounded-xl px-3 text-sm font-medium transition hover:bg-black/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-black"
             >
               <span aria-hidden="true">📦</span>
               <span>My Orders</span>
@@ -87,7 +87,7 @@ export function StudentProfileMenu({
             <Link
               href="/product-requests"
               onClick={() => setIsOpen(false)}
-              className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition hover:bg-black/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-black"
+              className="flex min-h-11 items-center gap-3 rounded-xl px-3 text-sm font-medium transition hover:bg-black/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-black"
             >
               <span aria-hidden="true">🙏</span>
               <span>My Requests</span>
@@ -95,7 +95,7 @@ export function StudentProfileMenu({
             <Link
               href="/support"
               onClick={() => setIsOpen(false)}
-              className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition hover:bg-black/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-black"
+              className="flex min-h-11 items-center gap-3 rounded-xl px-3 text-sm font-medium transition hover:bg-black/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-black"
             >
               <span aria-hidden="true">❓</span>
               <span>Help &amp; Support</span>
@@ -108,13 +108,13 @@ export function StudentProfileMenu({
             type="button"
             disabled={isSigningOut}
             onClick={() => void handleSignOut()}
-            className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold transition hover:bg-black/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-black disabled:cursor-wait disabled:opacity-60"
+            className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-sm font-semibold transition hover:bg-black/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-black disabled:cursor-wait disabled:opacity-60"
           >
             <span aria-hidden="true">🚪</span>
             <span>{isSigningOut ? "Logging out..." : "Log out"}</span>
           </button>
           {error && (
-            <p role="alert" className="px-3 py-2 text-xs font-medium text-red-700">
+            <p role="alert" className="px-3 py-2 text-sm font-medium text-red-700">
               {error}
             </p>
           )}
