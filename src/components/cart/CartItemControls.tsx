@@ -81,7 +81,7 @@ export function CartItemControls({
           type="button"
           onClick={() => updateQuantity(quantity - 1)}
           disabled={loading}
-          className="flex h-10 w-10 items-center justify-center rounded-l-full text-lg font-black transition hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-40"
+          className="flex h-11 w-11 items-center justify-center rounded-l-full text-lg font-black transition hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-40"
           aria-label="Decrease quantity"
         >
           −
@@ -95,7 +95,7 @@ export function CartItemControls({
           type="button"
           onClick={() => updateQuantity(quantity + 1)}
           disabled={loading || quantity >= 99}
-          className="flex h-10 w-10 items-center justify-center rounded-r-full text-lg font-black transition hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-40"
+          className="flex h-11 w-11 items-center justify-center rounded-r-full text-lg font-black transition hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-40"
           aria-label="Increase quantity"
         >
           +
@@ -112,7 +112,7 @@ export function CartItemControls({
         type="button"
         onClick={() => updateQuantity(0)}
         disabled={loading}
-        className="mt-2 text-xs font-bold text-black/40 underline underline-offset-4 transition hover:text-red-600 disabled:opacity-40"
+        className="mt-2 inline-flex min-h-11 items-center text-xs font-bold text-black/70 underline underline-offset-4 transition hover:text-red-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black disabled:opacity-40"
       >
         Remove
       </button>

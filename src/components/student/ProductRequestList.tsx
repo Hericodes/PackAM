@@ -37,7 +37,7 @@ export function ProductRequestList({ initialProductName = "" }: { initialProduct
             value={productName}
             onChange={(event) => setProductName(event.target.value)}
             placeholder="Scientific Calculator"
-            className="mt-1 min-h-12 w-full rounded-xl border border-black/15 bg-white px-3 text-base font-normal outline-none transition placeholder:text-black/50 focus-visible:border-black focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black"
+            className="mt-1 min-h-12 w-full rounded-xl border border-black/15 bg-white px-3 text-base font-normal outline-none transition placeholder:text-black/60 focus-visible:border-black focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black"
           />
         </label>
         <div className="mt-3 grid grid-cols-2 gap-3">
@@ -60,7 +60,7 @@ export function ProductRequestList({ initialProductName = "" }: { initialProduct
               value={variant}
               onChange={(event) => setVariant(event.target.value)}
               placeholder="Casio FX-991ES Plus"
-              className="mt-1 min-h-12 w-full rounded-xl border border-black/15 bg-white px-3 text-base font-normal outline-none transition placeholder:text-black/50 focus-visible:border-black focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black"
+              className="mt-1 min-h-12 w-full rounded-xl border border-black/15 bg-white px-3 text-base font-normal outline-none transition placeholder:text-black/60 focus-visible:border-black focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black"
             />
           </label>
         </div>
@@ -72,7 +72,7 @@ export function ProductRequestList({ initialProductName = "" }: { initialProduct
             value={note}
             onChange={(event) => setNote(event.target.value)}
             placeholder="Any shop around campus is fine."
-            className="mt-1 min-h-24 w-full rounded-xl border border-black/15 bg-white px-3 py-3 text-base font-normal outline-none transition placeholder:text-black/50 focus-visible:border-black focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black"
+            className="mt-1 min-h-24 w-full rounded-xl border border-black/15 bg-white px-3 py-3 text-base font-normal outline-none transition placeholder:text-black/60 focus-visible:border-black focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black"
           />
         </label>
         {error && <p role="alert" className="mt-3 text-sm text-red-700">{error}</p>}

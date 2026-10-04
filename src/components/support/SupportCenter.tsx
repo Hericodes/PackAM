@@ -53,7 +53,7 @@ export function SupportCenter() {
   }
 
   const fieldClassName =
-    "w-full rounded-xl border border-black/15 bg-white px-4 py-3.5 text-base text-black outline-none transition placeholder:text-black/45 focus-visible:border-black focus-visible:ring-2 focus-visible:ring-black/20";
+    "w-full rounded-xl border border-black/15 bg-white px-4 py-3.5 text-base text-black outline-none transition placeholder:text-black/60 focus-visible:border-black focus-visible:ring-2 focus-visible:ring-black/20";
 
   return (
     <main className="min-h-screen bg-[#f7f5ee]">

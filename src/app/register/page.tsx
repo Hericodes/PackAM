@@ -86,7 +86,7 @@ export default function RegisterPage() {
             href="/"
             className="inline-flex min-h-11 items-center text-2xl font-black tracking-tight focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-black"
           >
-            Pack<span className="text-yellow-600">AM</span>
+            Pack<span className="text-[#875a00]">AM</span>
           </Link>
 
           <h1 className="mt-6 text-3xl font-black tracking-tight sm:mt-8 sm:text-4xl">
@@ -122,7 +122,7 @@ export default function RegisterPage() {
                 placeholder="Olayimika"
                 autoComplete="given-name"
                 required
-                className="w-full rounded-2xl border border-black/15 bg-white px-4 py-3.5 text-base outline-none transition placeholder:text-black/45 focus-visible:border-black focus-visible:ring-2 focus-visible:ring-black/20"
+                className="w-full rounded-2xl border border-black/15 bg-white px-4 py-3.5 text-base outline-none transition placeholder:text-black/60 focus-visible:border-black focus-visible:ring-2 focus-visible:ring-black/20"
               />
             </div>
 
@@ -144,7 +144,7 @@ export default function RegisterPage() {
                 placeholder="Ogunmona"
                 autoComplete="family-name"
                 required
-                className="w-full rounded-2xl border border-black/15 bg-white px-4 py-3.5 text-base outline-none transition placeholder:text-black/45 focus-visible:border-black focus-visible:ring-2 focus-visible:ring-black/20"
+                className="w-full rounded-2xl border border-black/15 bg-white px-4 py-3.5 text-base outline-none transition placeholder:text-black/60 focus-visible:border-black focus-visible:ring-2 focus-visible:ring-black/20"
               />
             </div>
           </div>
@@ -167,7 +167,7 @@ export default function RegisterPage() {
               placeholder="you@example.com"
               autoComplete="email"
               required
-              className="w-full rounded-2xl border border-black/15 bg-white px-4 py-3.5 text-base outline-none transition placeholder:text-black/45 focus-visible:border-black focus-visible:ring-2 focus-visible:ring-black/20"
+              className="w-full rounded-2xl border border-black/15 bg-white px-4 py-3.5 text-base outline-none transition placeholder:text-black/60 focus-visible:border-black focus-visible:ring-2 focus-visible:ring-black/20"
             />
           </div>
 
@@ -189,7 +189,7 @@ export default function RegisterPage() {
               placeholder="08012345678"
               autoComplete="tel"
               required
-              className="w-full rounded-2xl border border-black/15 bg-white px-4 py-3.5 text-base outline-none transition placeholder:text-black/45 focus-visible:border-black focus-visible:ring-2 focus-visible:ring-black/20"
+              className="w-full rounded-2xl border border-black/15 bg-white px-4 py-3.5 text-base outline-none transition placeholder:text-black/60 focus-visible:border-black focus-visible:ring-2 focus-visible:ring-black/20"
             />
           </div>
 
@@ -211,7 +211,7 @@ export default function RegisterPage() {
               placeholder="At least 8 characters"
               autoComplete="new-password"
               required
-              className="w-full rounded-2xl border border-black/15 bg-white px-4 py-3.5 text-base outline-none transition placeholder:text-black/45 focus-visible:border-black focus-visible:ring-2 focus-visible:ring-black/20"
+              className="w-full rounded-2xl border border-black/15 bg-white px-4 py-3.5 text-base outline-none transition placeholder:text-black/60 focus-visible:border-black focus-visible:ring-2 focus-visible:ring-black/20"
             />
           </div>
 
@@ -236,7 +236,7 @@ export default function RegisterPage() {
               placeholder="Enter your password again"
               autoComplete="new-password"
               required
-              className="w-full rounded-2xl border border-black/15 bg-white px-4 py-3.5 text-base outline-none transition placeholder:text-black/45 focus-visible:border-black focus-visible:ring-2 focus-visible:ring-black/20"
+              className="w-full rounded-2xl border border-black/15 bg-white px-4 py-3.5 text-base outline-none transition placeholder:text-black/60 focus-visible:border-black focus-visible:ring-2 focus-visible:ring-black/20"
             />
           </div>
 

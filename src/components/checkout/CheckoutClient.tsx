@@ -112,7 +112,7 @@ export function CheckoutClient({ items: initialItems, deliveryFee, locations }: 
         </section>
         <div className="rounded-[1.5rem] border border-black/5 bg-white p-4 sm:p-5">
           <label htmlFor="checkout-delivery-instructions" className="block text-sm font-black">Delivery instructions <span className="font-medium text-black/45">(optional)</span></label>
-          <textarea id="checkout-delivery-instructions" value={deliveryInstructions} onChange={(event) => setDeliveryInstructions(event.target.value.slice(0, 500))} maxLength={500} rows={3} placeholder="Call me when you arrive" className="mt-2 min-h-24 w-full rounded-xl border border-black/10 bg-[#fffdf7] px-3 py-3 text-sm font-normal outline-none transition placeholder:text-black/35 focus-visible:border-black/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black" />
+          <textarea id="checkout-delivery-instructions" value={deliveryInstructions} onChange={(event) => setDeliveryInstructions(event.target.value.slice(0, 500))} maxLength={500} rows={3} placeholder="Call me when you arrive" className="mt-2 min-h-24 w-full rounded-xl border border-black/10 bg-[#fffdf7] px-3 py-3 text-sm font-normal outline-none transition placeholder:text-black/60 focus-visible:border-black/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black" />
           <p className="mt-1 text-right text-xs text-black/45">{deliveryInstructions.length}/500</p>
         </div>
         <section className="rounded-[1.5rem] border border-black/5 bg-white p-4 sm:p-6">
@@ -177,6 +177,5 @@ export function CheckoutClient({ items: initialItems, deliveryFee, locations }: 
     </div>
   );
 }
-
 
 

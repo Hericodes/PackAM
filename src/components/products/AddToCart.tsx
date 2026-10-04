@@ -46,9 +46,9 @@ export function AddToCart({ productId }: AddToCartProps) {
   return <div>
     <div className="flex flex-col gap-2 md:flex-row md:gap-3">
       <div className="flex h-12 w-full items-center justify-between rounded-full border border-black/10 bg-white md:w-auto md:justify-normal">
-        <button type="button" onClick={() => setQuantity((value) => Math.max(1, value - 1))} disabled={loading || quantity === 1} aria-label="Decrease quantity" className="h-12 w-12 rounded-l-full text-lg font-black transition hover:bg-black/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-black disabled:opacity-30 md:w-10">−</button>
+        <button type="button" onClick={() => setQuantity((value) => Math.max(1, value - 1))} disabled={loading || quantity === 1} aria-label="Decrease quantity" className="h-12 w-12 rounded-l-full text-lg font-black transition hover:bg-black/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-black disabled:opacity-30 md:w-12">−</button>
         <span className="w-8 text-center text-sm font-black">{quantity}</span>
-        <button type="button" onClick={() => setQuantity((value) => Math.min(99, value + 1))} disabled={loading || quantity === 99} aria-label="Increase quantity" className="h-12 w-12 rounded-r-full text-lg font-black transition hover:bg-black/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-black disabled:opacity-30 md:w-10">+</button>
+        <button type="button" onClick={() => setQuantity((value) => Math.min(99, value + 1))} disabled={loading || quantity === 99} aria-label="Increase quantity" className="h-12 w-12 rounded-r-full text-lg font-black transition hover:bg-black/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-black disabled:opacity-30 md:w-12">+</button>
       </div>
       <button type="button" onClick={handleAddToCart} disabled={loading} className="min-h-12 min-w-0 flex-1 rounded-full bg-black px-4 text-sm font-black text-white transition hover:bg-black/85 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black disabled:cursor-not-allowed disabled:opacity-50 md:px-6">
         {loading ? "Adding…" : "Add to cart"}

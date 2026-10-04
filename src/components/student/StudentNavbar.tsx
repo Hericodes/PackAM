@@ -27,13 +27,13 @@ export async function StudentNavbar() {
         >
           <Link
             href="/search"
-            className="rounded-xl px-4 py-2.5 text-sm font-semibold text-black/70 transition hover:bg-black/5 hover:text-black focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black"
+            className="inline-flex min-h-11 items-center rounded-xl px-4 py-2.5 text-sm font-semibold text-black/70 transition hover:bg-black/5 hover:text-black focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black"
           >
             Search
           </Link>
           <Link
             href="/orders"
-            className="rounded-xl px-4 py-2.5 text-sm font-semibold text-black/70 transition hover:bg-black/5 hover:text-black focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black"
+            className="inline-flex min-h-11 items-center rounded-xl px-4 py-2.5 text-sm font-semibold text-black/70 transition hover:bg-black/5 hover:text-black focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black"
           >
             Orders
           </Link>

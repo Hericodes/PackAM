@@ -81,7 +81,7 @@ export function NotificationList({ role }: { role: "STUDENT" | "RUNNER" | "ADMIN
                     {href && (
                       <Link
                         onClick={() => { if (!item.isRead) void mark(item.id); }}
-                        className="mt-3 inline-flex min-h-10 items-center text-sm font-bold underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black"
+                        className="mt-3 inline-flex min-h-11 items-center text-sm font-bold underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black"
                         href={href}
                       >
                         {item.orderId ? "Open order" : item.relatedType === "PRODUCT_REQUEST" ? "View request" : "Open support"}

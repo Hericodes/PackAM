@@ -109,6 +109,6 @@ export function RunnerMissionDetail({ orderId }: { orderId: string }) {
       </>}
     </div>
     {error && <p role="alert" className="mt-4 text-sm text-red-700">{error}</p>}{notice && <p role="status" className="mt-4 text-sm text-green-800">{notice}</p>}
-    <Link href="/runner" className="mt-5 inline-block text-sm font-bold text-black/50">← Missions</Link>
+    <Link href="/runner" className="mt-5 inline-flex min-h-11 items-center text-sm font-bold text-black/60">← Missions</Link>
   </>;
 }

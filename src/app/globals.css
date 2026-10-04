@@ -109,6 +109,7 @@
    BASE
    ======================================== */
 
+@layer base {
 * {
   box-sizing: border-box;
 }
@@ -148,6 +149,7 @@ a {
   color: inherit;
   text-decoration: none;
 }
+}
 
 /* ========================================
    SELECTION
@@ -184,6 +186,7 @@ a {
    PACKAM UTILITY CLASSES
    ======================================== */
 
+@layer components {
 .packam-container {
   width: min(100% - 32px, 1200px);
   margin-inline: auto;
@@ -289,7 +292,7 @@ a {
   min-height: 48px;
   padding: 0 20px;
   border-radius: var(--radius-lg);
-  background: var(--packam-red);
+  background: var(--packam-error);
   color: var(--packam-white);
   font-weight: 800;
   transition:
@@ -316,7 +319,6 @@ a {
 .packam-button-accent:disabled,
 .packam-button-red:disabled {
   cursor: not-allowed;
-  opacity: 0.55;
   box-shadow: none;
   transform: none;
 }
@@ -345,18 +347,28 @@ a {
 }
 
 .packam-input::placeholder {
-  color: var(--packam-grey-400);
+  color: var(--packam-grey-500);
 }
 
 .packam-input:focus {
   border-color: var(--packam-black);
   box-shadow: 0 0 0 3px rgba(8, 8, 8, 0.06);
 }
+}
+
+@layer utilities {
+  /* Keep disabled labels crisp over Tailwind's disabled opacity utilities. */
+  button:disabled:not(:enabled) {
+    filter: brightness(0.9);
+    opacity: 1;
+  }
+}
 
 /* ========================================
    ACCESSIBILITY
    ======================================== */
 
+@layer base {
 :focus-visible {
   outline: 3px solid var(--packam-yellow);
   outline-offset: 3px;
@@ -378,4 +390,5 @@ a {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
 }
