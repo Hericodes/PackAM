@@ -13,7 +13,7 @@ export function CategoryCard({
 }: CategoryCardProps) {
   return (
     <Link
-      href={`/search?category=${slug}`}
+      href={slug === "printing" ? "/printing" : `/search?category=${slug}`}
       className="group min-h-36 min-w-[140px] rounded-3xl border border-black/5 bg-white p-4 shadow-sm transition hover:-translate-y-1 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-black sm:min-h-40 sm:min-w-[160px] sm:p-5"
     >
       <div aria-hidden="true" className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#fff4c7] text-2xl">
