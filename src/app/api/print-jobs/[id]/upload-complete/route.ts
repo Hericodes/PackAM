@@ -15,14 +15,30 @@ export async function POST(request: Request, context: Context) {
   const { id } = await context.params;
   try {
     let body: unknown = null;
-    try { body = await request.json(); } catch { /* Normal uploads do not replace an existing document. */ }
-    const replacesPrintJobId = body && typeof body === "object" && "replacesPrintJobId" in body
-      ? (body as { replacesPrintJobId?: unknown }).replacesPrintJobId
-      : undefined;
+    try { body = await request.json(); } catch { /* The upload identity is required to verify the asset. */ }
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      return Response.json({ error: "The uploaded PDF identity is missing. Upload the document again." }, { status: 400 });
+    }
+    const uploadBody = body as { assetId?: unknown; version?: unknown; replacesPrintJobId?: unknown };
+    if (
+      typeof uploadBody.assetId !== "string" ||
+      !uploadBody.assetId ||
+      typeof uploadBody.version !== "number" ||
+      !Number.isSafeInteger(uploadBody.version) ||
+      uploadBody.version <= 0
+    ) {
+      return Response.json({ error: "The uploaded PDF identity is invalid. Upload the document again." }, { status: 400 });
+    }
+    const replacesPrintJobId = uploadBody.replacesPrintJobId;
     if (replacesPrintJobId !== undefined && (typeof replacesPrintJobId !== "string" || !replacesPrintJobId)) {
       return Response.json({ error: "The document replacement request is invalid." }, { status: 400 });
     }
-    const document = await completePrintDocumentUpload(session.user.id, id, typeof replacesPrintJobId === "string" ? replacesPrintJobId : null);
+    const document = await completePrintDocumentUpload(
+      session.user.id,
+      id,
+      { assetId: uploadBody.assetId, version: uploadBody.version },
+      typeof replacesPrintJobId === "string" ? replacesPrintJobId : null,
+    );
     return Response.json({ document }, { status: 201, headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     const message = error instanceof Error ? error.message : "";

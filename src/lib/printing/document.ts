@@ -1,12 +1,17 @@
 import "server-only";
 
 import { randomUUID } from "node:crypto";
-import { PDFDocument } from "pdf-lib";
 import { v2 as cloudinary } from "cloudinary";
-import { PRINTING_LIMITS } from "./pricing";
 import { MAX_PRINT_DOCUMENT_BYTES } from "./upload-validation";
+import {
+  getPdfPageCount,
+  validateDownloadedPrintPdf,
+  validatePrivatePrintAsset,
+  type PrintUploadIdentity,
+} from "./document-validation";
 
 export { MAX_PRINT_DOCUMENT_BYTES };
+export { getPdfPageCount };
 const PRINT_DOCUMENT_FOLDER = "packam/print-jobs";
 
 function configureCloudinary() {
@@ -32,28 +37,6 @@ export function sanitizePrintFileName(name: string) {
   return sanitized;
 }
 
-export async function getPdfPageCount(bytes: Uint8Array) {
-  if (bytes.byteLength < 8 || new TextDecoder().decode(bytes.subarray(0, 5)) !== "%PDF-") {
-    throw new Error("This file is not a valid PDF. Export it as a PDF and upload it again.");
-  }
-  let pdf: PDFDocument;
-  try {
-    pdf = await PDFDocument.load(bytes, {
-      ignoreEncryption: false,
-      throwOnInvalidObject: true,
-      updateMetadata: false,
-    });
-  } catch {
-    throw new Error("We couldn't read this PDF. It may be damaged or password-protected.");
-  }
-  if (pdf.isEncrypted) throw new Error("Password-protected PDFs cannot be printed. Upload an unlocked copy.");
-  const pageCount = pdf.getPageCount();
-  if (!Number.isSafeInteger(pageCount) || pageCount < 1 || pageCount > PRINTING_LIMITS.pages) {
-    throw new Error(`PDFs must contain between 1 and ${PRINTING_LIMITS.pages} pages.`);
-  }
-  return pageCount;
-}
-
 export function createPrintUploadCredentials(printJobId: string) {
   const { cloudName, apiKey, apiSecret } = configureCloudinary();
   const timestamp = Math.floor(Date.now() / 1000);
@@ -75,46 +58,86 @@ export function createPrintUploadCredentials(printJobId: string) {
 
 type VerifiedCloudinaryAsset = {
   publicId: string;
+  assetId: string;
+  version: number;
   originalFileName: string;
   fileSize: number;
   pageCount: number;
   bytes: Uint8Array;
 };
 
-export async function downloadAndValidatePrintDocument(printJobId: string): Promise<VerifiedCloudinaryAsset> {
+export async function deleteCloudinaryAssetById(assetId: string) {
+  configureCloudinary();
+  const result: unknown = await cloudinary.api.delete_resources_by_asset_ids([assetId]);
+  if (!result || typeof result !== "object" || Array.isArray(result)) {
+    throw new Error("Cloudinary did not confirm deletion of the invalid print asset.");
+  }
+  const deleted = (result as Record<string, unknown>).deleted;
+  if (!deleted || typeof deleted !== "object" || Array.isArray(deleted)) {
+    throw new Error("Cloudinary did not confirm deletion of the invalid print asset.");
+  }
+  const status = (deleted as Record<string, unknown>)[assetId];
+  if (status !== "deleted" && status !== "not_found") {
+    throw new Error("Cloudinary did not confirm deletion of the invalid print asset.");
+  }
+}
+
+export async function downloadAndValidatePrintDocument(
+  printJobId: string,
+  expectedIdentity: PrintUploadIdentity,
+): Promise<VerifiedCloudinaryAsset> {
   configureCloudinary();
   const publicId = `${PRINT_DOCUMENT_FOLDER}/${printJobId}.pdf`;
-  const assetValue: unknown = await cloudinary.api.resource(publicId, {
-    resource_type: "raw",
-    type: "authenticated",
-    context: false,
-  });
-  if (!assetValue || typeof assetValue !== "object") throw new Error("The uploaded PDF could not be verified.");
-  const asset = assetValue as Record<string, unknown>;
-  if (asset.public_id !== publicId || asset.resource_type !== "raw" || asset.type !== "authenticated" || asset.format !== "pdf") {
-    throw new Error("The uploaded file is not a private PDF document.");
+  let deleteAssetId: string | null = null;
+  try {
+    const assetValue: unknown = await cloudinary.api.resource(publicId, {
+      resource_type: "raw",
+      type: "authenticated",
+      context: false,
+    });
+    if (assetValue && typeof assetValue === "object" && !Array.isArray(assetValue)) {
+      const asset = assetValue as Record<string, unknown>;
+      if (
+        asset.public_id === publicId &&
+        asset.asset_id === expectedIdentity.assetId &&
+        asset.version === expectedIdentity.version
+      ) {
+        deleteAssetId = expectedIdentity.assetId;
+      }
+    }
+    const asset = validatePrivatePrintAsset(assetValue, publicId, expectedIdentity);
+    const downloadUrl = cloudinary.utils.private_download_url(publicId, "pdf", {
+      resource_type: "raw",
+      type: "authenticated",
+      expires_at: Math.floor(Date.now() / 1000) + 120,
+      attachment: true,
+    });
+    const response = await fetch(downloadUrl, { cache: "no-store", signal: AbortSignal.timeout(20_000) });
+    if (!response.ok) throw new Error("The uploaded PDF could not be downloaded for validation.");
+    const downloaded = new Uint8Array(await response.arrayBuffer());
+    const { fileSize, pageCount } = await validateDownloadedPrintPdf(downloaded, asset.bytes);
+    const originalFileName = asset.originalFileName
+      ? sanitizePrintFileName(asset.originalFileName.endsWith(".pdf") ? asset.originalFileName : `${asset.originalFileName}.pdf`)
+      : "document.pdf";
+    return {
+      publicId,
+      assetId: asset.assetId,
+      version: asset.version,
+      originalFileName,
+      fileSize,
+      pageCount,
+      bytes: downloaded,
+    };
+  } catch (error) {
+    if (deleteAssetId) {
+      try {
+        await deleteCloudinaryAssetById(deleteAssetId);
+      } catch (cleanupError) {
+        console.error("INVALID PRINT UPLOAD CLEANUP ERROR:", cleanupError instanceof Error ? cleanupError.name : "Unknown error");
+      }
+    }
+    throw error;
   }
-  if (typeof asset.bytes !== "number" || !Number.isSafeInteger(asset.bytes) || asset.bytes <= 0 || asset.bytes > MAX_PRINT_DOCUMENT_BYTES) {
-    throw new Error("PDF documents must be 15MB or smaller.");
-  }
-  const originalFileName = typeof asset.original_filename === "string"
-    ? sanitizePrintFileName(asset.original_filename.endsWith(".pdf") ? asset.original_filename : `${asset.original_filename}.pdf`)
-    : "document.pdf";
-
-  const downloadUrl = cloudinary.utils.private_download_url(publicId, "pdf", {
-    resource_type: "raw",
-    type: "authenticated",
-    expires_at: Math.floor(Date.now() / 1000) + 120,
-    attachment: true,
-  });
-  const response = await fetch(downloadUrl, { cache: "no-store", signal: AbortSignal.timeout(20_000) });
-  if (!response.ok) throw new Error("The uploaded PDF could not be downloaded for validation.");
-  const downloaded = new Uint8Array(await response.arrayBuffer());
-  if (downloaded.byteLength !== asset.bytes || downloaded.byteLength > MAX_PRINT_DOCUMENT_BYTES) {
-    throw new Error("The uploaded PDF did not pass file integrity checks.");
-  }
-  const pageCount = await getPdfPageCount(downloaded);
-  return { publicId, originalFileName, fileSize: downloaded.byteLength, pageCount, bytes: downloaded };
 }
 
 export function createPrintDocumentPublicId(printJobId: string) {

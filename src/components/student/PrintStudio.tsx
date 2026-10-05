@@ -61,6 +61,11 @@ type UploadCredentials = {
   type: "authenticated";
 };
 
+type UploadedCloudinaryAsset = {
+  assetId: string;
+  version: number;
+};
+
 type PrintStudioProps = {
   locations: DeliveryLocation[];
   initialJob: InitialPrintJob | null;
@@ -93,7 +98,7 @@ function configurationFromJob(job: InitialPrintJob | null): Configuration {
 }
 
 function uploadToCloudinary(file: File, credentials: UploadCredentials, onProgress: (progress: number) => void) {
-  return new Promise<void>((resolve, reject) => {
+  return new Promise<UploadedCloudinaryAsset>((resolve, reject) => {
     const body = new FormData();
     body.set("api_key", credentials.apiKey);
     body.set("folder", credentials.folder);
@@ -122,11 +127,21 @@ function uploadToCloudinary(file: File, credentials: UploadCredentials, onProgre
         reject(new Error(message));
         return;
       }
-      if (!isRecord(result) || result.public_id !== `${credentials.folder}/${credentials.publicId}` || result.resource_type !== "raw" || result.type !== "authenticated") {
+      if (
+        !isRecord(result) ||
+        result.public_id !== `${credentials.folder}/${credentials.publicId}` ||
+        result.resource_type !== credentials.resourceType ||
+        result.type !== credentials.type ||
+        typeof result.asset_id !== "string" ||
+        !result.asset_id ||
+        typeof result.version !== "number" ||
+        !Number.isSafeInteger(result.version) ||
+        result.version <= 0
+      ) {
         reject(new Error("Secure storage returned a file that could not be verified. Try again."));
         return;
       }
-      resolve();
+      resolve({ assetId: result.asset_id, version: result.version });
     };
     request.send(body);
   });
@@ -261,11 +276,15 @@ export function PrintStudio({ locations, initialJob }: PrintStudioProps) {
         credentials = draftData.credentials as UploadCredentials;
       }
 
-      await uploadToCloudinary(file, credentials, setUploadProgress);
+      const uploadedAsset = await uploadToCloudinary(file, credentials, setUploadProgress);
       const completeResponse = await fetch(`/api/print-jobs/${encodeURIComponent(uploadJobId)}/upload-complete`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(replacesPrintJobId ? { replacesPrintJobId } : {}),
+        body: JSON.stringify({
+          assetId: uploadedAsset.assetId,
+          version: uploadedAsset.version,
+          ...(replacesPrintJobId ? { replacesPrintJobId } : {}),
+        }),
         cache: "no-store",
       });
       const completeData: unknown = await completeResponse.json();

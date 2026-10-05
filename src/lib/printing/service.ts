@@ -8,9 +8,11 @@ import { PRINTING_LIMITS, PRINTING_PRICING_VERSION, calculatePrintPrice, parsePa
 import {
   createPrintUploadCredentials,
   createPrintJobId,
+  deleteCloudinaryAssetById,
   deletePrivatePrintDocument,
   downloadAndValidatePrintDocument,
 } from "./document";
+import type { PrintUploadIdentity } from "./document-validation";
 import { transitionPrintJobInTransaction } from "./status";
 
 export type PrintConfiguration = {
@@ -166,7 +168,12 @@ async function retireReplacedPrintJob(userId: string, previousPrintJobId: string
   }
 }
 
-export async function completePrintDocumentUpload(userId: string, printJobId: string, replacesPrintJobId?: string | null) {
+export async function completePrintDocumentUpload(
+  userId: string,
+  printJobId: string,
+  uploadIdentity: PrintUploadIdentity,
+  replacesPrintJobId?: string | null,
+) {
   const job = await db.printJob.findFirst({
     where: { id: printJobId, userId, status: "DRAFT" },
     select: { id: true, document: { select: { originalFileName: true, fileSize: true, pageCount: true } }, replacesPrintJobId: true },
@@ -175,7 +182,7 @@ export async function completePrintDocumentUpload(userId: string, printJobId: st
 
   let document = job.document;
   if (!document) {
-    const verified = await downloadAndValidatePrintDocument(printJobId);
+    const verified = await downloadAndValidatePrintDocument(printJobId, uploadIdentity);
     try {
       await db.$transaction(async (tx) => {
         const current = await tx.printJob.findFirst({
@@ -202,7 +209,7 @@ export async function completePrintDocumentUpload(userId: string, printJobId: st
       };
     } catch (error) {
       try {
-        await deletePrivatePrintDocument(verified.publicId);
+        await deleteCloudinaryAssetById(verified.assetId);
       } catch (cleanupError) {
         console.error("PRINT DOCUMENT ORPHAN CLEANUP ERROR:", cleanupError instanceof Error ? cleanupError.name : "Unknown error");
       }
