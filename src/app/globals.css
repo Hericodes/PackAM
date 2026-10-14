@@ -356,11 +356,11 @@ a {
 }
 }
 
-@layer utilities {
-  /* Keep disabled labels crisp over Tailwind's disabled opacity utilities. */
-  button:disabled:not(:enabled) {
-    filter: brightness(0.9);
-    opacity: 1;
+@layer base {
+  /* Disabled buttons must look unavailable. Base layer, so a component's disabled:opacity-* still wins. */
+  button:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
   }
 }
 
@@ -370,7 +370,8 @@ a {
 
 @layer base {
 :focus-visible {
-  outline: 3px solid var(--packam-yellow);
+  /* Black meets non-text contrast on the cream background; yellow alone was ~1.8:1. */
+  outline: 3px solid var(--packam-black);
   outline-offset: 3px;
 }
 

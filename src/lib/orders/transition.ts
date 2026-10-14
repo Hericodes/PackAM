@@ -6,11 +6,13 @@ import { createNotification } from "../notifications";
 
 const studentEvents: Partial<Record<OrderStatus, { type: "ORDER" | "PAYMENT" | "DELIVERY"; title: string; message: (total: number) => string }>> = {
   PAYMENT_CONFIRMED: { type: "PAYMENT", title: "Order confirmed", message: () => "We’ve got your order 🫡" },
-  RUNNER_ASSIGNED: { type: "DELIVERY", title: "Runner assigned", message: () => "Someone has accepted the mission." },
-  SOURCING_PRODUCT: { type: "ORDER", title: "We’re getting your stuff", message: () => "Your order is being sourced around campus." },
+  // Orders are created already in PAYMENT_CONFIRMED, so the confirmation is sent on this first transition.
+  FINDING_RUNNER: { type: "PAYMENT", title: "Order confirmed", message: () => "Payment confirmed ✓ We’re finding a runner for your order." },
+  RUNNER_ASSIGNED: { type: "DELIVERY", title: "Runner assigned", message: () => "Someone has accepted the mission 🫡 Your runner is on it." },
+  SOURCING_PRODUCT: { type: "ORDER", title: "We’re getting your stuff", message: () => "We don dey find your stuff. You’ll hear from us if anything changes." },
   OUT_FOR_DELIVERY: { type: "DELIVERY", title: "On the move", message: () => "Your package is on the move 👀" },
   DELIVERED: { type: "DELIVERY", title: "Delivered", message: () => "Your package don land. 🎒" },
-  REFUND_PROCESSING: { type: "PAYMENT", title: "Refund initiated", message: (total) => `Refund initiated — ₦${total.toLocaleString()}` },
+  REFUND_PROCESSING: { type: "PAYMENT", title: "Refund started", message: (total) => `We’ve started your refund of ₦${total.toLocaleString()}. We’ll tell you as soon as it’s confirmed.` },
 };
 
 export async function transitionOrderInTransaction(

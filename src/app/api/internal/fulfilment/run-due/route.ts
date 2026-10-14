@@ -1,5 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import { expireUnclaimedRunnerOrders } from "../../../../../lib/orders/scheduled-work";
+import { expireUnclaimedPrintJobs } from "../../../../../lib/printing/fulfilment-recovery";
 
 export const runtime = "nodejs";
 
@@ -15,7 +16,9 @@ function authorized(request: Request) {
 export async function POST(request: Request) {
   if (!authorized(request)) return Response.json({ error: "Unauthorized." }, { status: 401 });
   try {
-    return Response.json(await expireUnclaimedRunnerOrders());
+    const orders = await expireUnclaimedRunnerOrders();
+    const printJobs = await expireUnclaimedPrintJobs();
+    return Response.json({ ...orders, printJobs });
   } catch (error) {
     console.error("FULFILMENT SCHEDULE ERROR:", error instanceof Error ? error.name : "Unknown error");
     return Response.json({ error: "Unable to process due fulfilment tasks." }, { status: 500 });

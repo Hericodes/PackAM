@@ -35,6 +35,11 @@ export async function POST(request: Request, context: Context) {
     return Response.json({ error: "Unknown mission action." }, { status: 400 });
   } catch (error) {
     console.error("RUNNER ORDER ACTION ERROR:", error instanceof Error ? error.name : "Unknown error");
+    // Database errors carry query text and file paths; never forward them. A conflict here almost
+    // always means another runner or request changed the mission first.
+    if (error instanceof Error && error.name.startsWith("PrismaClient")) {
+      return Response.json({ error: "This mission just changed. Refresh and try again." }, { status: 409 });
+    }
     const message = error instanceof Error && /mission|order|runner|price|source|available|quantity|sourcing|accepted|active|verified|expired/i.test(error.message)
       ? error.message
       : "Unable to update this mission. Try again.";

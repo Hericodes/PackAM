@@ -4,12 +4,10 @@ import { db } from "../../../../lib/db";
 import { writeAuditLog } from "../../../../lib/audit";
 import { consumeRateLimit } from "../../../../lib/rate-limit";
 import { isPackamProductImageUrl } from "../../../../lib/cloudinary-url";
+import { canManageCatalogue, isValidCustomerPrice } from "../../../../lib/catalogue-permissions";
 
-const allowedRoles = ["RUNNER", "ADMIN"] as const;
-
-function canManageProducts(role?: string) {
-  return role && allowedRoles.includes(role as (typeof allowedRoles)[number]);
-}
+// Only admins manage the catalogue. Runners report shop prices through order sourcing instead.
+const canManageProducts = canManageCatalogue;
 
 type RouteContext = {
   params: Promise<{
@@ -22,6 +20,11 @@ export async function GET(
   context: RouteContext,
 ) {
   try {
+    // Includes vendor contacts and sourcing prices, so it is limited to catalogue managers.
+    const session = await auth();
+    if (!session?.user || !canManageProducts(session.user.role)) {
+      return NextResponse.json({ error: "You are not authorized to view catalogue sourcing data." }, { status: 403 });
+    }
     const { id } = await context.params;
 
     const product = await db.product.findUnique({
@@ -65,7 +68,7 @@ export async function PATCH(
 
     if (!session?.user || !canManageProducts(session.user.role)) {
       return NextResponse.json(
-        { error: "You are not authorized to manage products." },
+        { error: "Only PackAM admins can change the catalogue." },
         { status: 403 },
       );
     }
@@ -99,10 +102,10 @@ export async function PATCH(
 
     if (
       name !== undefined &&
-      (typeof name !== "string" || !name.trim())
+      (typeof name !== "string" || !name.trim() || name.trim().length > 120)
     ) {
       return NextResponse.json(
-        { error: "Product name cannot be empty." },
+        { error: "Product name must be 1–120 characters." },
         { status: 400 },
       );
     }
@@ -118,11 +121,10 @@ export async function PATCH(
     }
 
     if (
-      customerPrice !== undefined &&
-      (typeof customerPrice !== "number" || !Number.isSafeInteger(customerPrice) || customerPrice < 0)
+      customerPrice !== undefined && !isValidCustomerPrice(customerPrice)
     ) {
       return NextResponse.json(
-        { error: "Invalid customer price." },
+        { error: "Customer price must be a whole amount of at least ₦1." },
         { status: 400 },
       );
     }
@@ -176,7 +178,7 @@ export async function PATCH(
         }),
 
         ...(customerPrice !== undefined && {
-          customerPrice: Math.round(customerPrice),
+          customerPrice,
         }),
 
         ...(status === "ACTIVE" || status === "INACTIVE"

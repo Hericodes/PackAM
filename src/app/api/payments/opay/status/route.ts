@@ -10,16 +10,24 @@ export async function GET(request: Request) {
   if (!session?.user || session.user.role !== "STUDENT") return Response.json({ error: "Sign in to check payment." }, { status: 401 });
   const rate = await consumeRateLimit(`opay-status:${session.user.id}`, 15, 60_000);
   if (!rate.allowed) return Response.json({ error: "Please wait before checking again." }, { status: 429, headers: { "Retry-After": String(rate.retryAfterSeconds) } });
-  const reference = new URL(request.url).searchParams.get("reference");
+  const query = new URL(request.url).searchParams;
+  const reference = query.get("reference");
+  const printJobId = query.get("printJobId");
   if (!reference || reference.length > 100) return Response.json({ error: "Payment reference is invalid." }, { status: 400 });
+  if (printJobId !== null && (!printJobId || printJobId.length > 100)) return Response.json({ error: "Print job reference is invalid." }, { status: 400 });
 
   try {
     const attempt = await db.payment.findFirst({
-      where: { transactionReference: reference, userId: session.user.id, provider: PaymentProvider.OPAY },
-      select: { transactionReference: true, providerReference: true, providerCheckoutReference: true, amount: true, currency: true, status: true, orderId: true },
+      where: {
+        transactionReference: reference,
+        userId: session.user.id,
+        provider: PaymentProvider.OPAY,
+        ...(printJobId ? { printJobId } : {}),
+      },
+      select: { transactionReference: true, providerReference: true, providerCheckoutReference: true, amount: true, currency: true, status: true, orderId: true, printJobId: true },
     });
     if (!attempt) return Response.json({ error: "Payment attempt not found." }, { status: 404 });
-    if (attempt.status === "SUCCESS") return Response.json({ status: "SUCCESS", orderId: attempt.orderId });
+    if (attempt.status === "SUCCESS") return Response.json({ status: "SUCCESS", orderId: attempt.orderId, printJobId: attempt.printJobId });
     if (attempt.status === "FAILED") return Response.json({ status: "FAILED" });
 
     const transaction = await queryPaymentStatus(reference);
@@ -38,7 +46,7 @@ export async function GET(request: Request) {
         currency: attempt.currency,
         status: "SUCCESS",
       });
-      return Response.json({ status: "SUCCESS", orderId: result.orderId });
+      return Response.json({ status: "SUCCESS", orderId: result.orderId, printJobId: "printJobId" in result ? result.printJobId : null });
     }
     if (verified.status === "FAILED") {
       await failPendingPayment(reference);

@@ -85,6 +85,22 @@ export function StudentProfileMenu({
               <span>My Orders</span>
             </Link>
             <Link
+              href="/printing"
+              onClick={() => setIsOpen(false)}
+              className="flex min-h-11 items-center gap-3 rounded-xl px-3 text-sm font-medium transition hover:bg-black/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-black"
+            >
+              <span aria-hidden="true">🖨️</span>
+              <span>Printing</span>
+            </Link>
+            <Link
+              href="/notifications"
+              onClick={() => setIsOpen(false)}
+              className="flex min-h-11 items-center gap-3 rounded-xl px-3 text-sm font-medium transition hover:bg-black/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-black"
+            >
+              <span aria-hidden="true">🔔</span>
+              <span>Notifications</span>
+            </Link>
+            <Link
               href="/product-requests"
               onClick={() => setIsOpen(false)}
               className="flex min-h-11 items-center gap-3 rounded-xl px-3 text-sm font-medium transition hover:bg-black/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-black"

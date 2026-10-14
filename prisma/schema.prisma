@@ -1,5 +1,7 @@
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  // Needed for Payment_one_success_per_print_job (partial unique index).
+  previewFeatures = ["partialIndexes"]
 }
 
 datasource db {
@@ -266,6 +268,7 @@ model RunnerProfile {
 
   assignments RunnerAssignment[]
   assignedOrders Order[] @relation("AssignedRunner")
+  assignedPrintJobs PrintJob[] @relation("AssignedPrintRunner")
   sourcingReports OrderItemSourcing[]
   payouts     RunnerPayout[]
 
@@ -604,8 +607,9 @@ model OrderItemSourcing {
 model RunnerAssignment {
   id        String   @id @default(cuid())
 
-  orderId   String
-  runnerId  String
+  orderId    String?
+  printJobId String?
+  runnerId   String
 
   status    RunnerAssignmentStatus @default(OFFERED)
 
@@ -613,13 +617,16 @@ model RunnerAssignment {
   acceptedAt DateTime?
   completedAt DateTime?
 
-  order     Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  order     Order?        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  printJob  PrintJob?     @relation(fields: [printJobId], references: [id], onDelete: Cascade)
   runner    RunnerProfile @relation(fields: [runnerId], references: [id])
 
   @@index([orderId])
+  @@index([printJobId])
   @@index([runnerId])
   @@index([status])
   @@unique([orderId, runnerId])
+  @@unique([printJobId, runnerId])
 }
 
 
@@ -663,6 +670,11 @@ model Payment {
   @@index([printJobId, status])
   @@unique([userId, idempotencyKey])
   @@index([userId, createdAt])
+  // A print job can have many attempts (retries after failures) but only one successful payment.
+  @@unique([printJobId], map: "Payment_one_success_per_print_job", where: raw("status = 'SUCCESS'"))
+  // Database CHECK constraints (not expressible in Prisma), see migration 20261014120000:
+  //   Payment_success_requires_fulfilment_root_check: SUCCESS needs an orderId or a printJobId.
+  //   Payment_single_fulfilment_root_check: never both an orderId and a printJobId.
 }
 
 model PrintJob {
@@ -670,6 +682,8 @@ model PrintJob {
   userId             String
   orderId            String?        @unique
   status             PrintJobStatus @default(DRAFT)
+  findingRunnerAt    DateTime?
+  assignedRunnerId   String?
 
   paperSize          PrintPaperSize @default(A4)
   colorMode          PrintColorMode?
@@ -689,8 +703,10 @@ model PrintJob {
 
   user               User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   order              Order?         @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  assignedRunner     RunnerProfile? @relation("AssignedPrintRunner", fields: [assignedRunnerId], references: [id], onDelete: SetNull)
   document           PrintDocument?
   payments           Payment[]
+  assignments        RunnerAssignment[]
   statusHistory      PrintJobStatusHistory[]
 
   createdAt          DateTime       @default(now())
@@ -698,6 +714,8 @@ model PrintJob {
 
   @@index([userId, createdAt])
   @@index([status, createdAt])
+  @@index([status, findingRunnerAt])
+  @@index([assignedRunnerId])
 }
 
 model PrintDocument {

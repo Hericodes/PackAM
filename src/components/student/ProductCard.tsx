@@ -8,7 +8,7 @@ export function ProductCard({ id, name, price, image, category }: ProductCardPro
   return <article className="overflow-hidden rounded-2xl border border-black/5 bg-white shadow-sm transition-shadow hover:shadow-md sm:rounded-3xl">
     <Link href={`/products/${id}`} aria-label={`View ${name}`} className="block rounded-t-2xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-black sm:rounded-t-3xl">
       <div className="relative aspect-square overflow-hidden bg-[#f3f3f3]">
-        {image ? <Image src={image} alt={name} fill className="object-cover" /> : <div className="flex h-full items-center justify-center"><span className="text-5xl" aria-hidden="true">📦</span></div>}
+        {image ? <Image src={image} alt={name} fill sizes="(min-width: 1024px) 25vw, (min-width: 640px) 33vw, 50vw" className="object-cover" /> : <div className="flex h-full items-center justify-center"><span className="text-5xl" aria-hidden="true">📦</span></div>}
       </div>
       <div className="p-3 pb-2 sm:p-4 sm:pb-2">
         {category && <p className="text-xs font-bold uppercase tracking-wide text-black/60">{category}</p>}

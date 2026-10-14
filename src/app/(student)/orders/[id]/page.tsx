@@ -3,16 +3,12 @@ import { notFound } from "next/navigation";
 import { requireRole } from "../../../../lib/auth-guard";
 import { db } from "../../../../lib/db";
 import { PriceDecision } from "../../../../components/orders/PriceDecision";
-
-const labels: Record<string, string> = {
-  PAYMENT_CONFIRMED: "Payment confirmed", FINDING_RUNNER: "Finding a runner", RUNNER_ASSIGNED: "Runner assigned",
-  SOURCING_PRODUCT: "Getting your items", OUT_FOR_DELIVERY: "On the way", DELIVERED: "Delivered",
-  REFUND_PROCESSING: "Refund processing", REFUNDED: "Refunded", FAILED: "Payment failed", CANCELLED: "Cancelled",
-};
+import { PrintTrackingRefresher } from "../../../../components/student/PrintTrackingRefresher";
+import { formatCampusTime, isFinalOrderStatus, orderStatusLabel, orderStatusMessage, shortReference } from "../../../../lib/student-copy";
 
 export default async function OrderDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  const session = await requireRole("STUDENT", "/orders");
   const { id } = await params;
+  const session = await requireRole("STUDENT", `/orders/${encodeURIComponent(id)}`);
   const order = await db.order.findFirst({
     where: { id, userId: session.user.id },
     include: {
@@ -39,9 +35,10 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
         <Link href="/orders" className="inline-flex min-h-11 items-center text-sm font-bold text-black/55 transition hover:text-black focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black">← All orders</Link>
         <section className="mt-3 rounded-2xl border border-black/5 bg-white p-4 shadow-sm sm:mt-5 sm:rounded-3xl sm:p-8">
           <header className="border-b border-black/5 pb-5 sm:pb-6">
-            <p className="text-xs font-black uppercase tracking-wider text-black/45">Order {order.id.slice(-8).toUpperCase()}</p>
-            <h1 className="mt-3 text-2xl font-black tracking-tight sm:text-3xl">{labels[order.status] ?? order.status.replaceAll("_", " ")}</h1>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-black/60">{order.status === "FINDING_RUNNER" ? "Payment confirmed ✓ We’re finding someone to bring your stuff. 🫡" : order.status === "REFUND_PROCESSING" ? "Your refund request is being processed." : order.status === "OUT_FOR_DELIVERY" ? "Your runner is on the way." : "Track updates for your order here."}</p>
+            <p className="text-xs font-black uppercase tracking-wider text-black/60">Order {shortReference(order.id)}</p>
+            <h1 className="mt-3 text-2xl font-black tracking-tight sm:text-3xl">{orderStatusLabel(order.status)}</h1>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-black/70">{orderStatusMessage(order.status, { total: order.total, runnerName: order.assignedRunner?.user.firstName })}</p>
+            {!isFinalOrderStatus(order.status) && <PrintTrackingRefresher />}
             {order.assignedRunner && <p className="mt-3 inline-flex min-h-10 items-center rounded-xl bg-[#f7f5ee] px-3 text-sm">Runner: <strong className="ml-1">{order.assignedRunner.user.firstName}</strong></p>}
           </header>
 
@@ -57,8 +54,9 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
                   <strong className="shrink-0 whitespace-nowrap text-sm">₦{item.totalPrice.toLocaleString()}</strong>
                 </div>
                 {item.sourcing.map((source) => <div key={source.id} className="mt-3 rounded-xl border border-[#f0dfaa] bg-[#fff8df] p-3 text-sm leading-5">
-                  <p>{source.status === "UNAVAILABLE" ? `${item.productName} unavailable at ${source.orderSource.vendor.name}.` : `${source.quantity} sourced from ${source.orderSource.vendor.name}${source.actualUnitPrice !== null ? ` at ₦${source.actualUnitPrice.toLocaleString()} each` : ""}.`}</p>
-                  {source.status === "PRICE_PENDING" && <><p className="mt-2 text-sm leading-5 text-black/75">Checkout price ₦{source.catalogueUnitPrice.toLocaleString()} each. Please choose how to continue.</p><PriceDecision orderId={order.id} sourcingId={source.id} /></>}
+                  {source.status === "PRICE_PENDING"
+                    ? <><p className="font-bold">Price changed at {source.orderSource.vendor.name} 👀</p><p className="mt-1 text-sm leading-5 text-black/75">{item.productName} costs ₦{source.actualUnitPrice?.toLocaleString()} each there; you paid ₦{source.catalogueUnitPrice.toLocaleString()} each. Your runner is waiting for your choice.</p><PriceDecision orderId={order.id} sourcingId={source.id} orderTotal={order.total} /></>
+                    : <p>{source.status === "UNAVAILABLE" ? `${item.productName} wasn’t available at ${source.orderSource.vendor.name}.` : `${source.quantity} picked up from ${source.orderSource.vendor.name}.`}</p>}
                 </div>)}
               </article>
             ))}</div>
@@ -76,7 +74,7 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
             <ol className="mt-4 space-y-4" aria-label="Order status history">{order.statusHistory.map((entry) => (
               <li key={entry.id} className="flex gap-3 text-sm">
                 <span className="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full bg-black" aria-hidden="true"/>
-                <span className="min-w-0"><strong className="block leading-5">{labels[entry.status] ?? entry.status.replaceAll("_", " ")}</strong><span className="mt-0.5 block break-words text-xs leading-5 text-black/50">{entry.createdAt.toLocaleString()}{entry.note ? ` · ${entry.note}` : ""}</span></span>
+                <span className="min-w-0"><strong className="block leading-5">{orderStatusLabel(entry.status)}</strong><span className="mt-0.5 block break-words text-xs leading-5 text-black/60">{formatCampusTime(entry.createdAt)}</span></span>
               </li>
             ))}</ol>
           </section>

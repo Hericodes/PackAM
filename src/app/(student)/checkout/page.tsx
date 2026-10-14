@@ -5,9 +5,25 @@ import { redirect } from "next/navigation";
 import { CheckoutClient } from "../../../components/checkout/CheckoutClient";
 import { CHECKOUT_DELIVERY_FEE } from "../../../lib/checkout-pricing";
 
+/** A recent marketplace payment we haven't confirmed yet; warn before the student pays again. */
+function findUnconfirmedPayment(userId: string) {
+  return db.payment.findFirst({
+    where: {
+      userId,
+      orderId: null,
+      printJobId: null,
+      status: { in: ["PENDING", "RECONCILIATION_REQUIRED"] },
+      cashierUrl: { not: null },
+      createdAt: { gte: new Date(Date.now() - 24 * 60 * 60_000) },
+    },
+    orderBy: { createdAt: "desc" },
+    select: { transactionReference: true, amount: true },
+  });
+}
+
 export default async function CheckoutPage() {
   const session = await requireRole("STUDENT", "/checkout");
-  const [cart, locations] = await Promise.all([
+  const [cart, locations, unconfirmedPayment] = await Promise.all([
     db.cart.findUnique({
       where: { userId: session.user.id },
       include: {
@@ -39,6 +55,7 @@ export default async function CheckoutPage() {
         longitude: true,
       },
     }),
+    findUnconfirmedPayment(session.user.id),
   ]);
 
   const items = cart?.items ?? [];
@@ -52,6 +69,13 @@ export default async function CheckoutPage() {
           <h1 className="mt-2 text-3xl font-black tracking-tight sm:text-4xl">Checkout</h1>
           <p className="mt-2 text-sm leading-6 text-black/60">Choose a delivery location, review your items, then pay securely with OPay.</p>
         </div>
+        {unconfirmedPayment?.transactionReference && (
+          <section role="status" className="mt-5 max-w-2xl rounded-2xl border border-[#e8c238] bg-[#fff8df] p-4 text-sm leading-6">
+            <p className="font-black">Hold on — you have a payment we’re still confirming (₦{unconfirmedPayment.amount.toLocaleString()}).</p>
+            <p className="mt-1 text-black/70">If you already paid on OPay, check it first so you don’t pay twice.</p>
+            <Link href={`/checkout/payment-result?reference=${encodeURIComponent(unconfirmedPayment.transactionReference)}`} className="mt-2 inline-flex min-h-11 items-center font-bold underline underline-offset-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black">Check that payment →</Link>
+          </section>
+        )}
         <div className="mt-5 sm:mt-7">
           <CheckoutClient
             items={items.map((item) => ({

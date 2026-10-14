@@ -4,15 +4,19 @@ import { db } from "../../../lib/db";
 import { writeAuditLog } from "../../../lib/audit";
 import { consumeRateLimit } from "../../../lib/rate-limit";
 import { isPackamProductImageUrl } from "../../../lib/cloudinary-url";
+import { canManageCatalogue, isValidCustomerPrice } from "../../../lib/catalogue-permissions";
 
-const allowedRoles = ["RUNNER", "ADMIN"] as const;
+// Only admins manage the catalogue. Runners report shop prices through order sourcing instead.
+const canManageProducts = canManageCatalogue;
 
-function canManageProducts(role?: string) {
-  return role && allowedRoles.includes(role as (typeof allowedRoles)[number]);
-}
-
+// Includes vendor contacts and sourcing prices, so it is limited to catalogue managers.
 export async function GET() {
+  const session = await auth();
+  if (!session?.user || !canManageProducts(session.user.role)) {
+    return NextResponse.json({ error: "You are not authorized to view catalogue sourcing data." }, { status: 403 });
+  }
   const products = await db.product.findMany({
+    take: 200,
     include: {
       category: true,
       sources: {
@@ -35,7 +39,7 @@ export async function POST(request: Request) {
 
     if (!session?.user || !canManageProducts(session.user.role)) {
       return NextResponse.json(
-        { error: "You are not authorized to manage products." },
+        { error: "Only PackAM admins can change the catalogue." },
         { status: 403 },
       );
     }
@@ -58,14 +62,14 @@ export async function POST(request: Request) {
       !name.trim() ||
       typeof categoryId !== "string" ||
       !categoryId ||
-      typeof customerPrice !== "number" ||
-      !Number.isSafeInteger(customerPrice) ||
-      customerPrice < 0 || name.trim().length > 120
+      !isValidCustomerPrice(customerPrice) ||
+      name.trim().length > 120 ||
+      (description !== undefined && description !== null && (typeof description !== "string" || description.length > 2000))
     ) {
       return NextResponse.json(
         {
           error:
-            "Name, category and a valid customer price are required.",
+            "Name, category and a customer price of at least ₦1 are required.",
         },
         { status: 400 },
       );

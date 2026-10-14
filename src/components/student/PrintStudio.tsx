@@ -25,6 +25,7 @@ type InitialPrintJob = {
   deliveryLocationId: string | null;
   pendingUploadJobId?: string | null;
   pendingReplacementForJobId?: string | null;
+  activePaymentStatus?: string | null;
   document: PrintDocument | null;
 };
 
@@ -328,20 +329,52 @@ export function PrintStudio({ locations, initialJob }: PrintStudioProps) {
     if (!jobId || !selectedLocation || !quote || quoteLoading || preparing) return;
     setPreparing(true);
     setError("");
-    setNotice("");
+    setNotice("Preparing payment…");
     try {
-      const response = await fetch(`/api/print-jobs/${encodeURIComponent(jobId)}/prepare`, {
+      if (!prepared) {
+        const response = await fetch(`/api/print-jobs/${encodeURIComponent(jobId)}/prepare`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ configuration, deliveryLocationId: selectedLocation.id }),
+          cache: "no-store",
+        });
+        const result: unknown = await response.json();
+        if (!response.ok) throw new Error(isRecord(result) && typeof result.error === "string" ? result.error : "We couldn't save your print settings.");
+        setPrepared(true);
+      }
+
+      const storageKey = `packam-print-payment-attempt:${jobId}`;
+      let idempotencyKey = window.sessionStorage.getItem(storageKey);
+      if (!idempotencyKey) {
+        idempotencyKey = crypto.randomUUID();
+        window.sessionStorage.setItem(storageKey, idempotencyKey);
+      }
+      const paymentResponse = await fetch(`/api/print-jobs/${encodeURIComponent(jobId)}/payment`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ configuration, deliveryLocationId: selectedLocation.id }),
+        headers: { "Idempotency-Key": idempotencyKey },
         cache: "no-store",
       });
-      const result: unknown = await response.json();
-      if (!response.ok) throw new Error(isRecord(result) && typeof result.error === "string" ? result.error : "We couldn't save your print settings.");
-      setPrepared(true);
-      setNotice("Your print settings are saved and ready for payment. Payment checkout will be added in the next phase.");
+      const paymentResult: unknown = await paymentResponse.json();
+      if (!paymentResponse.ok) {
+        throw new Error(isRecord(paymentResult) && typeof paymentResult.error === "string"
+          ? paymentResult.error
+          : "Payment couldn’t be started. Your print job is still safe — try again.");
+      }
+      if (!isRecord(paymentResult)) throw new Error("OPay checkout details were incomplete. Please try again.");
+
+      window.sessionStorage.removeItem(storageKey);
+      if (typeof paymentResult.cashierUrl === "string") {
+        window.location.assign(paymentResult.cashierUrl);
+        return;
+      }
+      if (typeof paymentResult.resultUrl === "string") {
+        window.location.assign(paymentResult.resultUrl);
+        return;
+      }
+      throw new Error("OPay checkout details were incomplete. Please try again.");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "We couldn't prepare this print job for payment.");
+      setNotice("");
     } finally {
       setPreparing(false);
     }
@@ -515,9 +548,9 @@ export function PrintStudio({ locations, initialJob }: PrintStudioProps) {
             </section>
             <section className="sticky bottom-3 rounded-2xl border border-black/5 bg-[#fffdf7] p-3 shadow-[0_8px_30px_rgba(0,0,0,0.12)] lg:static lg:border-0 lg:bg-transparent lg:p-0 lg:shadow-none">
               <button type="button" onClick={() => void prepareForPayment()} disabled={!canPrepare} className="flex min-h-12 w-full items-center justify-center rounded-full bg-black px-5 text-sm font-black text-white transition hover:bg-black/85 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black disabled:cursor-not-allowed disabled:opacity-40">
-                {preparing ? "Saving print settings…" : prepared ? "Save changes for payment" : "Continue to payment"}
+                {preparing ? "Preparing payment…" : "Continue to payment"}
               </button>
-              <p className="mt-2 text-center text-xs leading-5 text-black/50">This saves your job as ready for payment. Payment checkout is not available yet.</p>
+              <p className="mt-2 text-center text-xs leading-5 text-black/50">Your total is checked and saved by PackAM before secure OPay checkout.</p>
             </section>
           </>
         ) : (

@@ -8,11 +8,16 @@ type Entry = { id: string; type: string; title: string; message: string; orderId
 export function NotificationList({ role }: { role: "STUDENT" | "RUNNER" | "ADMIN" }) {
   const [items, setItems] = useState<Entry[]>([]);
   const [error, setError] = useState("");
+  const [loaded, setLoaded] = useState(false);
   const load = useCallback(async () => {
-    const response = await fetch("/api/notifications");
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || "Unable to load updates.");
-    setItems(data.notifications);
+    try {
+      const response = await fetch("/api/notifications");
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Unable to load updates.");
+      setItems(data.notifications);
+    } finally {
+      setLoaded(true);
+    }
   }, []);
   useEffect(() => { const timer = window.setTimeout(() => { void load().catch((e) => setError(e.message)); }, 0); return () => window.clearTimeout(timer); }, [load]);
   async function mark(id?: string) {
@@ -29,7 +34,7 @@ export function NotificationList({ role }: { role: "STUDENT" | "RUNNER" | "ADMIN
             <p className="text-xs font-bold uppercase tracking-wider text-black/55">PackAM updates</p>
             <h1 className="mt-1 text-3xl font-black tracking-tight sm:text-4xl">Notifications</h1>
             <p className="mt-2 text-sm text-black/65">
-              {unread ? `${unread} unread ${unread === 1 ? "update" : "updates"}` : "You’re up to date."}
+              {!loaded ? "Loading your updates…" : unread ? `${unread} unread ${unread === 1 ? "update" : "updates"}` : "You’re up to date."}
             </p>
           </div>
           {unread > 0 && (
@@ -51,6 +56,12 @@ export function NotificationList({ role }: { role: "STUDENT" | "RUNNER" | "ADMIN
                 : role === "RUNNER"
                   ? `/runner/missions/${item.orderId}`
                   : `/orders/${item.orderId}`
+              : item.relatedType === "PRINT_JOB" && item.relatedId
+                ? role === "ADMIN"
+                  ? `/admin/print-jobs/${item.relatedId}`
+                  : role === "RUNNER"
+                    ? `/runner/print-missions/${item.relatedId}`
+                    : `/printing/jobs/${item.relatedId}`
               : item.relatedType === "PRODUCT_REQUEST"
                 ? "/product-requests"
                 : item.relatedType === "SUPPORT_CASE"
@@ -84,7 +95,7 @@ export function NotificationList({ role }: { role: "STUDENT" | "RUNNER" | "ADMIN
                         className="mt-3 inline-flex min-h-11 items-center text-sm font-bold underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black"
                         href={href}
                       >
-                        {item.orderId ? "Open order" : item.relatedType === "PRODUCT_REQUEST" ? "View request" : "Open support"}
+                        {item.orderId ? "Open order" : item.relatedType === "PRINT_JOB" ? (role === "RUNNER" ? "Open print mission" : "View print job") : item.relatedType === "PRODUCT_REQUEST" ? "View request" : "Open support"}
                       </Link>
                     )}
                   </div>
@@ -102,7 +113,8 @@ export function NotificationList({ role }: { role: "STUDENT" | "RUNNER" | "ADMIN
               </article>
             );
           })}
-          {!items.length && !error && (
+          {!loaded && !error && <p role="status" className="rounded-2xl bg-white p-5 text-sm leading-6 text-black/70 shadow-sm">Loading your updates…</p>}
+          {loaded && !items.length && !error && (
             <p className="rounded-2xl bg-white p-5 text-sm leading-6 text-black/65 shadow-sm">
               You’re all caught up. New updates will show up here.
             </p>

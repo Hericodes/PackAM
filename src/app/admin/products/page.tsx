@@ -1,7 +1,9 @@
 import Link from "next/link";
+import { requireRole } from "../../../lib/auth-guard";
 import { db } from "../../../lib/db";
 
 export default async function AdminProductsPage({ searchParams }: { searchParams: Promise<{ page?: string }> }) {
+ await requireRole("ADMIN");
   const params = await searchParams;
   const page = Math.max(1, Number(params.page) || 1);
   const pageSize = 50;

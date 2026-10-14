@@ -1,7 +1,7 @@
 import { createHmac } from "node:crypto";
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { matchesOpayCallbackAmount, toOpayMinorUnits } from "./opay-money";
+import { matchesOpayCallbackAmount, toOpayMinorUnits, verifyOpayTransaction } from "./opay-money";
 import { signOpayApiPayload, verifyOpayCallbackSignature } from "./opay-signature";
 
 test("NGN naira amounts are converted to OPay kobo units", () => {
@@ -14,6 +14,25 @@ test("callback amount is compared in whole NGN while Cashier API amount is kobo"
   assert.equal(matchesOpayCallbackAmount("3700", 3700), true);
   assert.equal(matchesOpayCallbackAmount("370000", 3700), false);
   assert.equal(matchesOpayCallbackAmount("3700.00", 3700), false);
+});
+
+test("verified OPay transactions must match the reference, cashier reference, amount and currency", () => {
+  const expected = { reference: "packam_print", amount: 1200, currency: "NGN", providerCheckoutReference: "opay-order-7" };
+  const transaction = {
+    reference: expected.reference,
+    orderNo: expected.providerCheckoutReference,
+    transactionId: "opay-transaction-8",
+    status: "SUCCESS",
+    amount: { total: 120_000, currency: "NGN" },
+  };
+  assert.deepEqual(verifyOpayTransaction(transaction, expected), {
+    status: "SUCCESS",
+    providerReference: "opay-transaction-8",
+  });
+  assert.throws(() => verifyOpayTransaction({ ...transaction, reference: "wrong" }, expected), /reference/i);
+  assert.throws(() => verifyOpayTransaction({ ...transaction, orderNo: "wrong" }, expected), /order reference/i);
+  assert.throws(() => verifyOpayTransaction({ ...transaction, amount: { total: 100, currency: "NGN" } }, expected), /amount/i);
+  assert.throws(() => verifyOpayTransaction({ ...transaction, amount: { total: 120_000, currency: "USD" } }, expected), /currency/i);
 });
 
 test("API status signatures use compact alphabetically sorted JSON and HMAC-SHA512", () => {

@@ -63,20 +63,20 @@ export const siteConfig = {
       "Whatever you need around campus, we'll help you get it without you having to leave where you are.",
 
     shortDescription:
-      "Food, academic materials, everyday essentials and more â€” ordered from campus and delivered to wherever you are.",
+      "Food, academic materials, everyday essentials and more — ordered from campus and delivered to wherever you are.",
 
     requestProduct: "Can't find it? Request a Product.",
 
     humour: {
-      emptyCart: "Your cart is looking lonely ðŸ˜­",
+      emptyCart: "Your cart is looking lonely 😭",
       noSearchResults:
         "Hmm... we couldn't find that one. Try another search or request it.",
       findingRunner:
-        "We're still looking for someone brave enough to run this mission ðŸ«¡",
-      runnerAssigned: "Someone has accepted the mission ðŸ«¡",
-      sourcing: "We don dey find your stuff ðŸ˜‚",
-      almostThere: "Almost there ðŸ‘€",
-      delivered: "Your package don land. ðŸŽ’",
+        "We're still looking for someone brave enough to run this mission 🫡",
+      runnerAssigned: "Someone has accepted the mission 🫡",
+      sourcing: "We don dey find your stuff 😂",
+      almostThere: "Almost there 👀",
+      delivered: "Your package don land. 🎒",
     },
   },
 } as const;

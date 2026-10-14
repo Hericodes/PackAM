@@ -39,7 +39,7 @@ export default async function ProductPage({ params }: ProductPageProps) {
           <div className="overflow-hidden rounded-2xl border border-black/5 bg-white sm:rounded-[1.5rem]">
             <div className="relative aspect-square w-full">
               {product.imageUrl ? (
-                <Image src={product.imageUrl} alt={product.name} fill priority className="object-cover" />
+                <Image src={product.imageUrl} alt={product.name} fill priority sizes="(min-width: 1024px) 50vw, 100vw" className="object-cover" />
               ) : (
                 <div className="flex h-full items-center justify-center bg-[#f7f5ee] text-6xl sm:text-7xl" aria-hidden="true">
                   📦

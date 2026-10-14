@@ -1,8 +1,10 @@
 import Link from "next/link";
+import { requireRole } from "../../../../lib/auth-guard";
 import { ProductForm } from "../../../../components/products/ProductForm";
 import { db } from "../../../../lib/db";
 
 export default async function NewAdminProductPage() {
+ await requireRole("ADMIN");
   const categories = await db.category.findMany({
     where: {
       isActive: true,

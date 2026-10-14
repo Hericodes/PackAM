@@ -8,6 +8,8 @@ import { CHECKOUT_CURRENCY, CHECKOUT_DELIVERY_FEE } from "../checkout-pricing";
 import { transitionOrderInTransaction } from "../orders/transition";
 import { offerFindingOrderToAvailableRunners } from "../orders/runner-assignments";
 import { createNotification, notifyAdmins } from "../notifications";
+import { completeVerifiedPrintPayment } from "../printing/payment-lifecycle";
+import { retrySerializable } from "../db-retry";
 
 type SnapshotItem = {
   cartItemId: string;
@@ -279,10 +281,16 @@ export async function completeVerifiedPayment(verified: VerifiedProviderPayment)
   if (verified.status !== "SUCCESS" || !verified.transactionReference || !verified.providerReference) {
     throw new Error("A verified successful provider transaction is required.");
   }
+  const linkedPrintPayment = await db.payment.findUnique({
+    where: { transactionReference: verified.transactionReference },
+    select: { printJobId: true },
+  });
+  if (linkedPrintPayment?.printJobId) return completeVerifiedPrintPayment(verified);
 
   let finalizationStarted = false;
   try {
-    return await db.$transaction(async (tx) => {
+    // Money path: give conflicting finalisations generous retries before falling back to reconciliation.
+    return await retrySerializable(() => db.$transaction(async (tx) => {
     const attempt = await tx.payment.findUnique({
       where: { transactionReference: verified.transactionReference },
     });
@@ -389,8 +397,26 @@ export async function completeVerifiedPayment(verified: VerifiedProviderPayment)
 await offerFindingOrderToAvailableRunners(tx, order.id);
 
     return { orderId: order.id, alreadyProcessed: false };
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }), { attempts: 8, baseDelayMs: 25 });
   } catch (error) {
+    const current = await db.payment.findUnique({
+      where: { transactionReference: verified.transactionReference },
+      select: { status: true, providerReference: true, orderId: true },
+    }).catch(() => null);
+    // A concurrent duplicate (provider webhook plus the student's status poll) already completed this
+    // same verified transaction. That is success, not something for operations to reconcile.
+    if (current?.status === "SUCCESS" && current.orderId && current.providerReference === verified.providerReference) {
+      return { orderId: current.orderId, alreadyProcessed: true };
+    }
+    // The provider verified a success for an attempt PackAM had recorded as FAILED: money may have been
+    // captured with no order. Alert operations; do not change the payment or create an order here.
+    if (current?.status === "FAILED" && !current.orderId) {
+      try {
+        await db.$transaction((tx) => notifyAdmins(tx, { type: "PAYMENT", title: "Payment succeeded after failure", message: `Provider verified payment ${verified.transactionReference} as successful after PackAM marked it failed. Check it and refund or fulfil manually.`, idempotencyKey: `payment-late-success:${verified.transactionReference}` }));
+      } catch (notificationError) {
+        console.error("LATE PAYMENT SUCCESS ALERT ERROR:", notificationError instanceof Error ? notificationError.name : "Unknown error");
+      }
+    }
     if (finalizationStarted) {
       try {
         await db.payment.updateMany({
@@ -423,11 +449,21 @@ await offerFindingOrderToAvailableRunners(tx, order.id);
 /** Mark a verified terminal provider failure without creating an order or touching the cart. */
 export async function failPendingPayment(transactionReference: string) {
   return db.$transaction(async (tx) => {
-    const payment = await tx.payment.findFirst({ where: { transactionReference, status: "PENDING", orderId: null }, select: { id: true, userId: true, amount: true } });
+    const payment = await tx.payment.findFirst({ where: { transactionReference, status: "PENDING", orderId: null }, select: { id: true, userId: true, amount: true, printJobId: true } });
     if (!payment) return false;
     const result = await tx.payment.updateMany({ where: { id: payment.id, status: "PENDING", orderId: null }, data: { status: "FAILED", failedAt: new Date() } });
     if (result.count !== 1) return false;
-    await createNotification(tx, { userId: payment.userId, type: "PAYMENT", title: "Payment failed", message: `Payment failed — ₦${payment.amount.toLocaleString()}. Your cart is still here.`, idempotencyKey: `payment-failed:${payment.id}` });
+    await createNotification(tx, {
+      userId: payment.userId,
+      type: "PAYMENT",
+      title: payment.printJobId ? "Print payment wasn’t completed" : "Payment failed",
+      message: payment.printJobId
+        ? `Payment wasn’t completed — ₦${payment.amount.toLocaleString()}. Your print job is safe to retry.`
+        : `Payment failed — ₦${payment.amount.toLocaleString()}. Your cart is still here.`,
+      relatedType: payment.printJobId ? "PRINT_JOB" : null,
+      relatedId: payment.printJobId,
+      idempotencyKey: `payment-failed:${payment.id}`,
+    });
     return true;
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 }
@@ -435,14 +471,29 @@ export async function failPendingPayment(transactionReference: string) {
 /** Preserve an uncertain provider attempt for operations review; never convert it to SUCCESS/FAILED. */
 export async function markPaymentNeedsReview(transactionReference: string, reason: string) {
   return db.$transaction(async (tx) => {
-    const payment = await tx.payment.findFirst({ where: { transactionReference, provider: "OPAY", status: { in: ["PENDING", "RECONCILIATION_REQUIRED"] }, orderId: null }, select: { id: true, userId: true, amount: true, status: true } });
+    const payment = await tx.payment.findFirst({ where: { transactionReference, provider: "OPAY", status: { in: ["PENDING", "RECONCILIATION_REQUIRED"] }, orderId: null }, select: { id: true, userId: true, amount: true, status: true, printJobId: true } });
     if (!payment) return false;
     if (payment.status === "PENDING") {
       const changed = await tx.payment.updateMany({ where: { id: payment.id, status: "PENDING", orderId: null }, data: { status: "RECONCILIATION_REQUIRED" } });
       if (changed.count !== 1) return false;
     }
-    await createNotification(tx, { userId: payment.userId, type: "PAYMENT", title: "Payment requires attention", message: `Payment of ₦${payment.amount.toLocaleString()} needs a manual check. Please don’t pay again yet.`, idempotencyKey: `payment-review:${payment.id}` });
-    await notifyAdmins(tx, { type: "PAYMENT", title: "Payment needs attention", message: `PackAM payment ${transactionReference} needs review (${reason.slice(0, 120)}).`, idempotencyKey: `payment-review-admin:${payment.id}` });
+    await createNotification(tx, {
+      userId: payment.userId,
+      type: "PAYMENT",
+      title: payment.printJobId ? "Print payment requires attention" : "Payment requires attention",
+      message: `Payment of ₦${payment.amount.toLocaleString()} needs a manual check. Please don’t pay again yet.`,
+      relatedType: payment.printJobId ? "PRINT_JOB" : null,
+      relatedId: payment.printJobId,
+      idempotencyKey: `payment-review:${payment.id}`,
+    });
+    await notifyAdmins(tx, {
+      type: "PAYMENT",
+      title: payment.printJobId ? "Print payment needs attention" : "Payment needs attention",
+      message: `PackAM payment ${transactionReference} needs review (${reason.slice(0, 120)}).`,
+      relatedType: payment.printJobId ? "PRINT_JOB" : null,
+      relatedId: payment.printJobId,
+      idempotencyKey: `payment-review-admin:${payment.id}`,
+    });
     return true;
   });
 }

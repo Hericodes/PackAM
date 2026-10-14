@@ -1,9 +1,11 @@
 import Link from "next/link";
+import { requireRole } from "../../../lib/auth-guard";
 import { OrderStatus } from "@prisma/client";
 import { db } from "../../../lib/db";
 
 const labels: Record<string,string> = { PAYMENT_CONFIRMED:"Payment confirmed", FINDING_RUNNER:"Finding runner", RUNNER_ASSIGNED:"Runner assigned", SOURCING_PRODUCT:"Sourcing", OUT_FOR_DELIVERY:"Out for delivery", DELIVERED:"Completed", REFUND_PROCESSING:"Refund processing", REFUNDED:"Refunded", FAILED:"Failed", CANCELLED:"Cancelled", PENDING_PAYMENT:"Pending payment" };
 export default async function AdminOrdersPage({ searchParams }: { searchParams: Promise<{ status?: string; page?: string }> }) {
+ await requireRole("ADMIN");
   const params = await searchParams; const filter = Object.values(OrderStatus).includes(params.status as OrderStatus) ? params.status as OrderStatus : undefined; const page = Math.max(1, Number(params.page) || 1); const take = 50;
   const where = filter ? { status: filter } : {};
   const [orders,total] = await Promise.all([db.order.findMany({ where, orderBy: { createdAt: "desc" }, skip: (page - 1) * take, take, select: { id:true,status:true,total:true,currency:true,createdAt:true,user:{select:{firstName:true,lastName:true,email:true}},payment:{select:{status:true}} } }), db.order.count({ where })]);

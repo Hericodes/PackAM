@@ -11,7 +11,7 @@ cloudinary.config({
 export async function POST(request: Request) {
   try {
     const session = await auth();
-    if (!session?.user || !["ADMIN", "RUNNER"].includes(session.user.role)) return Response.json({ error: "Sign in with an operations account to upload product images." }, { status: 403 });
+    if (!session?.user || session.user.role !== "ADMIN") return Response.json({ error: "Only PackAM admins can upload product images." }, { status: 403 });
     const rate = await consumeRateLimit(`cloudinary-sign:${session.user.id}`, 20, 60 * 60 * 1000);
     if (!rate.allowed) return Response.json({ error: "Upload limit reached. Try again later." }, { status: 429, headers: { "Retry-After": String(rate.retryAfterSeconds) } });
     const length = Number(request.headers.get("content-length") ?? 0);

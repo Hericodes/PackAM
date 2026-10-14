@@ -32,6 +32,12 @@ export async function StudentNavbar() {
             Search
           </Link>
           <Link
+            href="/printing"
+            className="inline-flex min-h-11 items-center rounded-xl px-4 py-2.5 text-sm font-semibold text-black/70 transition hover:bg-black/5 hover:text-black focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black"
+          >
+            Printing
+          </Link>
+          <Link
             href="/orders"
             className="inline-flex min-h-11 items-center rounded-xl px-4 py-2.5 text-sm font-semibold text-black/70 transition hover:bg-black/5 hover:text-black focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black"
           >
@@ -40,8 +46,21 @@ export async function StudentNavbar() {
         </nav>
 
         <div className="flex shrink-0 items-center gap-1 sm:gap-2">
+          <Link
+            href="/search"
+            aria-label="Search"
+            className="inline-flex h-11 w-11 items-center justify-center rounded-xl text-lg transition hover:bg-black/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black md:hidden"
+          >
+            <span aria-hidden="true">🔍</span>
+          </Link>
           {user && <NotificationBell />}
           <StudentCartButton />
+          {!user && (
+            <>
+              <Link href="/login" className="inline-flex min-h-11 items-center rounded-xl px-3 text-sm font-bold transition hover:bg-black/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black">Log in</Link>
+              <Link href="/register" className="inline-flex min-h-11 items-center rounded-full bg-[#feb80a] px-4 text-sm font-black text-black transition hover:brightness-95 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black">Sign up</Link>
+            </>
+          )}
           {user && (
             <StudentProfileMenu
               displayName={displayName}

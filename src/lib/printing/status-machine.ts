@@ -22,3 +22,8 @@ const allowedTransitions: Record<PrintJobStatus, readonly PrintJobStatus[]> = {
 export function canTransitionPrintJob(from: PrintJobStatus, to: PrintJobStatus) {
   return allowedTransitions[from].includes(to);
 }
+
+/** Statuses a PrintJob can only reach after its payment was verified. */
+export function isPrintJobPastPayment(status: PrintJobStatus | string) {
+  return status !== "DRAFT" && status !== "READY_FOR_PAYMENT" && status in allowedTransitions;
+}

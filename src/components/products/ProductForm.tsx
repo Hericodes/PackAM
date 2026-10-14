@@ -111,9 +111,7 @@ export function ProductForm({
       }
 
       router.push(
-        window.location.pathname.includes("/runner/")
-          ? "/runner/products"
-          : "/admin/products",
+        "/admin/products",
       );
 
       router.refresh();

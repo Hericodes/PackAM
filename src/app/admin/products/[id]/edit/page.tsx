@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { requireRole } from "../../../../../lib/auth-guard";
 import { notFound } from "next/navigation";
 import { ProductForm } from "../../../../../components/products/ProductForm";
 import { db } from "../../../../../lib/db";
@@ -12,6 +13,7 @@ type PageProps = {
 export default async function EditAdminProductPage({
   params,
 }: PageProps) {
+ await requireRole("ADMIN");
   const { id } = await params;
 
   const [product, categories] = await Promise.all([

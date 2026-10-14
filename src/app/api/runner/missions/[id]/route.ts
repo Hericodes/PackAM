@@ -10,7 +10,7 @@ export async function GET(_request: Request, context: Context) {
   const runner = await db.runnerProfile.findFirst({ where: { userId: session.user.id, isVerified: true, user: { status: "ACTIVE" } }, select: { id: true } });
   if (!runner) return Response.json({ error: "Your runner profile is not active and verified." }, { status: 403 });
   const assignment = await db.runnerAssignment.findFirst({
-    where: { orderId, runnerId: runner.id, status: { in: ["OFFERED", "ACCEPTED"] } },
+    where: { orderId, printJobId: null, runnerId: runner.id, status: { in: ["OFFERED", "ACCEPTED"] } },
     select: {
       status: true,
       order: {
@@ -44,7 +44,7 @@ export async function GET(_request: Request, context: Context) {
       },
     },
   });
-  if (!assignment) return Response.json({ error: "Mission not found." }, { status: 404 });
+  if (!assignment?.order) return Response.json({ error: "Mission not found." }, { status: 404 });
   const { order } = assignment;
   return Response.json({ mission: {
     assignmentStatus: assignment.status,

@@ -45,6 +45,9 @@ export function RunnerMissionDetail({ orderId }: { orderId: string }) {
   }, [load]);
 
   async function act(body: Record<string, unknown>) {
+    if (busy) return;
+    // Delivered can't be undone, so ask before recording it.
+    if (body.action === "delivered" && !window.confirm("Mark this order as delivered? Only do this once the student has it.")) return;
     setBusy(true); setError(""); setNotice("");
     try {
       const response = await fetch(`/api/runner/orders/${orderId}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -60,10 +63,12 @@ export function RunnerMissionDetail({ orderId }: { orderId: string }) {
       if (body.action === "delivery-issue") setIssueNote("");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unable to update mission.");
+      // Reload so a lost race (another runner accepted first) doesn't leave a stale Accept button.
+      await load().catch(() => setMission(null));
     } finally { setBusy(false); }
   }
 
-  if (!mission) return <div className="mt-6 rounded-2xl bg-white p-5">{error || "Loading mission…"}</div>;
+  if (!mission) return <div className="mt-6 rounded-2xl bg-white p-5 text-sm" role={error ? "alert" : "status"}>{error || "Loading mission…"}{error && <div className="mt-3 flex flex-wrap gap-4"><button type="button" onClick={() => { setError(""); void load().catch((e) => setError(e.message)); }} className="min-h-11 font-bold underline underline-offset-4">Try again</button><Link href="/runner" className="inline-flex min-h-11 items-center font-bold underline underline-offset-4">← Missions</Link></div>}</div>;
 
   const noPendingPrice = mission.items.every((item) => !item.sourcing.some((source) => source.status === "PRICE_PENDING"));
   const readyToDeliver = noPendingPrice && mission.items.every((item) => sourcedQuantity(item) >= item.quantity);
@@ -89,11 +94,11 @@ export function RunnerMissionDetail({ orderId }: { orderId: string }) {
               <div className="flex justify-between gap-3"><strong>{item.productName} × {item.quantity}</strong><span className="text-xs text-black/50">{remaining} left</span></div>
               {item.sourcing.map((source) => <p key={source.id} className="mt-2 text-xs text-black/55">{source.status.replaceAll("_", " ")} · {source.orderSource.vendor.name}{source.actualUnitPrice !== null ? ` · ₦${source.actualUnitPrice.toLocaleString()}` : ""}</p>)}
               {remaining > 0 && <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_90px_120px]">
-                <select aria-label={`Shop for ${item.productName}`} className="rounded-xl border border-black/10 bg-white px-3 py-2 text-sm" value={vendorByItem[item.id] ?? ""} onChange={(event) => setVendorByItem({ ...vendorByItem, [item.id]: event.target.value })}><option value="">Choose shop</option>{vendors.map((vendor) => <option key={vendor.id} value={vendor.id}>{vendor.name}{vendor.location ? ` · ${vendor.location}` : ""}</option>)}</select>
-                <input aria-label={`Quantity sourced for ${item.productName}`} type="number" min="1" max={remaining} value={quantityByItem[item.id] ?? remaining} onChange={(event) => setQuantityByItem({ ...quantityByItem, [item.id]: Number(event.target.value) })} className="rounded-xl border border-black/10 px-3 py-2 text-sm" />
-                <input aria-label={`Unit price for ${item.productName}`} type="number" min="0" value={priceByItem[item.id] ?? item.unitPrice} onChange={(event) => setPriceByItem({ ...priceByItem, [item.id]: Number(event.target.value) })} className="rounded-xl border border-black/10 px-3 py-2 text-sm" />
-                <button disabled={busy || !vendorByItem[item.id]} onClick={() => void act({ action: "source", orderItemId: item.id, vendorId: vendorByItem[item.id], result: "AVAILABLE", quantity: quantityByItem[item.id], actualUnitPrice: priceByItem[item.id] })} className="rounded-full bg-black px-4 py-2 text-xs font-bold text-white disabled:opacity-40">Record sourced</button>
-                <button disabled={busy || !vendorByItem[item.id]} onClick={() => void act({ action: "source", orderItemId: item.id, vendorId: vendorByItem[item.id], result: "UNAVAILABLE" })} className="rounded-full border border-black/15 px-4 py-2 text-xs font-bold disabled:opacity-40">Unavailable here</button>
+                <label className="grid gap-1 text-xs font-bold text-black/70">Shop<select aria-label={`Shop for ${item.productName}`} className="min-h-11 rounded-xl border border-black/10 bg-white px-3 py-2 text-sm font-normal text-black" value={vendorByItem[item.id] ?? ""} onChange={(event) => setVendorByItem({ ...vendorByItem, [item.id]: event.target.value })}><option value="">Choose shop</option>{vendors.map((vendor) => <option key={vendor.id} value={vendor.id}>{vendor.name}{vendor.location ? ` · ${vendor.location}` : ""}</option>)}</select></label>
+                <label className="grid gap-1 text-xs font-bold text-black/70">Qty<input aria-label={`Quantity sourced for ${item.productName}`} type="number" min="1" max={remaining} value={quantityByItem[item.id] ?? remaining} onChange={(event) => setQuantityByItem({ ...quantityByItem, [item.id]: Number(event.target.value) })} className="min-h-11 rounded-xl border border-black/10 px-3 py-2 text-sm font-normal text-black" /></label>
+                <label className="grid gap-1 text-xs font-bold text-black/70">Unit price ₦<input aria-label={`Unit price for ${item.productName}`} type="number" min="0" value={priceByItem[item.id] ?? item.unitPrice} onChange={(event) => setPriceByItem({ ...priceByItem, [item.id]: Number(event.target.value) })} className="min-h-11 rounded-xl border border-black/10 px-3 py-2 text-sm font-normal text-black" /></label>
+                <div className="flex flex-wrap gap-2 sm:col-span-3"><button disabled={busy || !vendorByItem[item.id]} onClick={() => void act({ action: "source", orderItemId: item.id, vendorId: vendorByItem[item.id], result: "AVAILABLE", quantity: quantityByItem[item.id], actualUnitPrice: priceByItem[item.id] })} className="rounded-full bg-black px-4 py-2 text-xs font-bold text-white disabled:opacity-40">Record sourced</button>
+                <button disabled={busy || !vendorByItem[item.id]} onClick={() => void act({ action: "source", orderItemId: item.id, vendorId: vendorByItem[item.id], result: "UNAVAILABLE" })} className="rounded-full border border-black/15 px-4 py-2 text-xs font-bold disabled:opacity-40">Unavailable here</button></div>
               </div>}
             </section>;
           })}</div>
@@ -103,7 +108,7 @@ export function RunnerMissionDetail({ orderId }: { orderId: string }) {
           <button disabled={busy} onClick={() => void act({ action: "delivered" })} className="mt-5 rounded-full bg-black px-6 py-3 text-sm font-black text-white disabled:opacity-50">{busy ? "Updating…" : "Mark delivered"}</button>
           <form className="mt-6 border-t border-black/5 pt-5" onSubmit={(event) => { event.preventDefault(); void act({ action: "delivery-issue", type: issueType, description: issueNote }); }}>
             <h2 className="font-black">Can&apos;t complete delivery?</h2>
-            <div className="mt-3 grid gap-2 sm:grid-cols-[200px_1fr_auto]"><select className="rounded-xl border border-black/10 bg-white px-3 py-2 text-sm" value={issueType} onChange={(event) => setIssueType(event.target.value as IssueType)}><option value="CUSTOMER_UNAVAILABLE">Customer unavailable</option><option value="DELIVERY_ISSUE">Delivery issue</option><option value="WRONG_ITEM">Wrong item</option><option value="MISSING_ITEM">Missing item</option><option value="DAMAGED_ITEM">Damaged item</option><option value="OTHER">Other</option></select><input value={issueNote} onChange={(event) => setIssueNote(event.target.value)} maxLength={1000} placeholder="Short note for PackAM" className="rounded-xl border border-black/10 px-3 py-2 text-sm"/><button disabled={busy} className="rounded-full border border-black/15 px-4 py-2 text-xs font-bold disabled:opacity-50">Report issue</button></div>
+            <div className="mt-3 grid gap-2 sm:grid-cols-[200px_1fr_auto]"><select aria-label="Issue type" className="min-h-11 rounded-xl border border-black/10 bg-white px-3 py-2 text-sm" value={issueType} onChange={(event) => setIssueType(event.target.value as IssueType)}><option value="CUSTOMER_UNAVAILABLE">Customer unavailable</option><option value="DELIVERY_ISSUE">Delivery issue</option><option value="WRONG_ITEM">Wrong item</option><option value="MISSING_ITEM">Missing item</option><option value="DAMAGED_ITEM">Damaged item</option><option value="OTHER">Other</option></select><input aria-label="Short note for PackAM" value={issueNote} onChange={(event) => setIssueNote(event.target.value)} maxLength={1000} placeholder="Short note for PackAM" className="rounded-xl border border-black/10 px-3 py-2 text-sm"/><button disabled={busy} className="rounded-full border border-black/15 px-4 py-2 text-xs font-bold disabled:opacity-50">Report issue</button></div>
           </form>
         </>}
       </>}

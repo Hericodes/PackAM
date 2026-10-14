@@ -2,9 +2,11 @@ import "server-only";
 
 import { Prisma } from "@prisma/client";
 import { db } from "../db";
+import { isValidReportedShopPrice } from "../catalogue-permissions";
+import { retrySerializable } from "../db-retry";
 import { isPriceIncreaseWithinConfiguredTolerance } from "./price-policy";
 import { getRunnerAcceptanceTimeoutMinutes } from "./price-policy";
-import { offerFindingOrdersToRunner } from "./runner-assignments";
+import { offerFindingOrdersToRunner, offerFindingPrintJobsToRunner } from "./runner-assignments";
 import { startRefundWorkflow } from "./refunds";
 import { transitionOrderInTransaction } from "./transition";
 import { hasCompleteSourcing, hasUnresolvedUnavailableItems } from "./sourcing-completion";
@@ -18,13 +20,16 @@ export async function setRunnerAvailability(userId: string, available: boolean) 
     });
     if (!runner) throw new Error("Your runner profile is not active and verified.");
     await tx.runnerProfile.update({ where: { id: runner.id }, data: { isAvailable: available } });
-    const offered = available ? await offerFindingOrdersToRunner(tx, runner.id) : 0;
+    const offered = available
+      ? (await offerFindingOrdersToRunner(tx, runner.id)) + (await offerFindingPrintJobsToRunner(tx, runner.id))
+      : 0;
     return { available, offered };
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 }
 
 export async function acceptRunnerMission(userId: string, orderId: string) {
-  return db.$transaction(async (tx) => {
+  // Competing runners conflict under Serializable; retrying lets exactly one win and the rest see why.
+  return retrySerializable(() => db.$transaction(async (tx) => {
     const runner = await tx.runnerProfile.findFirst({
       where: { userId, isAvailable: true, isVerified: true, user: { role: "RUNNER", status: "ACTIVE" } },
       select: { id: true, userId: true },
@@ -62,8 +67,8 @@ export async function acceptRunnerMission(userId: string, orderId: string) {
       where: { orderId, id: { not: assignment.id }, status: "OFFERED" },
       data: { status: "EXPIRED" },
     });
-return { accepted: true };
-  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    return { accepted: true };
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }));
 }
 
 type SourcingInput = {
@@ -122,7 +127,7 @@ export async function reportSourcing(userId: string, orderId: string, input: Sou
         },
       });
       await notifyAdmins(tx, { type: "SYSTEM", title: "Product unavailable", message: `${item.productName} was unavailable at ${vendor.name} for order ${orderId}.`, orderId, idempotencyKey: `product-unavailable:${sourcing.id}` });
-      await notifyStudent(tx, order.userId, orderId, "Product availability update", `${item.productName} wasn’t available at ${vendor.name}. We’re checking other shops.`);
+      await notifyStudent(tx, order.userId, orderId, "Product availability update", `${item.productName} wasn’t available at ${vendor.name}. We’re checking other shops.`, `availability:${sourcing.id}`);
       if (order.status === "RUNNER_ASSIGNED") {
         await transitionOrderInTransaction(tx, { orderId, toStatus: "SOURCING_PRODUCT", actorId: userId, note: "Runner began sourcing the order." });
         await notifyStudent(tx, order.userId, orderId, "We’re getting your stuff", "Your order is being sourced around campus.");
@@ -132,8 +137,8 @@ export async function reportSourcing(userId: string, orderId: string, input: Sou
 
     const quantity = input.quantity;
     const actualUnitPrice = input.actualUnitPrice ?? item.unitPrice;
-    if (!Number.isInteger(quantity) || !quantity || quantity < 1 || !Number.isSafeInteger(actualUnitPrice) || actualUnitPrice < 0) {
-      throw new Error("Enter a valid sourced quantity and price.");
+    if (!Number.isInteger(quantity) || !quantity || quantity < 1 || !isValidReportedShopPrice(actualUnitPrice)) {
+      throw new Error("Enter a valid sourced quantity and a shop price of at least ₦1.");
     }
     const prior = await tx.orderItemSourcing.aggregate({
       where: { orderItemId: item.id, status: { in: ["SOURCED", "APPROVED", "PRICE_PENDING"] } },
@@ -172,7 +177,7 @@ export async function reportSourcing(userId: string, orderId: string, input: Sou
           description: `${item.productName} costs ₦${actualUnitPrice.toLocaleString()} at ${vendor.name}; checkout price was ₦${item.unitPrice.toLocaleString()}.`,
         },
       });
-      await notifyStudent(tx, order.userId, orderId, "Small price change 👀", `${item.productName} is ₦${actualUnitPrice.toLocaleString()} at ${vendor.name}, instead of ₦${item.unitPrice.toLocaleString()}. Choose Continue or Cancel & Refund.`);
+      await notifyStudent(tx, order.userId, orderId, "Small price change 👀", `${item.productName} is ₦${actualUnitPrice.toLocaleString()} at ${vendor.name}, instead of the ₦${item.unitPrice.toLocaleString()} you paid. Open your order to continue or cancel.`, `price-change:${sourcing.id}`);
     }
     if (order.status === "RUNNER_ASSIGNED") {
       await transitionOrderInTransaction(tx, { orderId, toStatus: "SOURCING_PRODUCT", actorId: userId, note: "Runner began sourcing the order." });
@@ -309,7 +314,8 @@ async function getAssignedOrder(tx: Prisma.TransactionClient, userId: string, or
   return { runner, assignment, order };
 }
 
-async function notifyStudent(tx: Prisma.TransactionClient, userId: string, orderId: string, title: string, message: string) {
+/** `eventKey` must be unique per real event; by default one notification per order and title. */
+async function notifyStudent(tx: Prisma.TransactionClient, userId: string, orderId: string, title: string, message: string, eventKey?: string) {
   if (message === "The runner has started delivery." || message === "Your order has been delivered." || message === "Your order is being sourced around campus.") return;
-  await createNotification(tx, { userId, orderId, type: "ORDER", title, message, idempotencyKey: `order:${orderId}:${title}` });
+  await createNotification(tx, { userId, orderId, type: "ORDER", title, message, idempotencyKey: eventKey ? `order:${orderId}:${eventKey}` : `order:${orderId}:${title}` });
 }

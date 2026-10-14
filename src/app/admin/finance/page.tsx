@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { requireRole } from "../../../lib/auth-guard";
 import { PaymentStatus } from "@prisma/client";
 import { db } from "../../../lib/db";
 import { summarizeKnownOrderMoney } from "../../../lib/finance";
@@ -12,6 +13,7 @@ function validDate(value: string | undefined) {
 }
 
 export default async function AdminFinancePage({ searchParams }: { searchParams: Promise<Search> }) {
+ await requireRole("ADMIN");
   const search = await searchParams;
   const from = validDate(search.from); const toDate = validDate(search.to);
   const to = toDate ? new Date(toDate.getTime() + 24 * 60 * 60 * 1000) : undefined;

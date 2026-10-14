@@ -5,7 +5,7 @@ import { createNotification } from "../notifications";
 import { canTransitionPrintJob } from "./status-machine";
 
 const events: Partial<Record<PrintJobStatus, { type: "ORDER" | "PAYMENT" | "DELIVERY"; title: string; message: string }>> = {
-  PAYMENT_CONFIRMED: { type: "PAYMENT", title: "Print payment confirmed", message: "We’ve got your print job 🫡" },
+  PAYMENT_CONFIRMED: { type: "PAYMENT", title: "Print payment confirmed", message: "Payment confirmed 🎉 We’re finding someone to handle your print job." },
   RUNNER_ASSIGNED: { type: "DELIVERY", title: "Print runner assigned", message: "Someone has accepted the print mission. 🖨️" },
   DOCUMENT_RECEIVED: { type: "ORDER", title: "Document received", message: "Your document is with the runner." },
   PRINTING: { type: "ORDER", title: "Printing started", message: "Your document is being printed. 👀" },

@@ -51,6 +51,7 @@ export function ProductImageUpload({
                     src={value}
                     alt="Product preview"
                     fill
+                    sizes="(min-width: 640px) 400px, 100vw"
                     className="object-cover"
                   />
                 </div>

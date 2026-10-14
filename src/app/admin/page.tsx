@@ -1,10 +1,13 @@
 import Link from "next/link";
+import { requireRole } from "../../lib/auth-guard";
 import { OrderStatus, PaymentStatus, ProductRequestStatus, RefundStatus } from "@prisma/client";
 import { db } from "../../lib/db";
 import { getRunnerAcceptanceTimeoutMinutes } from "../../lib/orders/price-policy";
+import { orphanedSuccessfulMarketplacePaymentWhere } from "../../lib/payments/orphaned-marketplace-payment";
 
 const statusNames: Record<string, string> = { PAYMENT_CONFIRMED: "Payment confirmed", FINDING_RUNNER: "Finding runner", RUNNER_ASSIGNED: "Runner assigned", SOURCING_PRODUCT: "Sourcing", OUT_FOR_DELIVERY: "Out for delivery", DELIVERED: "Completed", REFUND_PROCESSING: "Refund processing", REFUNDED: "Refunded", FAILED: "Failed", CANCELLED: "Cancelled" };
 export default async function AdminHomePage() {
+ await requireRole("ADMIN");
   const now = new Date(); const localDay = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Lagos" }).format(now); const today = new Date(`${localDay}T00:00:00.000+01:00`); const runnerCutoff = new Date(now.getTime() - getRunnerAcceptanceTimeoutMinutes() * 60_000);
   const [todayOrders, findingRunner, assigned, sourcing, outForDelivery, completed, failed, refunds, requests, staleRequests, paymentIssues, openIncidents, waitingPrices, abandoned] = await Promise.all([
     db.order.count({ where: { createdAt: { gte: today } } }),
@@ -17,7 +20,7 @@ export default async function AdminHomePage() {
     db.refund.count({ where: { status: { in: [RefundStatus.PENDING, RefundStatus.PROCESSING, RefundStatus.FAILED] } } }),
     db.productRequest.count({ where: { status: { in: [ProductRequestStatus.PENDING, ProductRequestStatus.CHECKING] } } }),
     db.productRequest.count({ where: { status: ProductRequestStatus.CHECKING, updatedAt: { lte: new Date(now.getTime() - 24 * 60 * 60_000) } } }),
-    db.payment.count({ where: { OR: [{ status: PaymentStatus.RECONCILIATION_REQUIRED }, { status: PaymentStatus.SUCCESS, orderId: null }] } }),
+    db.payment.count({ where: { OR: [{ status: PaymentStatus.RECONCILIATION_REQUIRED }, orphanedSuccessfulMarketplacePaymentWhere] } }),
     db.incident.count({ where: { status: { in: ["OPEN", "INVESTIGATING"] } } }),
     db.orderItemSourcing.count({ where: { status: "PRICE_PENDING" } }),
     db.order.count({ where: { status: OrderStatus.FINDING_RUNNER, assignedRunnerId: null, findingRunnerAt: { lte: runnerCutoff } } }),

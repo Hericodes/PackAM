@@ -2,7 +2,7 @@ import "server-only";
 
 import { PaymentProvider } from "@prisma/client";
 import { signOpayApiPayload, verifyOpayCallbackSignature } from "./opay-signature";
-import { toOpayMinorUnits } from "./opay-money";
+import { toOpayMinorUnits, verifyOpayTransaction } from "./opay-money";
 
 const CASHIER_PATH = "/api/v1/international/cashier";
 const CREATE_PATH = `${CASHIER_PATH}/create`;
@@ -77,6 +77,7 @@ export function mapProviderStatus(status: unknown): OpayStatus {
 export type CashierCreateInput = {
   reference: string;
   amount: number; // PackAM stores whole NGN; OPay expects the minor unit (kobo).
+  productName?: string;
   productDescription: string;
   customer: { id: string; name: string; email: string; phone?: string };
   returnUrl: string;
@@ -100,7 +101,7 @@ export async function createCashierPayment(input: CashierCreateInput) {
       userEmail: input.customer.email,
       ...(input.customer.phone ? { userMobile: input.customer.phone } : {}),
     },
-    product: { name: "PackAM campus order", description: input.productDescription.slice(0, 250) },
+    product: { name: input.productName ?? "PackAM campus order", description: input.productDescription.slice(0, 250) },
   };
   const result = await post<{
     code?: string;
@@ -147,22 +148,7 @@ export function verifyPayment(
   transaction: ProviderTransaction,
   expected: { reference: string; amount: number; currency: string; providerCheckoutReference?: string | null },
 ) {
-  const amount = Number(transaction.amount?.total);
-  const currency = (transaction.amount?.currency ?? transaction.currency ?? "").toUpperCase();
-  if (transaction.reference !== expected.reference) throw new Error("OPay reference does not match the payment attempt.");
-  if (expected.providerCheckoutReference && transaction.orderNo !== expected.providerCheckoutReference) {
-    throw new Error("OPay order reference does not match the payment attempt.");
-  }
-  if (!Number.isSafeInteger(amount) || amount !== toOpayMinorUnits(expected.amount)) {
-    throw new Error("OPay amount does not match the payment attempt.");
-  }
-  if (currency !== expected.currency.toUpperCase() || currency !== "NGN") {
-    throw new Error("OPay currency does not match the payment attempt.");
-  }
-  const status = mapProviderStatus(transaction.status);
-  const providerReference = transaction.transactionId ?? transaction.orderNo;
-  if (status === "SUCCESS" && !providerReference) throw new Error("OPay success response has no transaction reference.");
-  return { status, providerReference };
+  return verifyOpayTransaction(transaction, expected);
 }
 
 export function verifyCallbackSignature(input: {

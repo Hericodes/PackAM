@@ -14,6 +14,10 @@ import {
 } from "./document";
 import type { PrintUploadIdentity } from "./document-validation";
 import { transitionPrintJobInTransaction } from "./status";
+import {
+  assertPrintJobMatchesCheckoutSnapshot,
+  assertPrintCheckoutSnapshotsMatch,
+} from "./payment-snapshot";
 
 export type PrintConfiguration = {
   paperSize: PrintPaperSize;
@@ -253,7 +257,7 @@ export async function quotePrintJob(userId: string, printJobId: string, configur
 
 function buildPrintCheckoutSnapshot(
   printJobId: string,
-  pageCount: number,
+  document: { id: string; publicId: string; originalFileName: string; fileSize: number; pageCount: number },
   configuration: PrintConfiguration,
   deliveryLocation: { id: string; label: string; address: string; instructions: string | null },
   selection: ReturnType<typeof parsePageSelection>,
@@ -263,7 +267,11 @@ function buildPrintCheckoutSnapshot(
   return {
     kind: "PRINT_JOB",
     printJobId,
-    documentPageCount: pageCount,
+    documentId: document.id,
+    documentPublicId: document.publicId,
+    documentName: document.originalFileName,
+    documentFileSize: document.fileSize,
+    documentPageCount: document.pageCount,
     paperSize: configuration.paperSize,
     colorMode: configuration.colorMode,
     sides: configuration.sides,
@@ -320,7 +328,11 @@ export async function preparePrintJobForPayment(
       tx.user.findFirst({ where: { id: userId, role: "STUDENT", status: "ACTIVE" }, select: { id: true } }),
       tx.printJob.findFirst({
         where: { id: printJobId, userId, status: { in: ["DRAFT", "READY_FOR_PAYMENT"] } },
-        select: { id: true, status: true, document: { select: { pageCount: true, deletedAt: true } } },
+        select: {
+          id: true,
+          status: true,
+          document: { select: { id: true, publicId: true, originalFileName: true, fileSize: true, pageCount: true, mimeType: true, storageProvider: true, deletedAt: true } },
+        },
       }),
       tx.savedLocation.findFirst({ where: { id: deliveryLocationId, userId }, select: { id: true, label: true, address: true, instructions: true } }),
       tx.payment.findFirst({ where: { printJobId, status: { in: ["PENDING", "RECONCILIATION_REQUIRED", "SUCCESS"] } }, select: { id: true } }),
@@ -333,7 +345,7 @@ export async function preparePrintJobForPayment(
     const { selection, pricing, instructions } = calculateJobPrice(configuration, job.document.pageCount);
     const snapshot = buildPrintCheckoutSnapshot(
       job.id,
-      job.document.pageCount,
+      job.document,
       configuration,
       location,
       selection,
@@ -381,6 +393,12 @@ export async function getStudentPrintWorkspace(userId: string) {
       pageSelection: true,
       instructions: true,
       checkoutSnapshot: true,
+      payments: {
+        where: { status: { in: ["PENDING", "RECONCILIATION_REQUIRED", "SUCCESS"] } },
+        orderBy: { createdAt: "desc" },
+        take: 1,
+        select: { status: true },
+      },
       document: { select: { originalFileName: true, fileSize: true, pageCount: true, deletedAt: true } },
     },
   });
@@ -405,14 +423,21 @@ export async function getStudentPrintWorkspace(userId: string) {
         pageSelection: true,
         instructions: true,
         checkoutSnapshot: true,
+        payments: {
+          where: { status: { in: ["PENDING", "RECONCILIATION_REQUIRED", "SUCCESS"] } },
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          select: { status: true },
+        },
         document: { select: { originalFileName: true, fileSize: true, pageCount: true, deletedAt: true } },
       },
     });
     if (previous?.document) {
-      const { checkoutSnapshot, ...workspace } = previous;
+      const { checkoutSnapshot, payments, ...workspace } = previous;
       const snapshot = checkoutSnapshot && typeof checkoutSnapshot === "object" && !Array.isArray(checkoutSnapshot) ? checkoutSnapshot : null;
       return {
         ...workspace,
+        activePaymentStatus: payments[0]?.status ?? null,
         deliveryLocationId: snapshot && typeof snapshot.deliveryLocationId === "string" ? snapshot.deliveryLocationId : null,
         pendingUploadJobId: job.id,
         pendingReplacementForJobId: previous.id,
@@ -425,7 +450,7 @@ export async function getStudentPrintWorkspace(userId: string) {
     }
   }
 
-  const { checkoutSnapshot, ...workspace } = job;
+  const { checkoutSnapshot, payments, ...workspace } = job;
   const snapshot = checkoutSnapshot;
   const snapshotRecord = snapshot && typeof snapshot === "object" && !Array.isArray(snapshot) ? snapshot : null;
   const deliveryLocationId = snapshotRecord && typeof snapshotRecord.deliveryLocationId === "string"
@@ -433,6 +458,7 @@ export async function getStudentPrintWorkspace(userId: string) {
     : null;
   return {
     ...workspace,
+    activePaymentStatus: payments[0]?.status ?? null,
     deliveryLocationId,
     pendingUploadJobId: !job.document ? job.id : null,
     pendingReplacementForJobId: job.replacesPrintJobId,
@@ -446,98 +472,67 @@ export async function createPrintPaymentAttempt(
   provider: PaymentProvider,
   userId: string,
   printJobId: string,
-  deliveryLocationId: string,
-  deliveryInstructions: string | null,
-  configuration: PrintConfiguration,
   idempotencyKey: string,
 ) {
   const key = idempotencyKey.trim();
   if (!key || key.length > 128) throw new Error("A valid payment idempotency key is required.");
-  if (!deliveryLocationId) throw new Error("Choose a saved delivery location.");
-  const instructions = normalizeInstructions(deliveryInstructions);
 
-  try {
-    return await db.$transaction(async (tx) => {
+  const createAttempt = () => db.$transaction(async (tx) => {
       const existing = await tx.payment.findUnique({
         where: { userId_idempotencyKey: { userId, idempotencyKey: key } },
-        select: { id: true, transactionReference: true, provider: true, status: true, amount: true, currency: true, orderId: true, printJobId: true },
       });
       if (existing) {
         if (existing.printJobId !== printJobId) throw new Error("This payment request key was already used.");
+        if (existing.provider !== provider) throw new Error("This payment attempt uses a different provider.");
         return existing;
       }
 
-      const [user, job, location, outstandingAttempt] = await Promise.all([
+      const [user, job, outstandingAttempt] = await Promise.all([
         tx.user.findFirst({ where: { id: userId, role: "STUDENT", status: "ACTIVE" }, select: { id: true } }),
         tx.printJob.findFirst({
-          where: { id: printJobId, userId, status: { in: ["DRAFT", "READY_FOR_PAYMENT"] } },
-          select: { id: true, status: true, document: { select: { pageCount: true, deletedAt: true } } },
+          where: { id: printJobId, userId, status: "READY_FOR_PAYMENT" },
+          select: {
+            id: true,
+            status: true,
+            paperSize: true,
+            colorMode: true,
+            sides: true,
+            copies: true,
+            pageSelection: true,
+            instructions: true,
+            pricePerPage: true,
+            printSubtotal: true,
+            deliveryFee: true,
+            total: true,
+            pricingVersion: true,
+            checkoutSnapshot: true,
+            document: { select: { id: true, publicId: true, originalFileName: true, fileSize: true, pageCount: true, mimeType: true, storageProvider: true, deletedAt: true } },
+          },
         }),
-        tx.savedLocation.findFirst({ where: { id: deliveryLocationId, userId }, select: { id: true, address: true, instructions: true } }),
         tx.payment.findFirst({
-          where: { printJobId, status: { in: ["PENDING", "RECONCILIATION_REQUIRED"] }, orderId: null },
-          select: { id: true },
+          where: { printJobId, userId, status: { in: ["PENDING", "RECONCILIATION_REQUIRED"] }, orderId: null },
         }),
       ]);
       if (!user) throw new Error("An active student account is required.");
-      if (!job) throw new Error("Print job not found.");
-      if (!job.document || job.document.deletedAt) throw new Error("Upload a valid PDF before preparing checkout.");
-      if (!location) throw new Error("Choose one of your saved delivery locations.");
-      if (outstandingAttempt) throw new Error("A payment for this print job is already pending. Check its payment status before trying again.");
-      const calculated = calculateJobPrice(configuration, job.document.pageCount);
-      const pricing = calculated.pricing;
-      const resolvedDeliveryInstructions = instructions ?? location.instructions ?? null;
-      const snapshot = {
-        kind: "PRINT_JOB",
-        printJobId,
-        documentPageCount: job.document.pageCount,
-        paperSize: configuration.paperSize,
-        colorMode: configuration.colorMode,
-        sides: configuration.sides,
-        copies: configuration.copies,
-        pageSelection: calculated.selection.canonical,
-        selectedPageCount: calculated.selection.selectedPageCount,
-        instructions: calculated.instructions,
-        pricePerPage: pricing.ratePerPage,
-        pricingVersion: PRINTING_PRICING_VERSION,
-        printSubtotal: pricing.printSubtotal,
-        deliveryFee: pricing.deliveryFee,
-        total: pricing.total,
-        currency: CHECKOUT_CURRENCY,
-        deliveryLocationId: location.id,
-        deliveryAddress: location.address,
-        deliveryInstructions: resolvedDeliveryInstructions,
-      };
-      const printConfigurationData = {
-        paperSize: configuration.paperSize,
-        colorMode: configuration.colorMode,
-        sides: configuration.sides,
-        copies: configuration.copies,
-        pageSelection: calculated.selection.canonical,
-        selectedPageCount: calculated.selection.selectedPageCount,
-        instructions: calculated.instructions,
-        pricePerPage: pricing.ratePerPage,
-        printSubtotal: pricing.printSubtotal,
-        deliveryFee: pricing.deliveryFee,
-        total: pricing.total,
-        pricingVersion: PRINTING_PRICING_VERSION,
-        checkoutSnapshot: snapshot as Prisma.InputJsonValue,
-      };
-
-      if (job.status === "DRAFT") {
-        await transitionPrintJobInTransaction(tx, {
-          printJobId,
-          toStatus: "READY_FOR_PAYMENT",
-          actorId: userId,
-          note: "Student confirmed print specifications and delivery details.",
-          data: printConfigurationData,
-        });
-      } else {
-        const update = await tx.printJob.updateMany({
+      if (!job) throw new Error("This print job is not ready for payment.");
+      const snapshot = assertPrintJobMatchesCheckoutSnapshot(job, job.checkoutSnapshot);
+      const location = await tx.savedLocation.findFirst({
+        where: { id: snapshot.deliveryLocationId, userId },
+        select: { id: true },
+      });
+      if (!location) {
+        throw new Error("The saved delivery location is no longer available. Update it before payment.");
+      }
+      if (outstandingAttempt) {
+        assertPrintCheckoutSnapshotsMatch(outstandingAttempt.checkoutSnapshot, snapshot);
+        return outstandingAttempt;
+      }
+      if (JSON.stringify(job.checkoutSnapshot) !== JSON.stringify(snapshot)) {
+        const refreshed = await tx.printJob.updateMany({
           where: { id: printJobId, userId, status: "READY_FOR_PAYMENT" },
-          data: printConfigurationData,
+          data: { checkoutSnapshot: snapshot as Prisma.InputJsonValue },
         });
-        if (update.count !== 1) throw new Error("This print job changed while checkout was starting.");
+        if (refreshed.count !== 1) throw new Error("Print job changed while its payment snapshot was being verified.");
       }
 
       return tx.payment.create({
@@ -546,25 +541,41 @@ export async function createPrintPaymentAttempt(
           printJobId,
           provider,
           status: "PENDING",
-          amount: pricing.total,
-          currency: CHECKOUT_CURRENCY,
+          amount: snapshot.total,
+          currency: snapshot.currency,
           transactionReference: `packam_${randomUUID()}`,
           idempotencyKey: key,
           checkoutSnapshot: snapshot as Prisma.InputJsonValue,
         },
-        select: { id: true, transactionReference: true, provider: true, status: true, amount: true, currency: true, orderId: true, printJobId: true },
       });
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
-  } catch (error) {
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-      const existing = await db.payment.findUnique({
-        where: { userId_idempotencyKey: { userId, idempotencyKey: key } },
-        select: { id: true, transactionReference: true, provider: true, status: true, amount: true, currency: true, orderId: true, printJobId: true },
-      });
-      if (existing?.printJobId === printJobId) return existing;
+
+  const selectExistingAttempt = async () => {
+    const existing = await db.payment.findUnique({ where: { userId_idempotencyKey: { userId, idempotencyKey: key } } });
+    if (existing) {
+      if (existing.printJobId !== printJobId || existing.provider !== provider) {
+        throw new Error("This payment request key was already used.");
+      }
+      return existing;
     }
-    throw error;
+    return db.payment.findFirst({
+      where: { userId, printJobId, provider, status: { in: ["PENDING", "RECONCILIATION_REQUIRED"] }, orderId: null },
+    });
+  };
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      return await createAttempt();
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        const existing = await selectExistingAttempt();
+        if (existing) return existing;
+      }
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2034" && attempt < 2) continue;
+      throw error;
+    }
   }
+  throw new Error("Payment attempt could not be created. Please try again.");
 }
 
 export async function getStudentPrintJob(userId: string, printJobId: string) {
@@ -587,4 +598,117 @@ export async function getStudentPrintJob(userId: string, printJobId: string) {
       statusHistory: { orderBy: { createdAt: "asc" }, select: { status: true, note: true, createdAt: true } },
     },
   });
+}
+
+export async function getStudentPrintPaymentWorkspace(userId: string, printJobId: string) {
+  const job = await db.printJob.findFirst({
+    where: { id: printJobId, userId },
+    select: {
+      id: true,
+      status: true,
+      paperSize: true,
+      colorMode: true,
+      sides: true,
+      copies: true,
+      pageSelection: true,
+      instructions: true,
+      pricePerPage: true,
+      printSubtotal: true,
+      deliveryFee: true,
+      total: true,
+      pricingVersion: true,
+      checkoutSnapshot: true,
+      document: { select: { id: true, publicId: true, originalFileName: true, fileSize: true, pageCount: true, mimeType: true, storageProvider: true, deletedAt: true } },
+      payments: {
+        orderBy: { createdAt: "desc" },
+        take: 1,
+        select: {
+          transactionReference: true,
+          status: true,
+          amount: true,
+          currency: true,
+          cashierUrl: true,
+          checkoutSnapshot: true,
+        },
+      },
+    },
+  });
+  if (!job || !job.payments[0] || !job.checkoutSnapshot) return null;
+  const snapshot = assertPrintJobMatchesCheckoutSnapshot(job, job.checkoutSnapshot, job.status);
+  const payment = job.payments[0];
+  assertPrintCheckoutSnapshotsMatch(payment.checkoutSnapshot, snapshot);
+  if (payment.amount !== snapshot.total || payment.currency !== snapshot.currency || !payment.transactionReference) {
+    throw new Error("Print payment record does not match the prepared print job.");
+  }
+  return {
+    id: job.id,
+    status: job.status,
+    snapshot,
+    payment: {
+      reference: payment.transactionReference,
+      status: payment.status,
+      amount: payment.amount,
+      currency: payment.currency,
+      cashierUrl: payment.cashierUrl,
+    },
+  };
+}
+
+/** Student tracking view. Selects only student-safe fields; storage identifiers stay server-side. */
+export async function getStudentPrintTracking(userId: string, printJobId: string) {
+  const job = await db.printJob.findFirst({
+    where: { id: printJobId, userId },
+    select: {
+      id: true,
+      status: true,
+      paperSize: true,
+      colorMode: true,
+      sides: true,
+      copies: true,
+      pageSelection: true,
+      selectedPageCount: true,
+      printSubtotal: true,
+      deliveryFee: true,
+      total: true,
+      checkoutSnapshot: true,
+      createdAt: true,
+      document: { select: { originalFileName: true } },
+      payments: { orderBy: { createdAt: "desc" }, take: 1, select: { status: true } },
+      statusHistory: { orderBy: { createdAt: "asc" }, select: { id: true, status: true, createdAt: true } },
+    },
+  });
+  if (!job) return null;
+  const snapshot = job.checkoutSnapshot && typeof job.checkoutSnapshot === "object" && !Array.isArray(job.checkoutSnapshot)
+    ? job.checkoutSnapshot as Record<string, unknown>
+    : {};
+  return {
+    id: job.id,
+    status: job.status,
+    paperSize: job.paperSize,
+    colorMode: job.colorMode,
+    sides: job.sides,
+    copies: job.copies,
+    pageSelection: job.pageSelection,
+    selectedPageCount: job.selectedPageCount,
+    printSubtotal: job.printSubtotal,
+    deliveryFee: job.deliveryFee,
+    total: job.total,
+    createdAt: job.createdAt,
+    statusHistory: job.statusHistory,
+    documentName: job.document?.originalFileName ?? null,
+    paymentStatus: job.payments[0]?.status ?? null,
+    deliveryLocationLabel: typeof snapshot.deliveryLocationLabel === "string" ? snapshot.deliveryLocationLabel : null,
+    deliveryAddress: typeof snapshot.deliveryAddress === "string" ? snapshot.deliveryAddress : null,
+  };
+}
+
+/** Recent paid print jobs, so students can get back to tracking from the Printing page. */
+export async function listStudentPaidPrintJobs(userId: string) {
+  const jobs = await db.printJob.findMany({
+    where: { userId, status: { notIn: ["DRAFT", "READY_FOR_PAYMENT"] } },
+    orderBy: { updatedAt: "desc" },
+    take: 5,
+    select: { id: true, status: true, copies: true, selectedPageCount: true, total: true, updatedAt: true, document: { select: { originalFileName: true } } },
+  });
+  return jobs.map(({ document, ...job }) => ({ ...job, documentName: document?.originalFileName ?? null }));
 }

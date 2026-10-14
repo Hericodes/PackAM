@@ -44,7 +44,7 @@ export default async function HomePage() {
           {/* LEFT */}
           <div className="relative z-10">
             <div className="mb-5 inline-flex min-h-11 items-center gap-2 rounded-full border border-black/10 bg-white px-4 py-2 text-sm font-black shadow-sm sm:mb-6">
-              <span>👀</span>
+              <span aria-hidden="true">👀</span>
               OOU students, we got you.
             </div>
             <h1 className="max-w-3xl text-[clamp(2.75rem,11vw,3.7rem)] font-black leading-[0.95] tracking-[-0.045em] sm:text-6xl lg:text-[5.5rem]">
@@ -71,7 +71,7 @@ export default async function HomePage() {
                 ⌕
               </span>
               <span className="flex-1 text-left text-base font-semibold text-black/65 sm:text-lg">
-                What do you need? 👀
+                What do you need?
               </span>
               <span
                 aria-hidden="true"
@@ -92,7 +92,7 @@ export default async function HomePage() {
                 Start here
               </p>
               <h2 className="mt-1 text-2xl font-black tracking-[-0.03em] sm:text-3xl">
-                What are you looking for today? 👀
+                What are you looking for today?
               </h2>
             </div>
             <p className="max-w-md text-sm font-medium leading-6 text-black/55 sm:text-right">
@@ -141,10 +141,10 @@ export default async function HomePage() {
                 Marketplace
               </p>
               <h2 className="mt-1 text-2xl font-black tracking-[-0.03em] sm:text-3xl">
-                People dey order these 👀
+                People dey order these
               </h2>
               <p className="mt-1 text-sm font-medium text-black/55">
-                Apparently, everybody needs something.
+                What other students are ordering right now.
               </p>
             </div>
             <Link
@@ -169,9 +169,9 @@ export default async function HomePage() {
             </div>
           ) : (
             <div className="rounded-[1.5rem] border border-black/5 bg-white px-5 py-10 text-center sm:rounded-[2rem] sm:px-6 sm:py-16">
-              <div className="text-5xl">📦</div>
+              <div className="text-5xl" aria-hidden="true">📦</div>
               <h3 className="mt-5 text-xl font-black">
-                Nothing here yet. 👀
+                Nothing here yet
               </h3>
               <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-black/70">
 We&apos;re still stocking the marketplace. Check back soon or

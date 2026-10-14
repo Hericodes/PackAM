@@ -1,9 +1,11 @@
 import Link from "next/link";
+import { requireRole } from "../../../../lib/auth-guard";
 import { notFound } from "next/navigation";
 import { db } from "../../../../lib/db";
 import { AdminOrderActions } from "../../../../components/admin/AdminOrderActions";
 
 export default async function AdminOrderDetailPage({ params }: { params: Promise<{ id: string }> }) {
+ await requireRole("ADMIN");
   const { id }=await params;
   const order=await db.order.findUnique({where:{id},include:{user:{select:{id:true,firstName:true,lastName:true,email:true,phone:true}},items:{include:{sourcing:{include:{orderSource:{include:{vendor:{select:{id:true,name:true,location:true}}}},productSource:{select:{currentPrice:true,availability:true}}}}}},payment:true,refunds:{orderBy:{createdAt:"desc"}},statusHistory:{orderBy:{createdAt:"asc"}},incidents:{include:{reportedBy:{select:{firstName:true,lastName:true,email:true}}},orderBy:{createdAt:"desc"}},assignedRunner:{include:{user:{select:{firstName:true,lastName:true,phone:true}}}},assignments:{include:{runner:{include:{user:{select:{firstName:true,lastName:true}}}}}}}});
   if(!order)notFound();

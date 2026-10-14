@@ -2,8 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { FormEvent, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { AddToCart } from "../products/AddToCart";
 
 type Category = { name: string; slug: string };
@@ -27,8 +26,6 @@ export function LiveSearch({
   categories: Category[];
   initialProducts: Item[];
 }) {
-  const router = useRouter();
-
   const [query, setQuery] = useState(initialQuery);
   const [category, setCategory] = useState(initialCategory);
   const [products, setProducts] = useState(initialProducts);
@@ -39,8 +36,12 @@ export function LiveSearch({
     (item) => item.slug === category,
   );
 
+  // The server already rendered results for the initial query and category; don't refetch them.
+  const rendered = useRef({ query: initialQuery, category: initialCategory });
+
   useEffect(() => {
     if (!query.trim() && !category) return;
+    if (query === rendered.current.query && category === rendered.current.category) return;
 
     const controller = new AbortController();
 
@@ -99,10 +100,12 @@ export function LiveSearch({
     if (query.trim()) params.set("q", query.trim());
     if (category) params.set("category", category);
 
-    router.replace(
-      `/search${params.size ? `?${params}` : ""}`,
-      { scroll: false },
-    );
+    syncUrl(params);
+  }
+
+  // Keep the URL shareable without a server round-trip or remounting this component.
+  function syncUrl(params: URLSearchParams) {
+    window.history.replaceState(null, "", `/search${params.size ? `?${params}` : ""}`);
   }
 
   function setFilter(value: string) {
@@ -113,10 +116,7 @@ export function LiveSearch({
     if (query.trim()) params.set("q", query.trim());
     if (value) params.set("category", value);
 
-    router.replace(
-      `/search${params.size ? `?${params}` : ""}`,
-      { scroll: false },
-    );
+    syncUrl(params);
   }
 
   const requestUrl = `/product-requests${
@@ -245,6 +245,7 @@ export function LiveSearch({
                     src={item.imageUrl}
                     alt={item.name}
                     fill
+                    sizes="(min-width: 1024px) 25vw, (min-width: 640px) 33vw, 50vw"
                     className="object-cover"
                   />
                 ) : (

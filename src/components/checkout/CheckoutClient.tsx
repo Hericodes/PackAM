@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { DeliveryLocation, LocationSelector } from "./LocationSelector";
 import { useCartExperience } from "../cart/CartExperience";
@@ -32,6 +32,13 @@ export function CheckoutClient({ items: initialItems, deliveryFee, locations }: 
   const subtotal = items.reduce((sum, item) => sum + item.product.customerPrice * item.quantity, 0);
   const currentDeliveryFee = items.length ? deliveryFee : 0;
   const total = subtotal + currentDeliveryFee;
+
+  // If the browser restores this page from its back/forward cache after OPay, unfreeze the button.
+  useEffect(() => {
+    const restore = (event: PageTransitionEvent) => { if (event.persisted) setPaymentBusy(false); };
+    window.addEventListener("pageshow", restore);
+    return () => window.removeEventListener("pageshow", restore);
+  }, []);
 
   async function changeItem(itemId: string, quantity: number) {
     if (busyItem) return;
@@ -73,7 +80,9 @@ export function CheckoutClient({ items: initialItems, deliveryFee, locations }: 
     if (busyItem || paymentBusy) return;
     setPaymentBusy(true);
     try {
-      const storageKey = `packam-payment-attempt:${selectedLocation.id}:${deliveryInstructions.trim()}`;
+      // The key covers the exact cart, so a changed cart can never reuse an attempt for an older amount.
+      const cartFingerprint = items.map((item) => `${item.id}x${item.quantity}`).sort().join(",");
+      const storageKey = `packam-payment-attempt:${selectedLocation.id}:${deliveryInstructions.trim()}:${cartFingerprint}:${total}`;
       let idempotencyKey = window.sessionStorage.getItem(storageKey);
       if (!idempotencyKey) {
         idempotencyKey = crypto.randomUUID();
@@ -132,7 +141,7 @@ export function CheckoutClient({ items: initialItems, deliveryFee, locations }: 
               {items.map((item) => (
                 <article key={item.id} className="flex min-w-0 gap-3 py-4 first:pt-3 last:pb-1 sm:gap-4">
                   <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-xl bg-[#f7f5ee] sm:h-[72px] sm:w-[72px]">
-                    {item.product.imageUrl ? <Image src={item.product.imageUrl} alt="" fill className="object-cover" /> : <div className="flex h-full items-center justify-center text-2xl" aria-hidden="true">📦</div>}
+                    {item.product.imageUrl ? <Image src={item.product.imageUrl} alt="" fill sizes="72px" className="object-cover" /> : <div className="flex h-full items-center justify-center text-2xl" aria-hidden="true">📦</div>}
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="break-words text-sm font-black sm:text-base">{item.product.name}</p>
