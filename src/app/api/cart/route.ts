@@ -1,5 +1,6 @@
 import { auth } from "../../../auth";
 import { db } from "../../../lib/db";
+import { studentCatalogueProductWhere } from "../../../lib/products/catalogue";
 
 async function getStudentCart(userId: string) {
   return db.cart.findUnique({
@@ -111,13 +112,7 @@ export async function POST(request: Request) {
 
     const product = await db.product.findFirst({
       select: { id: true },
-      where: {
-        id: productId,
-        status: "ACTIVE",
-        category: {
-          isActive: true,
-        },
-      },
+      where: { id: productId, ...studentCatalogueProductWhere },
     });
 
     if (!product) {

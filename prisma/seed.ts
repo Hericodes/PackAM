@@ -55,7 +55,7 @@ async function main() {
     },
   });
 
-  const printing = await prisma.category.upsert({
+  await prisma.category.upsert({
     where: {
       slug: "printing",
     },
@@ -143,7 +143,7 @@ async function main() {
     },
   });
 
-  const printSpot = await prisma.vendor.upsert({
+  await prisma.vendor.upsert({
     where: {
       id: "seed-vendor-print-spot",
     },
@@ -260,26 +260,8 @@ async function main() {
       vendor: academicHub,
       sourcePrice: 700,
     },
-    {
-      id: "seed-product-printing",
-      name: "Black & White Printing",
-      slug: "black-white-printing",
-      description: "Black and white document printing.",
-      customerPrice: 100,
-      categoryId: printing.id,
-      vendor: printSpot,
-      sourcePrice: 70,
-    },
-    {
-      id: "seed-product-colour-printing",
-      name: "Colour Printing",
-      slug: "colour-printing",
-      description: "Colour document printing.",
-      customerPrice: 300,
-      categoryId: printing.id,
-      vendor: printSpot,
-      sourcePrice: 250,
-    },
+    // Printing is a dedicated upload-and-print workflow (/printing), not a cart item, so the seed
+    // no longer creates "printing" products.
     {
       id: "seed-product-tissue",
       name: "Tissue Paper",

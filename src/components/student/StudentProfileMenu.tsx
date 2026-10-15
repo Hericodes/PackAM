@@ -77,6 +77,14 @@ export function StudentProfileMenu({
         >
           <nav aria-label="Profile navigation" className="space-y-1">
             <Link
+              href="/account"
+              onClick={() => setIsOpen(false)}
+              className="flex min-h-11 items-center gap-3 rounded-xl px-3 text-sm font-medium transition hover:bg-black/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-black"
+            >
+              <span aria-hidden="true">👤</span>
+              <span>Account</span>
+            </Link>
+            <Link
               href="/orders"
               onClick={() => setIsOpen(false)}
               className="flex min-h-11 items-center gap-3 rounded-xl px-3 text-sm font-medium transition hover:bg-black/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-black"
@@ -91,6 +99,14 @@ export function StudentProfileMenu({
             >
               <span aria-hidden="true">🖨️</span>
               <span>Printing</span>
+            </Link>
+            <Link
+              href="/saved"
+              onClick={() => setIsOpen(false)}
+              className="flex min-h-11 items-center gap-3 rounded-xl px-3 text-sm font-medium transition hover:bg-black/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-black"
+            >
+              <span aria-hidden="true">♡</span>
+              <span>Saved items</span>
             </Link>
             <Link
               href="/notifications"

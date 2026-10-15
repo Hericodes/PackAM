@@ -62,3 +62,25 @@ export function formatCampusTime(date: Date) {
 export function shortReference(id: string) {
   return id.slice(-8).toUpperCase();
 }
+
+export const ORDER_PROGRESS_STEPS = [
+  { status: "FINDING_RUNNER", label: "Paid" },
+  { status: "RUNNER_ASSIGNED", label: "Runner assigned" },
+  { status: "SOURCING_PRODUCT", label: "Getting your items" },
+  { status: "OUT_FOR_DELIVERY", label: "On the way" },
+  { status: "DELIVERED", label: "Delivered" },
+] as const;
+
+/**
+ * Progress for the order tracker. Refunds, cancellations and failures are not points on the
+ * delivery path, so they return no steps and the page explains them in words instead.
+ */
+export function orderProgress(status: string) {
+  const normalised = status === "PAYMENT_CONFIRMED" ? "FINDING_RUNNER" : status;
+  const index = ORDER_PROGRESS_STEPS.findIndex((step) => step.status === normalised);
+  if (index === -1) return null;
+  return ORDER_PROGRESS_STEPS.map((step, position) => ({
+    label: step.label,
+    state: position < index || (position === index && normalised === "DELIVERED") ? ("done" as const) : position === index ? ("current" as const) : ("upcoming" as const),
+  }));
+}

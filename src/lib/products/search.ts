@@ -1,6 +1,7 @@
 import "server-only";
 
 import { db } from "../db";
+import { isDedicatedWorkflowCategory, studentCatalogueProductWhere } from "./catalogue";
 
 export type ProductSearchResult = {
   id: string;
@@ -23,11 +24,13 @@ export async function searchProducts(input: { query: string; category: string })
   const category = input.category.trim().slice(0, 100);
   const terms = searchTerms(query);
   if (!terms.length && !category) return [];
+  // Printing is browsed through its own workflow, never as catalogue items.
+  if (isDedicatedWorkflowCategory(category)) return [];
 
   const products = await db.product.findMany({
     where: {
-      status: "ACTIVE",
-      category: { isActive: true, ...(category ? { slug: category } : {}) },
+      ...studentCatalogueProductWhere,
+      category: { ...studentCatalogueProductWhere.category, ...(category ? { slug: category } : {}) },
       ...(terms.length ? { OR: terms.flatMap((term) => [
         { name: { contains: term, mode: "insensitive" as const } },
         { description: { contains: term, mode: "insensitive" as const } },

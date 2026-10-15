@@ -36,3 +36,11 @@ test("times are shown in campus (Lagos) time regardless of server timezone", () 
   assert.match(formatted, /14/);
   assert.match(formatted, /12:30|00:30/);
 });
+
+test("order progress marks done, current and upcoming steps", async () => {
+  const { orderProgress } = await import("./student-copy");
+  assert.deepEqual(orderProgress("SOURCING_PRODUCT")?.map((s) => s.state), ["done", "done", "current", "upcoming", "upcoming"]);
+  assert.deepEqual(orderProgress("PAYMENT_CONFIRMED")?.map((s) => s.state), ["current", "upcoming", "upcoming", "upcoming", "upcoming"]);
+  assert.ok(orderProgress("DELIVERED")?.every((s) => s.state === "done"));
+  for (const status of ["REFUND_PROCESSING", "REFUNDED", "FAILED", "CANCELLED"]) assert.equal(orderProgress(status), null, status);
+});

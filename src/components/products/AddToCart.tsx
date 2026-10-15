@@ -4,9 +4,9 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useCartExperience } from "../cart/CartExperience";
 
-type AddToCartProps = { productId: string };
+type AddToCartProps = { productId: string; compact?: boolean };
 
-export function AddToCart({ productId }: AddToCartProps) {
+export function AddToCart({ productId, compact = false }: AddToCartProps) {
   const router = useRouter();
   const { adjust, setSummary } = useCartExperience();
   const [quantity, setQuantity] = useState(1);
@@ -43,6 +43,16 @@ export function AddToCart({ productId }: AddToCartProps) {
     }
   }
 
+  if (compact) {
+    return <div>
+      <button type="button" onClick={handleAddToCart} disabled={loading} className="pk-btn pk-btn-primary pk-btn-sm w-full">
+        {loading ? "Adding…" : added ? "Added ✓ Add another" : "Add to cart"}
+      </button>
+      {error && <p role="alert" className="mt-2 text-xs font-semibold text-red-700">{error}</p>}
+      <span role="status" className="sr-only">{added ? "Added to cart" : ""}</span>
+    </div>;
+  }
+
   return <div>
     <div className="flex flex-col gap-2 md:flex-row md:gap-3">
       <div className="flex h-12 w-full items-center justify-between rounded-full border border-black/10 bg-white md:w-auto md:justify-normal">
@@ -54,7 +64,7 @@ export function AddToCart({ productId }: AddToCartProps) {
         {loading ? "Adding…" : "Add to cart"}
       </button>
     </div>
-    {added && <p role="status" className="mt-3 text-sm font-bold text-green-800">Added to cart 🫡 Keep shopping.</p>}
+    {added && <p role="status" className="mt-3 text-sm font-bold text-green-800">Added to cart ✓ Check out whenever you’re ready.</p>}
     {error && <p role="alert" className="mt-3 rounded-xl bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{error}</p>}
   </div>;
 }

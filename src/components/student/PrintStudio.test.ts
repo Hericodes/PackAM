@@ -2,14 +2,15 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { CategoryCard } from "./CategoryCard";
 import { PrintStudio } from "./PrintStudio";
+import { isDedicatedWorkflowCategory, studentCatalogueCategoryWhere, studentCatalogueProductWhere } from "../../lib/products/catalogue";
 
-test("the printing category opens the dedicated printing page without changing other categories", () => {
-  const printingLink = renderToStaticMarkup(createElement(CategoryCard, { name: "Printing", slug: "printing", emoji: "🖨️" }));
-  const foodLink = renderToStaticMarkup(createElement(CategoryCard, { name: "Food & Drinks", slug: "food-drinks", emoji: "🍔" }));
-  assert.match(printingLink, /href="\/printing"/);
-  assert.match(foodLink, /href="\/search\?category=food-drinks"/);
+test("printing is a dedicated workflow, never a catalogue category or cart item", () => {
+  assert.equal(isDedicatedWorkflowCategory("printing"), true);
+  assert.equal(isDedicatedWorkflowCategory("food-drinks"), false);
+  assert.deepEqual(studentCatalogueCategoryWhere.slug.notIn, ["printing"], "catalogue filters exclude printing");
+  assert.deepEqual(studentCatalogueProductWhere.category.slug.notIn, ["printing"], "catalogue products exclude printing");
+  assert.equal(studentCatalogueProductWhere.status, "ACTIVE");
 });
 
 test("the printing experience renders its upload entry before a document is selected", () => {

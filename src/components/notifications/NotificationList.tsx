@@ -27,7 +27,7 @@ export function NotificationList({ role }: { role: "STUDENT" | "RUNNER" | "ADMIN
   }
   const unread = items.filter((entry) => !entry.isRead).length;
   return (
-    <main className="min-h-screen bg-[#f7f5ee]">
+    <main className="min-h-screen bg-[#fffdf7]">
       <div className="packam-container py-8 sm:py-10">
         <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div>

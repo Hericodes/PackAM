@@ -56,7 +56,7 @@ export function SupportCenter() {
     "w-full rounded-xl border border-black/15 bg-white px-4 py-3.5 text-base text-black outline-none transition placeholder:text-black/60 focus-visible:border-black focus-visible:ring-2 focus-visible:ring-black/20";
 
   return (
-    <main className="min-h-screen bg-[#f7f5ee]">
+    <main className="min-h-screen bg-[#fffdf7]">
       <div className="packam-container py-8 sm:py-10">
         <header className="mb-6">
           <p className="text-xs font-bold uppercase tracking-wider text-black/55">We’re here to help</p>

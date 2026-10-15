@@ -1,250 +1,196 @@
 import Link from "next/link";
+import { auth } from "../auth";
 import { StudentNavbar } from "../components/student/StudentNavbar";
-import { CategoryCard } from "../components/student/CategoryCard";
 import { ProductCard } from "../components/student/ProductCard";
-import { siteConfig } from "../config/site";
+import { EmptyState } from "../components/ui/EmptyState";
 import { db } from "../lib/db";
-const categoryEmojis: Record<string, string> = {
-  "food-drinks": "🍔",
-  "academic-materials": "📚",
-  printing: "🖨️",
-  "everyday-essentials": "🧴",
-  "phones-accessories": "📱",
-};
+import { categoryDisplay } from "../lib/products/category-display";
+import { STUDENT_DELIVERY_FEE, studentCatalogueCategoryWhere, studentCatalogueProductWhere } from "../lib/products/catalogue";
+import { formatCampusTime, orderStatusLabel } from "../lib/student-copy";
+import { PRINTING_PRICES } from "../lib/printing/pricing";
+
+const STEPS = [
+  { icon: "🔎", title: "Find it", body: "Search the catalogue, or request anything that isn’t listed." },
+  { icon: "💳", title: "Pay securely", body: `Your total and the ₦${STUDENT_DELIVERY_FEE.toLocaleString()} delivery fee are shown before you pay with OPay.` },
+  { icon: "🛵", title: "We bring it", body: "A campus runner picks it up and you track every step." },
+];
+
 export default async function HomePage() {
-  const products = await db.product.findMany({
-    where: {
-      status: "ACTIVE",
-      category: {
-        isActive: true,
-      },
-    },
-    select: {
-      id: true,
-      name: true,
-      customerPrice: true,
-      imageUrl: true,
-      category: {
-        select: {
-          name: true,
-        },
-      },
-    },
-    orderBy: {
-      createdAt: "desc",
-    },
-    take: 8,
-  });
-  return (
-    <main className="min-h-screen bg-[#fffdf7] text-black">
-      <StudentNavbar />
-      {/* HERO */}
-      <section className="overflow-hidden">
-        <div className="packam-container grid items-center gap-8 py-8 sm:gap-12 sm:py-12 lg:min-h-[620px] lg:grid-cols-[0.95fr_1.05fr] lg:py-16">
-          {/* LEFT */}
-          <div className="relative z-10">
-            <div className="mb-5 inline-flex min-h-11 items-center gap-2 rounded-full border border-black/10 bg-white px-4 py-2 text-sm font-black shadow-sm sm:mb-6">
-              <span aria-hidden="true">👀</span>
-              OOU students, we got you.
-            </div>
-            <h1 className="max-w-3xl text-[clamp(2.75rem,11vw,3.7rem)] font-black leading-[0.95] tracking-[-0.045em] sm:text-6xl lg:text-[5.5rem]">
-              Need something?
-              <br />
+  const session = await auth();
+  const studentId = session?.user.role === "STUDENT" ? session.user.id : null;
+
+  const [products, categories, recentOrders] = await Promise.all([
+    db.product.findMany({
+      where: studentCatalogueProductWhere,
+      select: { id: true, name: true, customerPrice: true, imageUrl: true, category: { select: { name: true } } },
+      orderBy: { createdAt: "desc" },
+      take: 8,
+    }),
+    db.category.findMany({
+      where: studentCatalogueCategoryWhere,
+      select: { name: true, slug: true, _count: { select: { products: { where: { status: "ACTIVE" } } } } },
+      orderBy: { name: "asc" },
+    }),
+    studentId
+      ? db.order.findMany({
+          where: { userId: studentId },
+          orderBy: { createdAt: "desc" },
+          take: 3,
+          select: { id: true, status: true, total: true, createdAt: true, items: { select: { productName: true, quantity: true }, take: 3 } },
+        })
+      : Promise.resolve([]),
+  ]);
+
+  return (
+    <main className="min-h-screen bg-[#fffdf7] text-black">
+      <StudentNavbar />
+
+      <section className="pk-hero">
+        <div className="packam-container grid gap-8 py-10 sm:py-14 lg:grid-cols-[1.1fr_0.9fr] lg:items-center lg:py-16">
+          <div>
+            <p className="pk-eyebrow">For OOU students</p>
+            <h1 className="mt-3 text-[clamp(2.25rem,7vw,3.75rem)] font-black leading-[1.02] tracking-[-0.035em]">
+              Need something?
+              <br />
               <span className="text-[#875a00]">WE PackAM.</span>
-            </h1>
-            <p className="mt-5 max-w-xl text-base font-medium leading-7 text-black/60 sm:mt-7 sm:text-xl sm:leading-8">
-              Food? Notes? Charger? Something random?
-              <br />
-              <span className="font-black text-black">
-                Just find am. 😂
-              </span>
-            </p>
-            {/* SEARCH ENTRY */}
-            <Link
-              href="/search"
-              className="group mt-6 flex min-h-16 max-w-2xl items-center gap-3 rounded-[1.25rem] border border-black/10 bg-white p-2 pl-4 shadow-[0_12px_40px_rgba(0,0,0,0.08)] transition hover:-translate-y-0.5 hover:border-black/20 hover:shadow-[0_16px_50px_rgba(0,0,0,0.12)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-black sm:mt-8 sm:gap-4 sm:pl-5"
-            >
-              <span
-                aria-hidden="true"
-                className="text-2xl text-black/65"
-              >
-                ⌕
-              </span>
-              <span className="flex-1 text-left text-base font-semibold text-black/65 sm:text-lg">
-                What do you need?
-              </span>
-              <span
-                aria-hidden="true"
-                className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-[#feb80a] text-xl font-black transition group-hover:scale-105"
-              >
-                →
-              </span>
-            </Link>
+            </h1>
+            <p className="pk-muted mt-4 max-w-lg text-base leading-7 sm:text-lg">
+              Food, study supplies, chargers and printing — ordered from wherever you are on campus and brought to you.
+            </p>
+            <form action="/search" role="search" className="mt-6 flex max-w-xl gap-2">
+              <label htmlFor="home-search" className="sr-only">Search PackAM</label>
+              <input id="home-search" name="q" type="search" placeholder="What do you need? Try “indomie” or “charger”" className="pk-input min-h-[52px] flex-1 shadow-sm" />
+              <button type="submit" className="pk-btn pk-btn-primary pk-btn-lg">Search</button>
+            </form>
+            <ul className="mt-4 flex flex-wrap gap-x-5 gap-y-2 text-sm font-semibold text-black/70" aria-label="Why PackAM">
+              <li>✓ ₦{STUDENT_DELIVERY_FEE.toLocaleString()} flat delivery</li>
+              <li>✓ Secure OPay checkout</li>
+              <li>✓ Track every step</li>
+            </ul>
           </div>
+
+          <nav aria-label="Shop by category" className="grid grid-cols-2 gap-3">
+            {categories.slice(0, 3).map((category) => {
+              const display = categoryDisplay(category.slug);
+              return (
+                <Link key={category.slug} href={`/search?category=${category.slug}`} className="pk-card pk-card-interactive flex min-h-[112px] flex-col justify-between p-4">
+                  <span className="flex h-11 w-11 items-center justify-center rounded-xl text-2xl" style={{ backgroundColor: display.tint }} aria-hidden="true">{display.icon}</span>
+                  <span className="mt-3 text-sm font-extrabold leading-5">{category.name}</span>
+                </Link>
+              );
+            })}
+            <Link href="/printing" className="flex min-h-[112px] flex-col justify-between rounded-[20px] bg-black p-4 text-white transition hover:bg-[#1f1f1f]">
+              <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#feb80a] text-2xl" aria-hidden="true">🖨️</span>
+              <span className="mt-3 text-sm font-extrabold leading-5">Printing <span aria-hidden="true">→</span></span>
+            </Link>
+          </nav>
         </div>
       </section>
-      {/* SHOPPING INTRO */}
-      <section className="border-y border-black/5 bg-[#fff4cf]">
-        <div className="packam-container py-7 sm:py-9">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-              <p className="text-xs font-black uppercase tracking-[0.18em] text-black/55">
-                Start here
-              </p>
-              <h2 className="mt-1 text-2xl font-black tracking-[-0.03em] sm:text-3xl">
-                What are you looking for today?
-              </h2>
-            </div>
-            <p className="max-w-md text-sm font-medium leading-6 text-black/55 sm:text-right">
-              Pick a category or search for exactly what you need.
-            </p>
-          </div>
-        </div>
-      </section>
-      {/* CATEGORIES */}
-      <section className="py-10 sm:py-14">
-        <div className="packam-container">
-          <div className="mb-5 flex items-end justify-between gap-4 sm:mb-7">
-            <div>
-              <p className="text-xs font-black uppercase tracking-[0.18em] text-black/50">
-                Browse
-              </p>
-              <h2 className="mt-1 text-2xl font-black tracking-[-0.03em] sm:text-3xl">
-                Pick your lane.
-              </h2>
-            </div>
-            <Link
-              href="/search"
-              className="hidden text-sm font-black underline underline-offset-4 sm:block"
-            >
-              View all →
-            </Link>
-          </div>
-          <div className="flex gap-3 overflow-x-auto pb-2 sm:gap-4">
-            {siteConfig.categories.map((category) => (
-              <CategoryCard
-                key={category.slug}
-                name={category.name}
-                slug={category.slug}
-                emoji={categoryEmojis[category.slug] ?? "📦"}
-              />
-            ))}
-          </div>
-        </div>
-      </section>
-      {/* PRODUCTS */}
-      <section className="bg-[#f7f5ee] py-10 sm:py-16">
-        <div className="packam-container">
-          <div className="mb-6 flex items-end justify-between gap-4 sm:mb-8">
-            <div>
-              <p className="text-xs font-black uppercase tracking-[0.18em] text-black/50">
-                Marketplace
-              </p>
-              <h2 className="mt-1 text-2xl font-black tracking-[-0.03em] sm:text-3xl">
-                People dey order these
-              </h2>
-              <p className="mt-1 text-sm font-medium text-black/55">
-                What other students are ordering right now.
-              </p>
-            </div>
-            <Link
-              href="/search"
-              className="hidden text-sm font-black underline underline-offset-4 sm:block"
-            >
-              See all →
-            </Link>
-          </div>
-          {products.length > 0 ? (
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4">
-              {products.map((product) => (
-                <ProductCard
-                  key={product.id}
-                  id={product.id}
-                  name={product.name}
-                  price={product.customerPrice}
-                  image={product.imageUrl}
-                  category={product.category.name}
-                />
-              ))}
-            </div>
-          ) : (
-            <div className="rounded-[1.5rem] border border-black/5 bg-white px-5 py-10 text-center sm:rounded-[2rem] sm:px-6 sm:py-16">
-              <div className="text-5xl" aria-hidden="true">📦</div>
-              <h3 className="mt-5 text-xl font-black">
-                Nothing here yet
-              </h3>
-              <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-black/70">
-We&apos;re still stocking the marketplace. Check back soon or
-                tell us what you&apos;re looking for.
-              </p>
-              <div className="mt-6 flex flex-col justify-center gap-3 sm:flex-row">
-                <Link
-                  href="/search"
-                  className="inline-flex min-h-12 items-center justify-center rounded-full bg-[#feb80a] px-6 py-3 text-sm font-black text-black transition hover:bg-[#f5a900] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-black"
-                >
-                  Find something →
-                </Link>
-                <Link
-                  href="/product-requests"
-                  className="inline-flex min-h-12 items-center justify-center rounded-full border border-black/10 bg-white px-6 py-3 text-sm font-black text-black transition hover:bg-black/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-black"
-                >
-                  Request a product
-                </Link>
-              </div>
-            </div>
-          )}
-        </div>
-      </section>
-      {/* REQUEST PRODUCT */}
-      <section className="py-10 sm:py-16">
-        <div className="packam-container">
-          <div className="relative overflow-hidden rounded-[1.5rem] bg-black px-5 py-9 text-white sm:rounded-[2rem] sm:px-12 sm:py-14">
-            <div className="absolute -right-20 -top-20 h-56 w-56 rounded-full bg-[#feb80a]" />
-            <div className="absolute -bottom-24 -left-16 h-48 w-48 rounded-full bg-white/5" />
-            <div className="relative z-10 max-w-2xl">
-              <p className="text-xs font-black uppercase tracking-[0.18em] text-[#feb80a]">
-Can&apos;t find it?
-              </p>
-              <h2 className="mt-3 text-3xl font-black leading-tight tracking-[-0.04em] sm:text-5xl">
-                No wahala.
-                <br />
-                Tell us what you need. 🫡
-              </h2>
-              <p className="mt-4 max-w-xl text-base leading-7 text-white/60">
-Don&apos;t see what you&apos;re looking for? Send us the
-product details and we&apos;ll check if we can source it.
-              </p>
-              <Link
-                href="/product-requests"
-                className="mt-6 inline-flex min-h-12 items-center justify-center rounded-full bg-[#feb80a] px-6 py-3 text-sm font-black text-black transition hover:scale-[1.02] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white sm:mt-7"
-              >
-                Request a Product →
-              </Link>
-            </div>
-            <div className="absolute bottom-8 right-8 hidden rotate-[-8deg] rounded-2xl border-2 border-white/20 bg-white/10 px-5 py-4 backdrop-blur-sm lg:block">
-              <p className="text-sm font-black">
-                “Abeg find this one.”
-              </p>
-              <p className="mt-1 text-xs text-white/50">
-                — every student ever 😂
-              </p>
-            </div>
-          </div>
-        </div>
-      </section>
-      {/* SIMPLE CLOSING */}
-      <section className="pb-12 sm:pb-16">
-        <div className="packam-container">
-          <div className="border-t border-black/10 pt-8 text-center">
-            <p className="text-xl font-black sm:text-2xl">
-              Need something?
-            </p>
-            <p className="mt-1 text-sm font-medium text-black/50">
-              Search am. Order am. We PackAM. 📦
-            </p>
-          </div>
-        </div>
-      </section>
-    </main>
-  );
+
+      {recentOrders.length > 0 && (
+        <section className="packam-container pt-10 sm:pt-12" aria-labelledby="recent-orders">
+          <div className="flex items-end justify-between gap-4">
+            <h2 id="recent-orders" className="pk-section-title">Your recent orders</h2>
+            <Link href="/orders" className="text-sm font-bold underline underline-offset-4">All orders</Link>
+          </div>
+          <ul className="mt-4 grid gap-3 md:grid-cols-3">
+            {recentOrders.map((order) => (
+              <li key={order.id}>
+                <Link href={`/orders/${order.id}`} className="pk-card pk-card-interactive block h-full p-4">
+                  <span className="pk-pill">{orderStatusLabel(order.status)}</span>
+                  <p className="mt-3 line-clamp-2 text-sm font-bold">{order.items.map((item) => `${item.productName} × ${item.quantity}`).join(", ")}</p>
+                  <p className="pk-muted mt-2 flex justify-between text-xs"><span>{formatCampusTime(order.createdAt)}</span><span className="font-bold text-black">₦{order.total.toLocaleString()}</span></p>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      <section className="packam-container pt-10 sm:pt-14" aria-labelledby="categories">
+        <h2 id="categories" className="pk-section-title">Shop by category</h2>
+        <ul className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
+          {categories.map((category) => {
+            const display = categoryDisplay(category.slug);
+            const count = category._count.products;
+            return (
+              <li key={category.slug}>
+                <Link href={`/search?category=${category.slug}`} className="pk-card pk-card-interactive flex h-full items-start gap-3 p-4">
+                  <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-2xl" style={{ backgroundColor: display.tint }} aria-hidden="true">{display.icon}</span>
+                  <span className="min-w-0">
+                    <span className="block text-sm font-extrabold leading-5">{category.name}</span>
+                    <span className="pk-muted mt-0.5 block text-xs">{count ? `${count} item${count === 1 ? "" : "s"}` : "Coming soon — request it"}</span>
+                  </span>
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      </section>
+
+      <section className="packam-container pt-10 sm:pt-14" aria-labelledby="popular">
+        <div className="flex items-end justify-between gap-4">
+          <h2 id="popular" className="pk-section-title">New on PackAM</h2>
+          {products.length > 0 && <Link href="/search" className="text-sm font-bold underline underline-offset-4">Browse all</Link>}
+        </div>
+        {products.length ? (
+          <div className="mt-4 grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 lg:grid-cols-4">
+            {products.map((product) => (
+              <ProductCard key={product.id} id={product.id} name={product.name} price={product.customerPrice} image={product.imageUrl} category={product.category.name} />
+            ))}
+          </div>
+        ) : (
+          <div className="mt-4">
+            <EmptyState icon="🛍️" title="The shelves are being stocked" body="Products are on the way. Tell us what you need and we’ll find it for you." actions={[{ href: "/product-requests", label: "Request an item" }]} />
+          </div>
+        )}
+      </section>
+
+      <section className="packam-container pt-10 sm:pt-14">
+        <div className="pk-feature grid gap-5 p-6 sm:p-8 md:grid-cols-[1fr_auto] md:items-center">
+          <div>
+            <p className="pk-eyebrow">PackAM Printing</p>
+            <h2 className="pk-section-title mt-2">Print without the queue</h2>
+            <p className="pk-muted mt-2 max-w-xl text-sm leading-6 sm:text-base">Upload a PDF, choose colour, copies and pages, see the exact price, and get it delivered. ₦{PRINTING_PRICES.A4.BLACK_AND_WHITE.toLocaleString()} per page black &amp; white, ₦{PRINTING_PRICES.A4.COLOR.toLocaleString()} colour.</p>
+          </div>
+          <Link href="/printing" className="pk-btn pk-btn-primary pk-btn-lg">Start a print job</Link>
+        </div>
+      </section>
+
+      <section className="packam-container pt-10 sm:pt-14" aria-labelledby="how">
+        <h2 id="how" className="pk-section-title">How it works</h2>
+        <ol className="mt-4 grid gap-3 md:grid-cols-3">
+          {STEPS.map((step, index) => (
+            <li key={step.title} className="pk-card p-5">
+              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#fff4c7] text-xl" aria-hidden="true">{step.icon}</span>
+              <h3 className="mt-3 font-extrabold"><span className="sr-only">Step {index + 1}: </span>{step.title}</h3>
+              <p className="pk-muted mt-1 text-sm leading-6">{step.body}</p>
+            </li>
+          ))}
+        </ol>
+      </section>
+
+      <section className="packam-container py-10 sm:py-14">
+        <div className="pk-card flex flex-col gap-4 p-6 sm:flex-row sm:items-center sm:justify-between sm:p-8">
+          <div>
+            <h2 className="pk-section-title">Can’t find it?</h2>
+            <p className="pk-muted mt-1 text-sm leading-6 sm:text-base">Tell us what you need. We’ll check campus shops and let you know.</p>
+          </div>
+          <Link href="/product-requests" className="pk-btn pk-btn-secondary pk-btn-lg">Request an item</Link>
+        </div>
+      </section>
+
+      <footer className="border-t border-black/5">
+        <div className="packam-container flex flex-col gap-3 py-8 text-sm text-black/65 sm:flex-row sm:items-center sm:justify-between">
+          <p><strong className="text-black">PackAM</strong> · Need something? WE PackAM.</p>
+          <nav aria-label="Footer" className="flex flex-wrap gap-4">
+            <Link href="/search" className="hover:text-black">Shop</Link>
+            <Link href="/printing" className="hover:text-black">Printing</Link>
+            <Link href="/product-requests" className="hover:text-black">Requests</Link>
+            <Link href="/support" className="hover:text-black">Help</Link>
+          </nav>
+        </div>
+      </footer>
+    </main>
+  );
 }
