@@ -183,7 +183,7 @@ export function LiveSearch({
       )}
 
       {products.length > 0 && (
-        <div id="search-results" aria-busy={loading} className={`mt-4 grid grid-cols-2 gap-3 transition-opacity sm:gap-4 md:grid-cols-3 lg:grid-cols-4 ${loading ? "opacity-60" : ""}`}>
+        <div id="search-results" aria-busy={loading} className={`pk-product-grid mt-4 transition-opacity ${loading ? "opacity-60" : ""}`}>
           {products.map((item) => (
             <ProductCard key={item.id} id={item.id} name={item.name} price={item.customerPrice} image={item.imageUrl} category={item.category.name} />
           ))}

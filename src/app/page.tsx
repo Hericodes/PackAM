@@ -145,7 +145,7 @@ export default async function HomePage() {
           {products.length > 0 && <Link href="/search" className="text-sm font-bold underline underline-offset-4">Browse all</Link>}
         </div>
         {products.length ? (
-          <div className="mt-4 grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 lg:grid-cols-4">
+          <div className="pk-product-grid mt-4">
             {products.map((product) => (
               <ProductCard key={product.id} id={product.id} name={product.name} price={product.customerPrice} image={product.imageUrl} category={product.category.name} />
             ))}

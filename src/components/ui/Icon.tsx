@@ -26,6 +26,7 @@ const PATHS = {
   chevronRight: <path d="m9 18 6-6-6-6" />,
   chevronDown: <path d="m6 9 6 6 6-6" />,
   check: <path d="M20 6 9 17l-5-5" />,
+  plus: <path d="M12 5v14M5 12h14" />,
   mapPin: <><path d="M20 10c0 5-5.54 10.19-7.4 11.8a1 1 0 0 1-1.2 0C9.54 20.19 4 15 4 10a8 8 0 0 1 16 0" /><circle cx="12" cy="10" r="3" /></>,
   message: <path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z" />,
   receipt: <><path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z" /><path d="M16 8h-6M16 12h-6M12 16h-2" /></>,
@@ -33,9 +34,9 @@ const PATHS = {
 
 export type IconName = keyof typeof PATHS;
 
-export function Icon({ name, className = "h-5 w-5", strokeWidth = 1.9 }: { name: IconName; className?: string; strokeWidth?: number }) {
+export function Icon({ name, className = "h-5 w-5", strokeWidth = 1.9, filled = false }: { name: IconName; className?: string; strokeWidth?: number; filled?: boolean }) {
   return (
-    <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" className={`shrink-0 ${className}`}>
+    <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill={filled ? "currentColor" : "none"} stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" className={`shrink-0 ${className}`}>
       {PATHS[name]}
     </svg>
   );

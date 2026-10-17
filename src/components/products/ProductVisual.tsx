@@ -1,5 +1,5 @@
 import Image from "next/image";
-import { categoryDisplay } from "../../lib/products/category-display";
+import { categoryDisplay, productGlyph } from "../../lib/products/category-display";
 
 type ProductVisualProps = {
   name: string;
@@ -8,18 +8,28 @@ type ProductVisualProps = {
   sizes: string;
   priority?: boolean;
   className?: string;
+  /** "contain" frames the whole photo on the gradient (cards); "cover" fills the area (detail page). */
+  fit?: "cover" | "contain";
 };
 
-/** Product photo, or a calm category tile when no photo has been uploaded yet. */
-export function ProductVisual({ name, imageUrl, category, sizes, priority, className = "" }: ProductVisualProps) {
+/** Product photo on a soft warm gradient, or a small name-based illustration when no photo exists yet. */
+export function ProductVisual({ name, imageUrl, category, sizes, priority, className = "", fit = "cover" }: ProductVisualProps) {
   const display = categoryDisplay(category);
   return (
-    <div className={`relative overflow-hidden ${className}`} style={imageUrl ? undefined : { backgroundColor: display.tint }}>
+    <div className={`pk-media pk-media-${display.tone} relative overflow-hidden ${className}`}>
       {imageUrl ? (
-        <Image src={imageUrl} alt={name} fill sizes={sizes} priority={priority} className="object-cover" />
+        fit === "contain" ? (
+          <div className="absolute inset-2.5 sm:inset-3">
+            <Image src={imageUrl} alt={name} fill sizes={sizes} priority={priority} className="rounded-xl object-contain drop-shadow-[0_6px_14px_rgba(8,8,8,0.12)]" />
+          </div>
+        ) : (
+          <Image src={imageUrl} alt={name} fill sizes={sizes} priority={priority} className="object-cover" />
+        )
       ) : (
         <div className="flex h-full w-full items-center justify-center">
-          <span className="text-[clamp(2rem,9vw,3.5rem)] leading-none" aria-hidden="true">{display.icon}</span>
+          <span className="flex aspect-square w-[38%] max-w-28 items-center justify-center rounded-[28%] bg-white/70 shadow-[0_8px_24px_-12px_rgba(135,90,0,0.45)] ring-1 ring-white" aria-hidden="true">
+            <span className="text-[clamp(1.75rem,6vw,2.75rem)] leading-none">{productGlyph(name, category)}</span>
+          </span>
           <span className="sr-only">{name}</span>
         </div>
       )}

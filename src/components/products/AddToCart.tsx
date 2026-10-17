@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useCartExperience } from "../cart/CartExperience";
+import { Icon } from "../ui/Icon";
 
 type AddToCartProps = { productId: string; compact?: boolean };
 
@@ -45,10 +46,27 @@ export function AddToCart({ productId, compact = false }: AddToCartProps) {
 
   if (compact) {
     return <div>
-      <button type="button" onClick={handleAddToCart} disabled={loading} className="pk-btn pk-btn-primary pk-btn-sm w-full">
-        {loading ? "Adding…" : added ? "Added ✓ Add another" : "Add to cart"}
+      <button
+        type="button"
+        onClick={handleAddToCart}
+        disabled={loading}
+        aria-busy={loading}
+        className={`group/cart flex min-h-11 w-full items-center justify-center gap-2 rounded-full px-3 text-[0.8125rem] font-black transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black disabled:cursor-wait disabled:opacity-70 ${
+          added ? "bg-[#feb80a] text-black hover:bg-[#e5a500]" : "bg-black text-white hover:bg-[#262626]"
+        }`}
+      >
+        {loading ? (
+          <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-r-transparent" aria-hidden="true" />
+        ) : added ? (
+          <Icon name="check" className="h-4 w-4" strokeWidth={2.6} />
+        ) : (
+          <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#feb80a] text-black transition-transform group-hover/cart:scale-110">
+            <Icon name="plus" className="h-3.5 w-3.5" strokeWidth={3} />
+          </span>
+        )}
+        <span>{loading ? "Adding…" : added ? "Add another" : "Add to cart"}</span>
       </button>
-      {error && <p role="alert" className="mt-2 text-xs font-semibold text-red-700">{error}</p>}
+      {error && <p role="alert" className="mt-2 text-xs font-semibold leading-4 text-red-700">{error}</p>}
       <span role="status" className="sr-only">{added ? "Added to cart" : ""}</span>
     </div>;
   }

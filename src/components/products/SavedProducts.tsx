@@ -37,7 +37,7 @@ export function SavedProducts() {
 
   if (!ready || state === "loading") {
     return (
-      <div className="mt-6 grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 lg:grid-cols-4" aria-busy="true" aria-label="Loading saved items">
+      <div className="pk-product-grid mt-6" aria-busy="true" aria-label="Loading saved items">
         {[0, 1, 2, 3].map((n) => <div key={n} className="pk-skeleton h-64" />)}
       </div>
     );
@@ -65,7 +65,7 @@ export function SavedProducts() {
   return (
     <>
       {unavailable > 0 && <p className="pk-muted mt-5 text-sm">{unavailable} saved item{unavailable === 1 ? " is" : "s are"} no longer available and hidden.</p>}
-      <div className="mt-6 grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 lg:grid-cols-4">
+      <div className="pk-product-grid mt-6">
         {products.map((product) => (
           <ProductCard key={product.id} id={product.id} name={product.name} price={product.customerPrice} image={product.imageUrl} category={product.category.name} />
         ))}

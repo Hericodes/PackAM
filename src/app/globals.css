@@ -480,6 +480,26 @@ a {
     }
   }
 
+  /* ---------- Product media: soft warm gradients behind photos and fallback illustrations ---------- */
+  .pk-media {
+    background:
+      radial-gradient(120% 90% at 85% 10%, rgba(255, 255, 255, 0.85) 0%, rgba(255, 255, 255, 0) 55%),
+      linear-gradient(150deg, var(--pk-media-from) 0%, var(--pk-media-to) 100%);
+  }
+  .pk-media-butter { --pk-media-from: #fff2b3; --pk-media-to: #fffdf7; }
+  .pk-media-amber { --pk-media-from: #ffe2a3; --pk-media-to: #fff9e8; }
+  .pk-media-peach { --pk-media-from: #ffe1c7; --pk-media-to: #fff9ef; }
+  .pk-media-cream { --pk-media-from: #fff4c7; --pk-media-to: #fffdf7; }
+
+  .pk-product-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem;
+  }
+  @media (min-width: 640px) { .pk-product-grid { gap: 1rem; } }
+  @media (min-width: 768px) { .pk-product-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+  @media (min-width: 1024px) { .pk-product-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1.25rem; } }
+
   .pk-card {
     background: var(--packam-white);
     border: 1px solid rgba(8, 8, 8, 0.07);
