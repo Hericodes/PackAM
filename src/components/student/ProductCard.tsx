@@ -58,3 +58,18 @@ export function ProductCard({ id, name, price, image, category }: ProductCardPro
     </article>
   );
 }
+
+/** Placeholder with the card's real proportions, so the grid does not jump when products arrive. */
+export function ProductCardSkeleton() {
+  return (
+    <div className="flex h-full flex-col overflow-hidden rounded-[22px] border border-black/[0.07] bg-white" aria-hidden="true">
+      <div className="pk-skeleton aspect-4/3 rounded-none" />
+      <div className="flex flex-1 flex-col gap-2 border-t border-black/[0.05] p-3 sm:p-4">
+        <div className="pk-skeleton h-3 w-2/5" />
+        <div className="pk-skeleton h-4 w-4/5" />
+        <div className="mt-auto pt-2.5"><div className="pk-skeleton h-5 w-1/3" /></div>
+        <div className="pk-skeleton mt-1.5 h-11 w-full rounded-full" />
+      </div>
+    </div>
+  );
+}

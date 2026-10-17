@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { ProductCard } from "../student/ProductCard";
+import { ProductCard, ProductCardSkeleton } from "../student/ProductCard";
 import { useSavedProducts } from "./useSavedProducts";
 
 type Product = { id: string; name: string; customerPrice: number; imageUrl: string | null; category: { name: string } };
@@ -38,7 +38,7 @@ export function SavedProducts() {
   if (!ready || state === "loading") {
     return (
       <div className="pk-product-grid mt-6" aria-busy="true" aria-label="Loading saved items">
-        {[0, 1, 2, 3].map((n) => <div key={n} className="pk-skeleton h-64" />)}
+        {[0, 1, 2, 3].map((n) => <ProductCardSkeleton key={n} />)}
       </div>
     );
   }
