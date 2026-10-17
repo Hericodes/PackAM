@@ -2,13 +2,14 @@ import "server-only";
 
 import { PaymentProvider } from "@prisma/client";
 import { signOpayApiPayload, verifyOpayCallbackSignature } from "./opay-signature";
-import { toOpayMinorUnits, verifyOpayTransaction } from "./opay-money";
+import { mapProviderStatus, toOpayMinorUnits, verifyOpayTransaction, type OpayTransaction } from "./opay-money";
+import { OpayConfigurationError, OpayProviderRejectedError, OpayProviderUnavailableError } from "../payment-errors";
+
+export { mapProviderStatus };
 
 const CASHIER_PATH = "/api/v1/international/cashier";
 const CREATE_PATH = `${CASHIER_PATH}/create`;
 const STATUS_PATH = `${CASHIER_PATH}/status`;
-
-type OpayStatus = "PENDING" | "SUCCESS" | "FAILED";
 
 type OpayConfig = {
   merchantId: string;
@@ -23,10 +24,10 @@ function getConfig(): OpayConfig {
   const secretKey = process.env.OPAY_SECRET_KEY;
   const environment = process.env.OPAY_ENVIRONMENT || "sandbox";
   if (!merchantId || !publicKey || !secretKey) {
-    throw new Error("OPay is not configured. Set OPAY_MERCHANT_ID, OPAY_PUBLIC_KEY, and OPAY_SECRET_KEY.");
+    throw new OpayConfigurationError("OPay is not configured. Set OPAY_MERCHANT_ID, OPAY_PUBLIC_KEY, and OPAY_SECRET_KEY.");
   }
   if (environment !== "sandbox" && environment !== "production") {
-    throw new Error("OPAY_ENVIRONMENT must be sandbox or production.");
+    throw new OpayConfigurationError("OPAY_ENVIRONMENT must be sandbox or production.");
   }
   return {
     merchantId,
@@ -39,39 +40,39 @@ function getConfig(): OpayConfig {
 }
 
 async function post<T>(path: string, payload: unknown, authorization: string, config: OpayConfig): Promise<T> {
-  const response = await fetch(`${config.baseUrl}${path}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Accept: "application/json",
-      Authorization: `Bearer ${authorization}`,
-      MerchantId: config.merchantId,
-    },
-    body: JSON.stringify(payload),
-    signal: AbortSignal.timeout(15_000),
-    cache: "no-store",
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${config.baseUrl}${path}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        Authorization: `Bearer ${authorization}`,
+        MerchantId: config.merchantId,
+      },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(15_000),
+      cache: "no-store",
+    });
+  } catch (error) {
+    // Network failure or the 15s timeout: the payment state is unknown, so this must stay retryable.
+    const timedOut = error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
+    throw new OpayProviderUnavailableError(timedOut ? "OPay request timed out." : "OPay could not be reached.");
+  }
   let result: unknown;
   try {
     result = await response.json();
   } catch {
-    throw new Error("OPay returned an unreadable response.");
+    throw new OpayProviderUnavailableError("OPay returned an unreadable response.");
   }
   if (!response.ok || !result || typeof result !== "object") {
-    throw new Error(`OPay request failed with HTTP ${response.status}.`);
+    throw new OpayProviderUnavailableError(`OPay request failed with HTTP ${response.status}.`);
   }
   return result as T;
 }
 
 function successfulResponse(result: { code?: string; message?: string }) {
-  if (result.code !== "00000") throw new Error(`OPay rejected the request (${result.code ?? "unknown"}).`);
-}
-
-export function mapProviderStatus(status: unknown): OpayStatus {
-  const normalized = typeof status === "string" ? status.toUpperCase() : "";
-  if (normalized === "SUCCESS" || normalized === "SUCCESSFUL") return "SUCCESS";
-  if (["FAIL", "FAILED", "CLOSE", "CLOSED", "EXPIRED"].includes(normalized)) return "FAILED";
-  return "PENDING";
+  if (result.code !== "00000") throw new OpayProviderRejectedError(result.code ?? "unknown");
 }
 
 export type CashierCreateInput = {
@@ -121,14 +122,7 @@ export async function createCashierPayment(input: CashierCreateInput) {
   return { cashierUrl: cashierUrl.toString(), providerCheckoutReference: data.orderNo };
 }
 
-type ProviderTransaction = {
-  reference?: string;
-  orderNo?: string;
-  transactionId?: string;
-  status?: string;
-  amount?: { total?: number | string; currency?: string };
-  currency?: string;
-};
+type ProviderTransaction = OpayTransaction;
 
 export async function queryPaymentStatus(reference: string): Promise<ProviderTransaction> {
   const config = getConfig();
@@ -140,7 +134,7 @@ export async function queryPaymentStatus(reference: string): Promise<ProviderTra
     data?: ProviderTransaction;
   }>(STATUS_PATH, payload, signature, config);
   successfulResponse(result);
-  if (!result.data) throw new Error("OPay status response is missing transaction details.");
+  if (!result.data) throw new OpayProviderUnavailableError("OPay status response is missing transaction details.");
   return result.data;
 }
 

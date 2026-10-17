@@ -2,7 +2,8 @@ import { PaymentProvider } from "@prisma/client";
 import { auth } from "../../../../../auth";
 import { db } from "../../../../../lib/db";
 import { completeVerifiedPayment, failPendingPayment, markPaymentNeedsReview } from "../../../../../lib/payments/payment-lifecycle";
-import { mapProviderStatus, queryPaymentStatus, verifyPayment } from "../../../../../lib/payments/providers/opay";
+import { queryPaymentStatus } from "../../../../../lib/payments/providers/opay";
+import { checkOpayPaymentStatus, consolePaymentLogger } from "../../../../../lib/payments/opay-verification";
 import { consumeRateLimit } from "../../../../../lib/rate-limit";
 
 export async function GET(request: Request) {
@@ -16,49 +17,34 @@ export async function GET(request: Request) {
   if (!reference || reference.length > 100) return Response.json({ error: "Payment reference is invalid." }, { status: 400 });
   if (printJobId !== null && (!printJobId || printJobId.length > 100)) return Response.json({ error: "Print job reference is invalid." }, { status: 400 });
 
+  let attempt;
   try {
-    const attempt = await db.payment.findFirst({
+    attempt = await db.payment.findFirst({
       where: {
         transactionReference: reference,
         userId: session.user.id,
         provider: PaymentProvider.OPAY,
         ...(printJobId ? { printJobId } : {}),
       },
-      select: { transactionReference: true, providerReference: true, providerCheckoutReference: true, amount: true, currency: true, status: true, orderId: true, printJobId: true },
+      select: { providerCheckoutReference: true, amount: true, currency: true, status: true, orderId: true, printJobId: true },
     });
-    if (!attempt) return Response.json({ error: "Payment attempt not found." }, { status: 404 });
-    if (attempt.status === "SUCCESS") return Response.json({ status: "SUCCESS", orderId: attempt.orderId, printJobId: attempt.printJobId });
-    if (attempt.status === "FAILED") return Response.json({ status: "FAILED" });
-
-    const transaction = await queryPaymentStatus(reference);
-    const verified = verifyPayment(transaction, {
-      reference,
-      amount: attempt.amount,
-      currency: attempt.currency,
-      providerCheckoutReference: attempt.providerCheckoutReference,
-    });
-    if (verified.status === "SUCCESS") {
-      const result = await completeVerifiedPayment({
-        transactionReference: reference,
-        providerReference: verified.providerReference!,
-        provider: PaymentProvider.OPAY,
-        amount: attempt.amount,
-        currency: attempt.currency,
-        status: "SUCCESS",
-      });
-      return Response.json({ status: "SUCCESS", orderId: result.orderId, printJobId: "printJobId" in result ? result.printJobId : null });
-    }
-    if (verified.status === "FAILED") {
-      await failPendingPayment(reference);
-      return Response.json({ status: "FAILED" });
-    }
-    return Response.json({ status: mapProviderStatus(transaction.status) });
   } catch (error) {
-    console.error("OPAY STATUS CHECK ERROR:", error instanceof Error ? error.name : "Unknown error");
-    const detail = error instanceof Error ? error.message : "";
-    if (/mismatch|does not match|amount|currency|reference|merchant/i.test(detail)) {
-      try { await markPaymentNeedsReview(reference, "provider status mismatch"); } catch (reviewError) { console.error("OPAY PAYMENT REVIEW FLAG ERROR:", reviewError instanceof Error ? reviewError.name : "Unknown error"); }
-    }
+    consolePaymentLogger.warn("opay_status_lookup_failed", { errorName: error instanceof Error ? error.name : "UnknownError" });
     return Response.json({ error: "We’re still confirming your payment. Please check again shortly." }, { status: 503 });
   }
+  if (!attempt) return Response.json({ error: "Payment attempt not found." }, { status: 404 });
+  if (attempt.status === "SUCCESS") return Response.json({ status: "SUCCESS", orderId: attempt.orderId, printJobId: attempt.printJobId });
+  if (attempt.status === "FAILED") return Response.json({ status: "FAILED" });
+
+  const result = await checkOpayPaymentStatus(
+    { reference, amount: attempt.amount, currency: attempt.currency, providerCheckoutReference: attempt.providerCheckoutReference },
+    {
+      queryStatus: queryPaymentStatus,
+      complete: (verified) => completeVerifiedPayment({ ...verified, provider: PaymentProvider.OPAY, status: "SUCCESS" }),
+      fail: failPendingPayment,
+      markReview: markPaymentNeedsReview,
+      log: consolePaymentLogger,
+    },
+  );
+  return Response.json(result.body, { status: result.status });
 }

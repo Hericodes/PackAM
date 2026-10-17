@@ -11,6 +11,7 @@ import { createNotification, notifyAdmins } from "../notifications";
 import { completeVerifiedPrintPayment } from "../printing/payment-lifecycle";
 import { retrySerializable } from "../db-retry";
 import { isDedicatedWorkflowCategory } from "../products/catalogue";
+import { PaymentFinalizationMismatchError } from "./payment-errors";
 
 type SnapshotItem = {
   cartItemId: string;
@@ -211,27 +212,27 @@ export async function createPaymentAttempt(
 
 function parseSnapshot(value: Prisma.JsonValue | null): CheckoutSnapshot {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error("Payment attempt has no valid checkout snapshot.");
+    throw new PaymentFinalizationMismatchError("Payment attempt has no valid checkout snapshot.");
   }
   const raw = value as Prisma.JsonObject;
   const itemsValue = raw.items;
   if (!Array.isArray(itemsValue) || itemsValue.length === 0) {
-    throw new Error("Payment attempt snapshot has no items.");
+    throw new PaymentFinalizationMismatchError("Payment attempt snapshot has no items.");
   }
   const items = itemsValue.map((value): SnapshotItem => {
     if (!value || typeof value !== "object" || Array.isArray(value)) {
-      throw new Error("Payment attempt contains an invalid item snapshot.");
+      throw new PaymentFinalizationMismatchError("Payment attempt contains an invalid item snapshot.");
     }
     const item = value as Prisma.JsonObject;
     const fields = ["cartItemId", "productId", "productName"] as const;
     for (const field of fields) {
       if (typeof item[field] !== "string" || !item[field]) {
-        throw new Error("Payment attempt contains an invalid item snapshot.");
+        throw new PaymentFinalizationMismatchError("Payment attempt contains an invalid item snapshot.");
       }
     }
     const numbers = [item.unitPrice, item.quantity, item.totalPrice];
     if (!numbers.every((number) => typeof number === "number" && Number.isSafeInteger(number))) {
-      throw new Error("Payment attempt contains invalid item amounts.");
+      throw new PaymentFinalizationMismatchError("Payment attempt contains invalid item amounts.");
     }
     const snapshotItem = {
       cartItemId: item.cartItemId as string,
@@ -242,7 +243,7 @@ function parseSnapshot(value: Prisma.JsonValue | null): CheckoutSnapshot {
       totalPrice: item.totalPrice as number,
     };
     if (snapshotItem.quantity < 1 || snapshotItem.unitPrice < 0 || snapshotItem.totalPrice !== snapshotItem.unitPrice * snapshotItem.quantity) {
-      throw new Error("Payment attempt contains inconsistent item amounts.");
+      throw new PaymentFinalizationMismatchError("Payment attempt contains inconsistent item amounts.");
     }
     return snapshotItem;
   });
@@ -250,16 +251,16 @@ function parseSnapshot(value: Prisma.JsonValue | null): CheckoutSnapshot {
   const subtotal = raw.subtotal;
   const deliveryFee = raw.deliveryFee;
   if (typeof subtotal !== "number" || !Number.isSafeInteger(subtotal) || typeof deliveryFee !== "number" || !Number.isSafeInteger(deliveryFee)) {
-    throw new Error("Payment attempt contains invalid totals.");
+    throw new PaymentFinalizationMismatchError("Payment attempt contains invalid totals.");
   }
   if (typeof raw.cartId !== "string" || typeof raw.deliveryLocationId !== "string" || typeof raw.deliveryAddress !== "string") {
-    throw new Error("Payment attempt contains incomplete delivery details.");
+    throw new PaymentFinalizationMismatchError("Payment attempt contains incomplete delivery details.");
   }
   if (raw.deliveryInstructions !== null && typeof raw.deliveryInstructions !== "string") {
-    throw new Error("Payment attempt contains invalid delivery instructions.");
+    throw new PaymentFinalizationMismatchError("Payment attempt contains invalid delivery instructions.");
   }
   if (items.reduce((sum, item) => sum + item.totalPrice, 0) !== subtotal) {
-    throw new Error("Payment attempt subtotal does not match its items.");
+    throw new PaymentFinalizationMismatchError("Payment attempt subtotal does not match its items.");
   }
 
   return {
@@ -296,14 +297,14 @@ export async function completeVerifiedPayment(verified: VerifiedProviderPayment)
       where: { transactionReference: verified.transactionReference },
     });
     if (!attempt) throw new Error("Payment attempt not found.");
-    if (attempt.provider !== verified.provider) throw new Error("Payment provider does not match the attempt.");
+    if (attempt.provider !== verified.provider) throw new PaymentFinalizationMismatchError("Payment provider does not match the attempt.");
     if (attempt.amount !== verified.amount || attempt.currency !== verified.currency.toUpperCase()) {
-      throw new Error("Verified payment amount or currency does not match the checkout.");
+      throw new PaymentFinalizationMismatchError("Verified payment amount or currency does not match the checkout.");
     }
 
     if (attempt.status === "SUCCESS") {
       if (attempt.providerReference !== verified.providerReference || !attempt.orderId) {
-        throw new Error("Payment attempt was already completed with a different transaction.");
+        throw new PaymentFinalizationMismatchError("Payment attempt was already completed with a different transaction.");
       }
       return { orderId: attempt.orderId, alreadyProcessed: true };
     }
@@ -311,12 +312,12 @@ export async function completeVerifiedPayment(verified: VerifiedProviderPayment)
       throw new Error("Payment attempt is no longer pending.");
     }
     if (attempt.providerReference && attempt.providerReference !== verified.providerReference) {
-      throw new Error("Payment attempt was already verified with a different provider transaction.");
+      throw new PaymentFinalizationMismatchError("Payment attempt was already verified with a different provider transaction.");
     }
 
     const snapshot = parseSnapshot(attempt.checkoutSnapshot);
     if (attempt.amount !== snapshot.subtotal + snapshot.deliveryFee) {
-      throw new Error("Payment amount does not match the saved checkout snapshot.");
+      throw new PaymentFinalizationMismatchError("Payment amount does not match the saved checkout snapshot.");
     }
     finalizationStarted = true;
 

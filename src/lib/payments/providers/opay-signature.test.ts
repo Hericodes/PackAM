@@ -1,7 +1,8 @@
 import { createHmac } from "node:crypto";
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { matchesOpayCallbackAmount, toOpayMinorUnits, verifyOpayTransaction } from "./opay-money";
+import { describeCallbackAmount, mapProviderStatus, toOpayMinorUnits, verifyOpayTransaction } from "./opay-money";
+import { OpayVerificationMismatchError } from "../payment-errors";
 import { signOpayApiPayload, verifyOpayCallbackSignature } from "./opay-signature";
 
 test("NGN naira amounts are converted to OPay kobo units", () => {
@@ -10,10 +11,23 @@ test("NGN naira amounts are converted to OPay kobo units", () => {
   assert.throws(() => toOpayMinorUnits(1.5));
 });
 
-test("callback amount is compared in whole NGN while Cashier API amount is kobo", () => {
-  assert.equal(matchesOpayCallbackAmount("3700", 3700), true);
-  assert.equal(matchesOpayCallbackAmount("370000", 3700), false);
-  assert.equal(matchesOpayCallbackAmount("3700.00", 3700), false);
+// OPay's Nigeria callback docs do not state the amount unit, so the callback amount is only described
+// for logs. Both readings are recognised; neither can accept or reject a payment.
+test("callback amount is described as naira or kobo for diagnostics, never trusted", () => {
+  assert.equal(describeCallbackAmount("3700", 3700), "naira");
+  assert.equal(describeCallbackAmount("370000", 3700), "kobo");
+  assert.equal(describeCallbackAmount("3700.00", 3700), "unrecognised");
+  assert.equal(describeCallbackAmount("0", 3700), "unrecognised");
+});
+
+test("provider statuses map to PENDING, SUCCESS or FAILED and unknown states never fail", () => {
+  assert.equal(mapProviderStatus("SUCCESS"), "SUCCESS");
+  assert.equal(mapProviderStatus("CLOSE"), "FAILED");
+  assert.equal(mapProviderStatus("FAIL"), "FAILED");
+  assert.equal(mapProviderStatus("INITIAL"), "PENDING");
+  assert.equal(mapProviderStatus("PENDING"), "PENDING");
+  assert.equal(mapProviderStatus("SOMETHING_NEW"), "PENDING");
+  assert.equal(mapProviderStatus(undefined), "PENDING");
 });
 
 test("verified OPay transactions must match the reference, cashier reference, amount and currency", () => {
@@ -33,6 +47,12 @@ test("verified OPay transactions must match the reference, cashier reference, am
   assert.throws(() => verifyOpayTransaction({ ...transaction, orderNo: "wrong" }, expected), /order reference/i);
   assert.throws(() => verifyOpayTransaction({ ...transaction, amount: { total: 100, currency: "NGN" } }, expected), /amount/i);
   assert.throws(() => verifyOpayTransaction({ ...transaction, amount: { total: 120_000, currency: "USD" } }, expected), /currency/i);
+  assert.throws(() => verifyOpayTransaction({ ...transaction, amount: { total: 120_000, currency: "USD" } }, expected), OpayVerificationMismatchError);
+  // A closed checkout has no transaction ID; that is not a mismatch.
+  assert.deepEqual(verifyOpayTransaction({ ...transaction, status: "CLOSE", transactionId: undefined }, expected), { status: "FAILED", providerReference: expected.providerCheckoutReference });
+  assert.deepEqual(verifyOpayTransaction({ reference: expected.reference, status: "CLOSE", amount: { total: 120_000, currency: "NGN" } }, { ...expected, providerCheckoutReference: null }), { status: "FAILED", providerReference: undefined });
+  // A success must still name a provider transaction.
+  assert.throws(() => verifyOpayTransaction({ reference: expected.reference, status: "SUCCESS", amount: { total: 120_000, currency: "NGN" } }, { ...expected, providerCheckoutReference: null }), OpayVerificationMismatchError);
 });
 
 test("API status signatures use compact alphabetically sorted JSON and HMAC-SHA512", () => {
@@ -43,6 +63,7 @@ test("API status signatures use compact alphabetically sorted JSON and HMAC-SHA5
 });
 
 test("callback signatures use OPay's canonical fields, SHA3-512, and reject tampering", () => {
+  // The signature covers the amount string exactly as sent, whatever its unit (naira or kobo).
   const payload = {
     amount: "370000",
     currency: "NGN",
