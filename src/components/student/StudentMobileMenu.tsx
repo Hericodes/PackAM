@@ -80,7 +80,7 @@ export function StudentMobileMenu({ user, primary, secondary }: { user: MenuUser
                   {primary.map((item) => {
                     const active = isNavItemActive(item, pathname);
                     return (
-                      <li key={item.href}>
+                      <li key={item.href} className="last:odd:col-span-2">
                         <Link
                           href={item.href}
                           onClick={close}

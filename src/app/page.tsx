@@ -60,7 +60,7 @@ export default async function HomePage() {
             </p>
             <form action="/search" role="search" className="mt-6 flex max-w-xl gap-2">
               <label htmlFor="home-search" className="sr-only">Search PackAM</label>
-              <input id="home-search" name="q" type="search" placeholder="What do you need? Try “indomie” or “charger”" className="pk-input min-h-[52px] flex-1 shadow-sm" />
+              <input id="home-search" name="q" type="search" placeholder="What do you need? Try “indomie” or “charger”" className="pk-input min-h-[52px] flex-1 shadow-sm focus:shadow-[0_0_0_3px_rgba(254,184,10,0.45)]" />
               <button type="submit" className="pk-btn pk-btn-primary pk-btn-lg">Search</button>
             </form>
             <Link href="/search" className="mt-4 inline-flex min-h-11 items-center gap-1.5 text-sm font-bold text-black/70 underline-offset-4 hover:text-black hover:underline">

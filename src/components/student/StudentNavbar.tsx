@@ -36,7 +36,7 @@ export async function StudentNavbar() {
           <form action="/search" role="search" className="relative hidden xl:block">
             <label htmlFor="nav-search" className="sr-only">Search PackAM</label>
             <Icon name="search" className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-black/45" />
-            <input id="nav-search" name="q" type="search" placeholder="Search PackAM" className="h-11 w-52 rounded-full border border-black/10 bg-white/80 pl-10 pr-4 text-sm outline-none transition placeholder:text-black/50 focus:w-64 focus:border-black/30 focus:bg-white" />
+            <input id="nav-search" name="q" type="search" placeholder="Search PackAM" className="h-11 w-52 rounded-full border border-black/10 bg-white/80 pl-10 pr-4 text-sm outline-none transition placeholder:text-black/50 focus:w-64 focus:border-black focus:bg-white focus:shadow-[0_0_0_3px_rgba(254,184,10,0.45)]" />
           </form>
           <Link
             href="/search"
