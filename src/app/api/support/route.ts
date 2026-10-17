@@ -2,6 +2,7 @@ import { auth } from "../../../auth";
 import { db } from "../../../lib/db";
 import { notifyAdmins } from "../../../lib/notifications";
 import { consumeRateLimit } from "../../../lib/rate-limit";
+import { SUPPORT_SUBJECT_MAX, SUPPORT_SUBJECT_MIN, supportSubject } from "../../../lib/support-policy";
 
 export async function GET() {
   const session = await auth();
@@ -20,10 +21,14 @@ export async function POST(request: Request) {
   let body: unknown;
   try { body = await request.json(); } catch { return Response.json({ error: "Please check your support request." }, { status: 400 }); }
   if (!body || typeof body !== "object" || Array.isArray(body)) return Response.json({ error: "Please check your support request." }, { status: 400 });
-  const input = body as { subject?: unknown; description?: unknown; orderId?: unknown };
-  const subject = typeof input.subject === "string" ? input.subject.trim() : "";
+  const input = body as { category?: unknown; subject?: unknown; description?: unknown; orderId?: unknown };
+  const rawSubject = typeof input.subject === "string" ? input.subject.trim() : "";
+  if (input.category !== undefined && typeof input.category !== "string") return Response.json({ error: "Choose what the issue is about." }, { status: 400 });
+  // With a category, the summary is optional and the stored subject is "Category: summary".
+  const subject = typeof input.category === "string" ? supportSubject(input.category, rawSubject) : rawSubject;
+  if (subject === null) return Response.json({ error: "Choose an issue type and keep the summary short." }, { status: 400 });
   const description = typeof input.description === "string" ? input.description.trim() : "";
-  if (subject.length < 4 || subject.length > 120 || description.length < 10 || description.length > 3000 || (input.orderId !== undefined && input.orderId !== null && typeof input.orderId !== "string")) return Response.json({ error: "Add a short subject and a little more detail." }, { status: 400 });
+  if (subject.length < SUPPORT_SUBJECT_MIN || subject.length > SUPPORT_SUBJECT_MAX || description.length < 10 || description.length > 3000 || (input.orderId !== undefined && input.orderId !== null && typeof input.orderId !== "string")) return Response.json({ error: "Add a short subject and a little more detail." }, { status: 400 });
   try {
     const result = await db.$transaction(async (tx) => {
       if (typeof input.orderId === "string") {

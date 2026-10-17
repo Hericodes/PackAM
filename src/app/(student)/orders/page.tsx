@@ -3,7 +3,7 @@ import { ReorderButton } from "../../../components/orders/ReorderButton";
 import { EmptyState } from "../../../components/ui/EmptyState";
 import { requireRole } from "../../../lib/auth-guard";
 import { db } from "../../../lib/db";
-import { formatCampusTime, isFinalOrderStatus, orderStatusLabel, shortReference } from "../../../lib/student-copy";
+import { formatCampusTime, isFinalOrderStatus, orderProgress, orderStatusLabel, shortReference } from "../../../lib/student-copy";
 
 type OrderRow = {
   id: string;
@@ -15,6 +15,7 @@ type OrderRow = {
 
 function OrderCard({ order, showReorder }: { order: OrderRow; showReorder: boolean }) {
   const summary = order.items.map((item) => `${item.productName} × ${item.quantity}`).join(", ");
+  const progress = isFinalOrderStatus(order.status) ? null : orderProgress(order.status);
   return (
     <li className="pk-card pk-card-interactive p-4 sm:p-5">
       <div className="flex items-start justify-between gap-4">
@@ -28,6 +29,11 @@ function OrderCard({ order, showReorder }: { order: OrderRow; showReorder: boole
         </div>
         <strong className="shrink-0 whitespace-nowrap text-base font-black">₦{order.total.toLocaleString()}</strong>
       </div>
+      {progress && (
+        <div className="mt-4 flex gap-1" aria-hidden="true">
+          {progress.map((step) => <span key={step.label} className={`h-1.5 flex-1 rounded-full ${step.state === "upcoming" ? "bg-black/10" : step.state === "current" ? "bg-[#feb80a]" : "bg-black"}`} />)}
+        </div>
+      )}
       <div className="mt-4 flex flex-wrap items-start gap-2">
         <Link href={`/orders/${order.id}`} className="pk-btn pk-btn-primary pk-btn-sm">{isFinalOrderStatus(order.status) ? "View details" : "Track order"}</Link>
         {showReorder && <ReorderButton size="small" items={order.items.map((item) => ({ productId: item.productId, name: item.productName, quantity: item.quantity }))} />}

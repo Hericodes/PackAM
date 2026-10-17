@@ -4,8 +4,8 @@ import { StudentNavbar } from "../components/student/StudentNavbar";
 import { ProductCard } from "../components/student/ProductCard";
 import { EmptyState } from "../components/ui/EmptyState";
 import { db } from "../lib/db";
-import { categoryDisplay } from "../lib/products/category-display";
-import { STUDENT_DELIVERY_FEE, studentCatalogueCategoryWhere, studentCatalogueProductWhere } from "../lib/products/catalogue";
+import { Icon, type IconName } from "../components/ui/Icon";
+import { STUDENT_DELIVERY_FEE, studentCatalogueProductWhere } from "../lib/products/catalogue";
 import { formatCampusTime, orderStatusLabel } from "../lib/student-copy";
 import { PRINTING_PRICES } from "../lib/printing/pricing";
 
@@ -15,21 +15,22 @@ const STEPS = [
   { icon: "🛵", title: "We bring it", body: "A campus runner picks it up and you track every step." },
 ];
 
+const PRINT_STEPS: { icon: IconName; label: string }[] = [
+  { icon: "file", label: "Upload a PDF" },
+  { icon: "receipt", label: "See the exact price" },
+  { icon: "truck", label: "Delivered to you" },
+];
+
 export default async function HomePage() {
   const session = await auth();
   const studentId = session?.user.role === "STUDENT" ? session.user.id : null;
 
-  const [products, categories, recentOrders] = await Promise.all([
+  const [products, recentOrders] = await Promise.all([
     db.product.findMany({
       where: studentCatalogueProductWhere,
       select: { id: true, name: true, customerPrice: true, imageUrl: true, category: { select: { name: true } } },
       orderBy: { createdAt: "desc" },
       take: 8,
-    }),
-    db.category.findMany({
-      where: studentCatalogueCategoryWhere,
-      select: { name: true, slug: true, _count: { select: { products: { where: { status: "ACTIVE" } } } } },
-      orderBy: { name: "asc" },
     }),
     studentId
       ? db.order.findMany({
@@ -46,8 +47,8 @@ export default async function HomePage() {
       <StudentNavbar />
 
       <section className="pk-hero">
-        <div className="packam-container grid gap-8 py-10 sm:py-14 lg:grid-cols-[1.1fr_0.9fr] lg:items-center lg:py-16">
-          <div>
+        <div className="packam-container py-10 sm:py-14 lg:py-16">
+          <div className="max-w-2xl">
             <p className="pk-eyebrow">For OOU students</p>
             <h1 className="mt-3 text-[clamp(2.25rem,7vw,3.75rem)] font-black leading-[1.02] tracking-[-0.035em]">
               Need something?
@@ -62,23 +63,10 @@ export default async function HomePage() {
               <input id="home-search" name="q" type="search" placeholder="What do you need? Try “indomie” or “charger”" className="pk-input min-h-[52px] flex-1 shadow-sm" />
               <button type="submit" className="pk-btn pk-btn-primary pk-btn-lg">Search</button>
             </form>
-          </div>
-
-          <nav aria-label="Shop by category" className="grid grid-cols-2 gap-3">
-            {categories.slice(0, 3).map((category) => {
-              const display = categoryDisplay(category.slug);
-              return (
-                <Link key={category.slug} href={`/search?category=${category.slug}`} className="pk-card pk-card-interactive flex min-h-[112px] flex-col justify-between p-4">
-                  <span className="flex h-11 w-11 items-center justify-center rounded-xl text-2xl" style={{ backgroundColor: display.tint }} aria-hidden="true">{display.icon}</span>
-                  <span className="mt-3 text-sm font-extrabold leading-5">{category.name}</span>
-                </Link>
-              );
-            })}
-            <Link href="/printing" className="flex min-h-[112px] flex-col justify-between rounded-[20px] bg-black p-4 text-white transition hover:bg-[#1f1f1f]">
-              <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#feb80a] text-2xl" aria-hidden="true">🖨️</span>
-              <span className="mt-3 text-sm font-extrabold leading-5">Printing <span aria-hidden="true">→</span></span>
+            <Link href="/search" className="mt-4 inline-flex min-h-11 items-center gap-1.5 text-sm font-bold text-black/70 underline-offset-4 hover:text-black hover:underline">
+              Browse the full catalogue <Icon name="arrowRight" className="h-4 w-4" />
             </Link>
-          </nav>
+          </div>
         </div>
       </section>
 
@@ -102,25 +90,53 @@ export default async function HomePage() {
         </section>
       )}
 
-      <section className="packam-container pt-10 sm:pt-14" aria-labelledby="categories">
-        <h2 id="categories" className="pk-section-title">Shop by category</h2>
-        <ul className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
-          {categories.map((category) => {
-            const display = categoryDisplay(category.slug);
-            const count = category._count.products;
-            return (
-              <li key={category.slug}>
-                <Link href={`/search?category=${category.slug}`} className="pk-card pk-card-interactive flex h-full items-start gap-3 p-4">
-                  <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-2xl" style={{ backgroundColor: display.tint }} aria-hidden="true">{display.icon}</span>
-                  <span className="min-w-0">
-                    <span className="block text-sm font-extrabold leading-5">{category.name}</span>
-                    <span className="pk-muted mt-0.5 block text-xs">{count ? `${count} item${count === 1 ? "" : "s"}` : "Coming soon — request it"}</span>
-                  </span>
+      <section className="packam-container pt-10 sm:pt-14" aria-labelledby="printing-card-title">
+        <div className="relative overflow-hidden rounded-[28px] border border-[#feb80a]/40 bg-gradient-to-br from-[#ffe8a1] via-[#fff5d1] to-white shadow-[0_18px_40px_-28px_rgba(135,90,0,0.55)]">
+          <div className="pointer-events-none absolute -right-16 -top-20 h-64 w-64 rounded-full bg-[#feb80a]/25 blur-3xl" aria-hidden="true" />
+          <div className="relative grid gap-8 p-6 sm:p-8 md:grid-cols-[1.25fr_0.75fr] md:items-center lg:p-10">
+            <div>
+              <p className="inline-flex items-center gap-2 rounded-full bg-black px-3 py-1.5 text-xs font-black uppercase tracking-[0.12em] text-[#feb80a]">
+                <Icon name="printer" className="h-4 w-4" /> PackAM Printing
+              </p>
+              <h2 id="printing-card-title" className="mt-4 text-[clamp(1.75rem,4.5vw,2.5rem)] font-black leading-[1.05] tracking-[-0.03em]">Print without the queue.</h2>
+              <p className="mt-3 max-w-xl text-sm leading-6 text-black/75 sm:text-base">
+                Upload a PDF, choose colour, copies and pages, and see the exact price before you pay. A runner brings the prints to you.
+              </p>
+              <ul className="mt-5 grid gap-2 text-sm font-semibold sm:grid-cols-3">
+                {PRINT_STEPS.map((step) => (
+                  <li key={step.label} className="flex items-center gap-2.5 rounded-2xl bg-white/80 px-3 py-2.5 ring-1 ring-black/5">
+                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[#feb80a]/25 text-[#875a00]"><Icon name={step.icon} className="h-4 w-4" /></span>
+                    {step.label}
+                  </li>
+                ))}
+              </ul>
+              <div className="mt-6 flex flex-wrap items-center gap-x-5 gap-y-3">
+                <Link href="/printing" className="pk-btn pk-btn-primary pk-btn-lg">
+                  Start a print job <Icon name="arrowRight" className="h-4 w-4" />
                 </Link>
-              </li>
-            );
-          })}
-        </ul>
+                <p className="text-sm text-black/70">
+                  <strong className="text-black">₦{PRINTING_PRICES.A4.BLACK_AND_WHITE.toLocaleString()}</strong>/page B&amp;W · <strong className="text-black">₦{PRINTING_PRICES.A4.COLOR.toLocaleString()}</strong>/page colour
+                </p>
+              </div>
+            </div>
+
+            <div className="relative mx-auto hidden h-48 w-48 md:block lg:h-56 lg:w-56" aria-hidden="true">
+              <div className="absolute inset-x-6 top-2 h-36 -rotate-8 rounded-2xl border border-black/10 bg-white/70 lg:h-44" />
+              <div className="absolute inset-x-4 top-4 h-36 rotate-5 rounded-2xl border border-black/10 bg-white shadow-[0_10px_30px_-12px_rgba(8,8,8,0.25)] lg:h-44">
+                <div className="space-y-2 p-5">
+                  <span className="block h-2 w-3/4 rounded-full bg-black/15" />
+                  <span className="block h-2 w-full rounded-full bg-black/10" />
+                  <span className="block h-2 w-5/6 rounded-full bg-black/10" />
+                  <span className="block h-2 w-2/3 rounded-full bg-black/10" />
+                  <span className="mt-4 block h-10 w-full rounded-lg bg-[#fff4c7]" />
+                </div>
+              </div>
+              <span className="absolute -bottom-1 right-0 flex h-16 w-16 items-center justify-center rounded-2xl bg-black text-[#feb80a] shadow-lg lg:h-20 lg:w-20">
+                <Icon name="printer" className="h-8 w-8 lg:h-10 lg:w-10" strokeWidth={1.7} />
+              </span>
+            </div>
+          </div>
+        </div>
       </section>
 
       <section className="packam-container pt-10 sm:pt-14" aria-labelledby="popular">
@@ -139,17 +155,6 @@ export default async function HomePage() {
             <EmptyState icon="🛍️" title="The shelves are being stocked" body="Products are on the way. Tell us what you need and we’ll find it for you." actions={[{ href: "/product-requests", label: "Request an item" }]} />
           </div>
         )}
-      </section>
-
-      <section className="packam-container pt-10 sm:pt-14">
-        <div className="pk-feature grid gap-5 p-6 sm:p-8 md:grid-cols-[1fr_auto] md:items-center">
-          <div>
-            <p className="pk-eyebrow">PackAM Printing</p>
-            <h2 className="pk-section-title mt-2">Print without the queue</h2>
-            <p className="pk-muted mt-2 max-w-xl text-sm leading-6 sm:text-base">Upload a PDF, choose colour, copies and pages, see the exact price, and get it delivered. ₦{PRINTING_PRICES.A4.BLACK_AND_WHITE.toLocaleString()} per page black &amp; white, ₦{PRINTING_PRICES.A4.COLOR.toLocaleString()} colour.</p>
-          </div>
-          <Link href="/printing" className="pk-btn pk-btn-primary pk-btn-lg">Start a print job</Link>
-        </div>
       </section>
 
       <section className="packam-container pt-10 sm:pt-14" aria-labelledby="how">

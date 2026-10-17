@@ -2,71 +2,63 @@ import Link from "next/link";
 import { auth } from "../../auth";
 import { NotificationBell } from "../notifications/NotificationBell";
 import { PackAMLogo } from "../brand/PackAMLogo";
+import { Icon } from "../ui/Icon";
+import { navItemsFor, type NavRole } from "./nav-items";
 import { StudentCartButton } from "./StudentCartButton";
+import { StudentMobileMenu } from "./StudentMobileMenu";
+import { StudentNavLinks } from "./StudentNavLinks";
 import { StudentProfileMenu } from "./StudentProfileMenu";
+
+const ROLE_LABELS = { STUDENT: "Student account", RUNNER: "Runner account", ADMIN: "Operations" } as const;
 
 export async function StudentNavbar() {
   const session = await auth();
   const user = session?.user;
+  const role: NavRole = user?.role ?? null;
+  const { primary, secondary } = navItemsFor(role);
   const displayName = user?.name?.trim() || user?.email?.trim() || "Student";
+  const menuUser = user ? { displayName, initial: displayName.charAt(0).toUpperCase(), roleLabel: role ? ROLE_LABELS[role] : "Signed in" } : null;
 
   return (
-    <header className="sticky top-0 z-50 border-b border-black/5 bg-[#fffdf7]/95 backdrop-blur-md">
-      <div className="packam-container flex h-[72px] items-center justify-between gap-2 sm:gap-4">
+    <header className="sticky top-0 z-50 border-b border-black/[0.06] bg-[#fffdf7]/85 shadow-[0_1px_0_rgba(255,255,255,0.6)_inset,0_6px_24px_-18px_rgba(135,90,0,0.35)] backdrop-blur-md">
+      <div className="packam-container flex h-16 items-center justify-between gap-2 sm:gap-4 md:h-[72px]">
         <Link
           href="/"
           aria-label="PackAM home"
           className="shrink-0 rounded-lg transition-transform hover:scale-[1.02] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-black"
         >
-          <PackAMLogo width={84} priority />
+          <PackAMLogo width={76} priority className="md:w-[84px]" />
         </Link>
 
-        <nav
-          aria-label="Main navigation"
-          className="hidden items-center gap-1 md:flex"
-        >
-          <Link
-            href="/search"
-            className="inline-flex min-h-11 items-center rounded-xl px-4 py-2.5 text-sm font-semibold text-black/70 transition hover:bg-black/5 hover:text-black focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black"
-          >
-            Shop
-          </Link>
-          <Link
-            href="/printing"
-            className="inline-flex min-h-11 items-center rounded-xl px-4 py-2.5 text-sm font-semibold text-black/70 transition hover:bg-black/5 hover:text-black focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black"
-          >
-            Printing
-          </Link>
-          <Link
-            href="/orders"
-            className="inline-flex min-h-11 items-center rounded-xl px-4 py-2.5 text-sm font-semibold text-black/70 transition hover:bg-black/5 hover:text-black focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black"
-          >
-            Orders
-          </Link>
-        </nav>
+        <StudentNavLinks items={primary} />
 
-        <div className="flex shrink-0 items-center gap-1 sm:gap-2">
+        <div className="flex shrink-0 items-center gap-1 sm:gap-1.5">
+          <form action="/search" role="search" className="relative hidden xl:block">
+            <label htmlFor="nav-search" className="sr-only">Search PackAM</label>
+            <Icon name="search" className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-black/45" />
+            <input id="nav-search" name="q" type="search" placeholder="Search PackAM" className="h-11 w-52 rounded-full border border-black/10 bg-white/80 pl-10 pr-4 text-sm outline-none transition placeholder:text-black/50 focus:w-64 focus:border-black/30 focus:bg-white" />
+          </form>
           <Link
             href="/search"
+            data-tip="Search"
             aria-label="Search"
-            className="inline-flex h-11 w-11 items-center justify-center rounded-xl text-lg transition hover:bg-black/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black md:hidden"
+            className="pk-tip inline-flex h-11 w-11 items-center justify-center rounded-full text-black/75 transition hover:bg-[#fff4c7] hover:text-black focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black xl:hidden"
           >
-            <span aria-hidden="true">🔍</span>
+            <Icon name="search" />
           </Link>
           {user && <NotificationBell />}
-          <StudentCartButton />
+          {role === "STUDENT" && <StudentCartButton />}
           {!user && (
-            <>
-              <Link href="/login" className="inline-flex min-h-11 items-center rounded-xl px-3 text-sm font-bold transition hover:bg-black/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black">Log in</Link>
-              <Link href="/register" className="inline-flex min-h-11 items-center rounded-full bg-[#feb80a] px-4 text-sm font-black text-black transition hover:brightness-95 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black">Sign up</Link>
-            </>
+            <div className="hidden items-center gap-1.5 md:flex">
+              <Link href="/login" className="inline-flex min-h-11 items-center gap-2 rounded-full px-3.5 text-sm font-bold transition hover:bg-black/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black">
+                <Icon name="user" className="h-[18px] w-[18px]" />
+                Log in
+              </Link>
+              <Link href="/register" className="inline-flex min-h-11 items-center rounded-full bg-[#feb80a] px-4 text-sm font-black text-black shadow-[0_4px_14px_-6px_rgba(229,165,0,0.8)] transition hover:bg-[#e5a500] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black">Sign up</Link>
+            </div>
           )}
-          {user && (
-            <StudentProfileMenu
-              displayName={displayName}
-              initial={displayName.charAt(0).toUpperCase()}
-            />
-          )}
+          {menuUser && <StudentProfileMenu displayName={menuUser.displayName} initial={menuUser.initial} roleLabel={menuUser.roleLabel} items={secondary} />}
+          <StudentMobileMenu user={menuUser} primary={primary} secondary={secondary} />
         </div>
       </div>
     </header>

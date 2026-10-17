@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { formatCampusTime, isFinalOrderStatus, orderStatusLabel, orderStatusMessage } from "./student-copy";
+import { formatCampusTime, isFinalOrderStatus, orderEventDescription, orderNextStep, orderStatusLabel, orderStatusMessage, orderTimeline } from "./student-copy";
 
 test("a FAILED order is described as a refund problem, never as a failed payment", () => {
   assert.equal(orderStatusLabel("FAILED"), "Refund needs attention");
@@ -43,4 +43,26 @@ test("order progress marks done, current and upcoming steps", async () => {
   assert.deepEqual(orderProgress("PAYMENT_CONFIRMED")?.map((s) => s.state), ["current", "upcoming", "upcoming", "upcoming", "upcoming"]);
   assert.ok(orderProgress("DELIVERED")?.every((s) => s.state === "done"));
   for (const status of ["REFUND_PROCESSING", "REFUNDED", "FAILED", "CANCELLED"]) assert.equal(orderProgress(status), null, status);
+});
+
+test("timeline is oldest-first and drops consecutive repeats of the same status", () => {
+  const at = (minute: number) => new Date(Date.UTC(2026, 0, 1, 10, minute));
+  const timeline = orderTimeline([
+    { status: "RUNNER_ASSIGNED", createdAt: at(5) },
+    { status: "PAYMENT_CONFIRMED", createdAt: at(0) },
+    { status: "FINDING_RUNNER", createdAt: at(1) },
+    { status: "FINDING_RUNNER", createdAt: at(3) },
+  ]);
+  assert.deepEqual(timeline.map((entry) => entry.status), ["PAYMENT_CONFIRMED", "FINDING_RUNNER", "RUNNER_ASSIGNED"]);
+});
+
+test("next-step copy never promises a delivery time or refund outcome", () => {
+  for (const status of ["PAYMENT_CONFIRMED", "FINDING_RUNNER", "RUNNER_ASSIGNED", "SOURCING_PRODUCT", "OUT_FOR_DELIVERY", "DELIVERED", "REFUND_PROCESSING", "REFUNDED", "FAILED", "CANCELLED"]) {
+    const next = orderNextStep(status);
+    assert.ok(next, status);
+    assert.doesNotMatch(next, /\d+\s*(min|minute|hour|day)s?/i);
+    assert.ok(orderEventDescription(status), status);
+  }
+  assert.doesNotMatch(orderNextStep("REFUND_PROCESSING") ?? "", /has been confirmed|refund is complete/i);
+  assert.equal(orderNextStep("SOMETHING_NEW"), null);
 });

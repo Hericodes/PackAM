@@ -84,3 +84,54 @@ export function orderProgress(status: string) {
     state: position < index || (position === index && normalised === "DELIVERED") ? ("done" as const) : position === index ? ("current" as const) : ("upcoming" as const),
   }));
 }
+
+/** What a timeline entry means to the student. Internal status notes stay operations-only. */
+const ORDER_EVENT_DESCRIPTIONS: Record<string, string> = {
+  PAYMENT_CONFIRMED: "Your OPay payment was verified.",
+  FINDING_RUNNER: "Your order was offered to campus runners.",
+  RUNNER_ASSIGNED: "A runner accepted your order.",
+  SOURCING_PRODUCT: "Your runner started getting your items.",
+  OUT_FOR_DELIVERY: "Your runner left with your order.",
+  DELIVERED: "Your runner marked the order as delivered.",
+  REFUND_PROCESSING: "A refund was started.",
+  REFUNDED: "Your refund was confirmed.",
+  FAILED: "The refund needs attention from our team.",
+  CANCELLED: "The order was cancelled.",
+};
+
+export function orderEventDescription(status: string) {
+  return ORDER_EVENT_DESCRIPTIONS[status] ?? null;
+}
+
+/** The next thing that will happen, phrased so it never promises a time or a result. */
+export function orderNextStep(status: string) {
+  switch (status) {
+    case "PAYMENT_CONFIRMED":
+    case "FINDING_RUNNER":
+      return "A verified campus runner will accept your order. You’ll get a notification when they do.";
+    case "RUNNER_ASSIGNED":
+      return "Your runner will start getting your items from the vendor.";
+    case "SOURCING_PRODUCT":
+      return "Your runner is getting your items. If a price has changed, you’ll be asked to approve it on this page before they continue.";
+    case "OUT_FOR_DELIVERY":
+      return "Your runner is bringing the order to your delivery address. Keep your phone close.";
+    case "DELIVERED":
+      return "Nothing else to do. If something is wrong with your items, report it to support with this order.";
+    case "REFUND_PROCESSING":
+      return "You’ll get a notification when the refund is confirmed.";
+    case "REFUNDED":
+      return "Nothing else to do — this order is closed.";
+    case "FAILED":
+      return "Our team is handling the refund. Contact support with this order if you have questions.";
+    case "CANCELLED":
+      return "This order is closed. Contact support if you think that’s a mistake.";
+    default:
+      return null;
+  }
+}
+
+/** Collapses repeated statuses (e.g. a re-offer to runners) so the timeline reads as distinct steps. */
+export function orderTimeline<T extends { status: string; createdAt: Date }>(history: T[]) {
+  const sorted = history.slice().sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+  return sorted.filter((entry, index) => index === 0 || sorted[index - 1].status !== entry.status);
+}

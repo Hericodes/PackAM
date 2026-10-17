@@ -450,10 +450,34 @@ a {
       linear-gradient(180deg, rgba(255, 244, 199, 0.55) 0%, rgba(255, 253, 247, 0) 100%);
     border-bottom: 1px solid rgba(8, 8, 8, 0.05);
   }
-  .pk-feature {
-    background: linear-gradient(135deg, #fff3c4 0%, #fffaf0 70%);
-    border: 1px solid rgba(254, 184, 10, 0.35);
-    border-radius: var(--radius-xl);
+
+  /* Compact label for icon-only controls; the control's aria-label remains the accessible name. */
+  .pk-tip { position: relative; }
+  @media (hover: hover) {
+    .pk-tip::after {
+      content: attr(data-tip);
+      position: absolute;
+      top: calc(100% + 6px);
+      left: 50%;
+      z-index: 60;
+      padding: 4px 8px;
+      border-radius: 8px;
+      background: var(--packam-black);
+      color: var(--packam-white);
+      font-size: 0.75rem;
+      font-weight: 700;
+      line-height: 1.2;
+      white-space: nowrap;
+      pointer-events: none;
+      opacity: 0;
+      transform: translate(-50%, -2px);
+      transition: opacity 120ms ease, transform 120ms ease;
+    }
+    .pk-tip:hover::after,
+    .pk-tip:focus-visible::after {
+      opacity: 1;
+      transform: translate(-50%, 0);
+    }
   }
 
   .pk-card {

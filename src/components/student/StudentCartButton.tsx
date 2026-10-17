@@ -2,31 +2,25 @@
 
 import Link from "next/link";
 import { useCartExperience } from "../cart/CartExperience";
+import { Icon } from "../ui/Icon";
 
+/** The single cart entry point in the navbar; /cart sends students to checkout or the shop. */
 export function StudentCartButton() {
-  const { count, subtotal } = useCartExperience();
-
-  if (count < 1) return null;
-
-  const formattedSubtotal = subtotal.toLocaleString();
+  const { count } = useCartExperience();
 
   return (
     <Link
-      href="/checkout"
-      aria-label={`Checkout, ${count} ${
-        count === 1 ? "item" : "items"
-      }, subtotal ₦${formattedSubtotal}`}
-      className="relative inline-flex h-11 w-11 items-center justify-center rounded-xl bg-black text-sm font-bold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-black/90 hover:shadow focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black sm:w-auto sm:gap-2 sm:px-3.5"
+      href="/cart"
+      data-tip="Cart"
+      aria-label={count ? `Cart, ${count} ${count === 1 ? "item" : "items"}` : "Cart, empty"}
+      className="pk-tip relative inline-flex h-11 w-11 items-center justify-center rounded-full text-black/75 transition hover:bg-[#fff4c7] hover:text-black focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black"
     >
-      <span aria-hidden="true">🛒</span>
-
-      <span className="hidden text-white sm:inline">
-        Checkout · ₦{formattedSubtotal}
-      </span>
-
-      <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-[#feb80a] px-1 text-xs font-bold leading-none text-black sm:static sm:h-5 sm:min-w-5">
-        {count}
-      </span>
+      <Icon name="cart" />
+      {count > 0 && (
+        <span className="absolute right-0.5 top-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-[#feb80a] px-1 text-[11px] font-black leading-none text-black ring-2 ring-[#fffdf7]">
+          {count > 99 ? "99+" : count}
+        </span>
+      )}
     </Link>
   );
 }
