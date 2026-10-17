@@ -19,7 +19,6 @@ export function ProductCard({ id, name, price, image, category }: ProductCardPro
             name={name}
             imageUrl={image}
             category={category}
-            fit="contain"
             sizes="(min-width: 1024px) 25vw, (min-width: 768px) 33vw, 50vw"
             className="aspect-4/3 transition-transform duration-300 motion-safe:group-hover:scale-[1.02]"
           />
@@ -36,7 +35,7 @@ export function ProductCard({ id, name, price, image, category }: ProductCardPro
             <span className="truncate">{category}</span>
           </p>
         )}
-        <h3 className="mt-1.5 min-h-[2.5rem] text-[0.9375rem] font-extrabold leading-5 text-black sm:text-base sm:leading-5">
+        <h3 className="mt-1.5 text-[0.9375rem] font-extrabold leading-5 text-black sm:text-base sm:leading-5">
           <Link
             href={href}
             title={name}
@@ -45,12 +44,15 @@ export function ProductCard({ id, name, price, image, category }: ProductCardPro
             {name}
           </Link>
         </h3>
-        <p className="mt-2 flex items-baseline gap-0.5 font-black tracking-tight text-black">
-          <span className="text-sm">₦</span>
-          <span className="text-xl leading-none sm:text-[1.375rem]">{price.toLocaleString()}</span>
-        </p>
-        <div className="mt-auto pt-3.5">
-          <AddToCart productId={id} compact />
+        {/* Price and action share the card's bottom edge, so they align across a row whatever the name length. */}
+        <div className="mt-auto pt-2.5">
+          <p className="flex items-baseline gap-0.5 font-black tracking-tight text-black">
+            <span className="text-sm">₦</span>
+            <span className="text-xl leading-none sm:text-[1.375rem]">{price.toLocaleString()}</span>
+          </p>
+          <div className="pt-3">
+            <AddToCart productId={id} compact />
+          </div>
         </div>
       </div>
     </article>

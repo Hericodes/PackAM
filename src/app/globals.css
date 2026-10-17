@@ -491,6 +491,9 @@ a {
   .pk-media-peach { --pk-media-from: #ffe1c7; --pk-media-to: #fff9ef; }
   .pk-media-cream { --pk-media-from: #fff4c7; --pk-media-to: #fffdf7; }
 
+  /* A photo stays hidden only until its fit is measured; without JavaScript it still appears. */
+  .pk-photo-pending { opacity: 0; animation: pk-photo-reveal 0s linear 1.2s forwards; }
+
   .pk-product-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -633,6 +636,10 @@ a {
 @keyframes pk-shimmer {
   from { background-position: 200% 0; }
   to { background-position: -200% 0; }
+}
+
+@keyframes pk-photo-reveal {
+  to { opacity: 1; }
 }
 
 @media (prefers-reduced-motion: reduce) {
