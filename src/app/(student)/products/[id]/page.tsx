@@ -26,7 +26,7 @@ export default async function ProductPage({ params }: ProductPageProps) {
 
   const confirmedInStock = product.sources.some((source) => source.availability === "AVAILABLE");
   return (
-    <main className="min-h-screen bg-[#fffdf7] pb-16">
+    <main className="min-h-screen pb-16">
       <div className="packam-container pt-5 sm:pt-8">
         <nav aria-label="Breadcrumb">
           <ol className="flex flex-wrap items-center gap-1 text-sm text-black/65">

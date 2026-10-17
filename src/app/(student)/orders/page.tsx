@@ -51,7 +51,7 @@ export default async function OrdersPage() {
   const past = orders.filter((order) => isFinalOrderStatus(order.status));
 
   return (
-    <main className="min-h-screen bg-[#fffdf7] pb-16">
+    <main className="min-h-screen pb-16">
       <div className="packam-container py-7 sm:py-10">
         <p className="pk-eyebrow">Your orders</p>
         <h1 className="pk-page-title mt-2">Orders</h1>

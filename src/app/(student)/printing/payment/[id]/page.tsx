@@ -13,7 +13,7 @@ export default async function PrintPaymentPage({ params }: { params: Promise<{ i
 
   return (
     <>
-      <main className="min-h-screen bg-[#fffdf7] px-4 py-7 sm:py-10">
+      <main className="min-h-screen px-4 py-7 sm:py-10">
         <div className="mx-auto max-w-xl">
           <p className="text-xs font-black uppercase tracking-[0.16em] text-black/45">PackAM Printing</p>
           <h1 className="mt-2 text-3xl font-black tracking-tight">Print payment</h1>

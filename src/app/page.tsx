@@ -42,7 +42,7 @@ export default async function HomePage() {
   ]);
 
   return (
-    <main className="min-h-screen bg-[#fffdf7] text-black">
+    <main className="min-h-screen text-black">
       <StudentNavbar />
 
       <section className="pk-hero">
@@ -62,11 +62,6 @@ export default async function HomePage() {
               <input id="home-search" name="q" type="search" placeholder="What do you need? Try “indomie” or “charger”" className="pk-input min-h-[52px] flex-1 shadow-sm" />
               <button type="submit" className="pk-btn pk-btn-primary pk-btn-lg">Search</button>
             </form>
-            <ul className="mt-4 flex flex-wrap gap-x-5 gap-y-2 text-sm font-semibold text-black/70" aria-label="Why PackAM">
-              <li>✓ ₦{STUDENT_DELIVERY_FEE.toLocaleString()} flat delivery</li>
-              <li>✓ Secure OPay checkout</li>
-              <li>✓ Track every step</li>
-            </ul>
           </div>
 
           <nav aria-label="Shop by category" className="grid grid-cols-2 gap-3">

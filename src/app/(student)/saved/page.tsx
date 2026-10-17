@@ -5,7 +5,7 @@ export const metadata: Metadata = { title: "Saved items" };
 
 export default function SavedPage() {
   return (
-    <main className="min-h-screen bg-[#fffdf7] pb-16">
+    <main className="min-h-screen pb-16">
       <div className="packam-container py-7 sm:py-10">
         <p className="pk-eyebrow">Your list</p>
         <h1 className="pk-page-title mt-2">Saved items</h1>

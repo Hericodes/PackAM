@@ -10,5 +10,5 @@ export default async function RunnerLayout({
 }) {
   await requireRole("RUNNER");
 
-  return <><header className="border-b border-black/5 bg-white"><div className="packam-container flex items-center justify-between py-3"><Link href="/runner" className="font-black">PackAM Runner</Link><div className="flex items-center gap-1"><NotificationBell /><SignOutButton /></div></div></header>{children}</>;
+  return <div className="pk-theme-ops"><header className="border-b border-black/5 bg-white/90 backdrop-blur"><div className="packam-container flex items-center justify-between py-3"><Link href="/runner" className="font-black">PackAM Runner</Link><div className="flex items-center gap-1"><NotificationBell /><SignOutButton /></div></div></header>{children}</div>;
 }

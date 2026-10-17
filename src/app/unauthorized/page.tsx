@@ -2,7 +2,7 @@ import Link from "next/link";
 
 export default function UnauthorizedPage() {
   return (
-    <main className="min-h-screen bg-[#fffdf7] px-6 py-10">
+    <main className="min-h-screen px-6 py-10">
       <div className="mx-auto flex min-h-[90vh] max-w-md flex-col items-center justify-center text-center">
         <div className="mb-6 text-6xl">🚫</div>
 

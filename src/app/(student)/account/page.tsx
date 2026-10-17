@@ -40,7 +40,7 @@ export default async function AccountPage() {
   ].filter((entry): entry is [string, string] => Boolean(entry[1]));
 
   return (
-    <main className="min-h-screen bg-[#fffdf7] pb-16">
+    <main className="min-h-screen pb-16">
       <div className="packam-container py-7 sm:py-10">
         <p className="pk-eyebrow">Account</p>
         <h1 className="pk-page-title mt-2">Hi, {user?.firstName || "there"} 👋</h1>

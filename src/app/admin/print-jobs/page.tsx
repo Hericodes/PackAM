@@ -32,7 +32,7 @@ export default async function AdminPrintJobsPage({ searchParams }: { searchParam
     return `/admin/print-jobs${query.size ? `?${query}` : ""}`;
   };
 
-  return <main className="min-h-screen bg-[#f7f5ee]"><div className="packam-container py-8">
+  return <main className="min-h-screen"><div className="packam-container py-8">
     <h1 className="text-3xl font-black">Print jobs</h1>
     <nav aria-label="Filter by status" className="mt-4 flex gap-2 overflow-x-auto whitespace-nowrap pb-1">
       <Link href={href({})} aria-current={!filter ? "page" : undefined} className={`rounded-full px-4 py-2 text-sm font-bold ${!filter ? "bg-black text-white" : "bg-white"}`}>Paid jobs</Link>

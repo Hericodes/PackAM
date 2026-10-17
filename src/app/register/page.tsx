@@ -79,7 +79,7 @@ export default function RegisterPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[#fffdf7] px-4 py-8 sm:px-6 sm:py-10">
+    <main className="pk-theme-auth min-h-screen px-4 py-8 sm:px-6 sm:py-10">
       <div className="mx-auto flex min-h-[85vh] max-w-md flex-col justify-center">
         <div className="mb-8">
           <Link

@@ -24,7 +24,7 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
   ]);
 
   return (
-    <main className="min-h-screen bg-[#fffdf7]">
+    <main className="min-h-screen">
       <StudentNavbar />
       <div className="packam-container py-6 sm:py-10">
         <p className="pk-eyebrow">Campus marketplace</p>

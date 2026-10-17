@@ -19,7 +19,7 @@ export default async function AdminProductsPage({ searchParams }: { searchParams
   }), db.product.count()]);
 
   return (
-    <main className="min-h-screen bg-[#fffdf7]">
+    <main className="min-h-screen">
       <div className="packam-container py-10">
         <div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
           <div>

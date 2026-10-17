@@ -8,7 +8,7 @@ export default async function ProductRequestsPage({ searchParams }: ProductReque
   const params = await searchParams;
   const initialProductName = (params.name ?? "").trim().slice(0, 120);
   return (
-    <main className="min-h-screen bg-[#fffdf7]">
+    <main className="min-h-screen">
       <div className="packam-container py-8 sm:py-10">
         <header className="mb-6 sm:mb-8">
           <p className="pk-eyebrow">Can’t find it?</p>

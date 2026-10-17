@@ -8,7 +8,7 @@ export default async function PaymentResultPage({
 }) {
   const { reference } = await searchParams;
   return (
-    <main className="flex min-h-[calc(100svh-4rem)] items-center bg-[#fffdf7] px-4 py-8 sm:py-12">
+    <main className="flex min-h-[calc(100svh-4rem)] items-center px-4 py-8 sm:py-12">
       <section className="mx-auto w-full max-w-lg rounded-[1.5rem] border border-black/5 bg-white px-5 py-8 text-center shadow-sm sm:rounded-[2rem] sm:px-10 sm:py-12">
         {reference ? <PaymentResultClient reference={reference} /> : (
           <>

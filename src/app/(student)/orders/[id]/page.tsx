@@ -34,7 +34,7 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
   const decisionNeeded = order.items.some((item) => item.sourcing.some((source) => source.status === "PRICE_PENDING"));
 
   return (
-    <main className="min-h-screen bg-[#fffdf7] pb-16">
+    <main className="min-h-screen pb-16">
       <div className="packam-container py-6 sm:py-10">
         <Link href="/orders" className="inline-flex min-h-11 items-center text-sm font-bold text-black/65 hover:text-black">← All orders</Link>
 

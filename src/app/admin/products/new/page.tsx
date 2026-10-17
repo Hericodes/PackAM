@@ -15,7 +15,7 @@ export default async function NewAdminProductPage() {
   });
 
   return (
-    <main className="min-h-screen bg-[#fffdf7]">
+    <main className="min-h-screen">
       <div className="packam-container max-w-3xl py-10">
         <Link
           href="/admin/products"

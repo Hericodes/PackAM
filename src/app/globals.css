@@ -55,6 +55,32 @@
   --background: var(--packam-cream);
   --foreground: var(--packam-black);
 
+  /* ========================================
+     PAGE BACKGROUND GRADIENTS
+     Soft yellow/cream washes painted once behind every route (see body::before).
+     Content surfaces (cards, inputs, tables) stay solid white on top.
+     ======================================== */
+
+  /* Customer pages: warm amber bloom top-right, pale butter wash bottom-left. */
+  --pk-bg-gradient:
+    radial-gradient(70rem 42rem at 105% -10%, rgba(254, 184, 10, 0.2) 0%, rgba(254, 184, 10, 0) 60%),
+    radial-gradient(55rem 40rem at -15% 45%, rgba(255, 214, 102, 0.16) 0%, rgba(255, 214, 102, 0) 60%),
+    radial-gradient(70rem 40rem at 60% 115%, rgba(255, 233, 168, 0.4) 0%, rgba(255, 233, 168, 0) 60%),
+    linear-gradient(180deg, #fff8e3 0%, #fffdf7 42%, #fffaf0 100%);
+
+  /* Admin and runner dashboards: same palette, calmer for dense data. */
+  --pk-bg-gradient-ops:
+    radial-gradient(60rem 36rem at 100% -15%, rgba(254, 184, 10, 0.12) 0%, rgba(254, 184, 10, 0) 60%),
+    radial-gradient(60rem 40rem at -10% 110%, rgba(255, 226, 140, 0.18) 0%, rgba(255, 226, 140, 0) 60%),
+    linear-gradient(180deg, #fbf7ea 0%, #fdfbf4 50%, #f9f5ea 100%);
+
+  /* Login and registration: a brighter, centred glow behind the form. */
+  --pk-bg-gradient-auth:
+    radial-gradient(48rem 34rem at 50% -5%, rgba(254, 184, 10, 0.28) 0%, rgba(254, 184, 10, 0) 65%),
+    radial-gradient(40rem 30rem at 0% 100%, rgba(255, 214, 102, 0.22) 0%, rgba(255, 214, 102, 0) 60%),
+    radial-gradient(40rem 30rem at 100% 85%, rgba(255, 236, 190, 0.45) 0%, rgba(255, 236, 190, 0) 60%),
+    linear-gradient(180deg, #fff5d6 0%, #fffcf3 55%, #fff8ea 100%);
+
   --border: var(--packam-grey-200);
 
   --radius-sm: 10px;
@@ -128,6 +154,24 @@ body {
     sans-serif;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+}
+
+/* A fixed layer instead of background-attachment: fixed, which mobile Safari ignores. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: var(--pk-bg-gradient);
+}
+
+body:has(.pk-theme-ops)::before {
+  background: var(--pk-bg-gradient-ops);
+}
+
+body:has(.pk-theme-auth)::before {
+  background: var(--pk-bg-gradient-auth);
 }
 
 button,
@@ -399,11 +443,11 @@ a {
    ======================================== */
 
 @layer components {
-  /* Restrained warm gradient: hero and feature areas only, never whole pages. */
+  /* Hero sits on the global page gradient, so it only adds a soft amber bloom on top. */
   .pk-hero {
     background:
-      radial-gradient(120% 90% at 100% 0%, rgba(254, 184, 10, 0.22) 0%, rgba(254, 184, 10, 0) 55%),
-      linear-gradient(180deg, #fff7dc 0%, var(--packam-cream) 100%);
+      radial-gradient(120% 90% at 100% 0%, rgba(254, 184, 10, 0.2) 0%, rgba(254, 184, 10, 0) 55%),
+      linear-gradient(180deg, rgba(255, 244, 199, 0.55) 0%, rgba(255, 253, 247, 0) 100%);
     border-bottom: 1px solid rgba(8, 8, 8, 0.05);
   }
   .pk-feature {

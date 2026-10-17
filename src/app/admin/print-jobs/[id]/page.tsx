@@ -36,7 +36,7 @@ export default async function AdminPrintJobPage({ params }: { params: Promise<{ 
   const canRetry = (job.status === "DOCUMENT_UNREADABLE" || job.status === "PRINT_FAILED") && Boolean(job.assignedRunner);
   const canRefund = Boolean(capturedPayment) && canTransitionPrintJob(job.status, "REFUND_PROCESSING");
 
-  return <main className="min-h-screen bg-[#f7f5ee]"><div className="packam-container py-8">
+  return <main className="min-h-screen"><div className="packam-container py-8">
     <Link href="/admin/exceptions" className="text-sm font-bold text-black/50">← Exceptions</Link>
     <section className="mt-4 rounded-3xl bg-white p-5 sm:p-7">
       <div className="flex flex-wrap justify-between gap-3"><div><p className="text-xs text-black/40">Print job {printMissionReference(job.id)} · {job.id}</p><h1 className="mt-1 text-2xl font-black">{job.status.replaceAll("_", " ")}</h1></div><p className="text-xl font-black">₦{(job.total ?? 0).toLocaleString()}</p></div>

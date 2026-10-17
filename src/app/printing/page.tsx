@@ -34,7 +34,7 @@ export default async function PrintingPage() {
   return (
     <>
       <StudentNavbar />
-      <main className="min-h-screen bg-[#fffdf7] pb-8">
+      <main className="min-h-screen pb-8">
         <section className="pk-hero">
           <div className="packam-container py-7 sm:py-10">
             <p className="pk-eyebrow">PackAM Printing</p>

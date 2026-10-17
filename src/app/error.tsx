@@ -10,7 +10,7 @@ export default function Error({ error, retry }: { error: Error & { digest?: stri
   }, [error]);
 
   return (
-    <main className="flex min-h-[70vh] items-center justify-center bg-[#fffdf7] px-4 py-16">
+    <main className="flex min-h-[70vh] items-center justify-center px-4 py-16">
       <div role="alert" className="max-w-md text-center">
         <h1 className="text-2xl font-black sm:text-3xl">Something went wrong on our side</h1>
         <p className="mt-3 text-sm leading-6 text-black/70">Nothing you did. Your orders and payments are safe — try again in a moment.</p>
