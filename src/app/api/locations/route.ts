@@ -1,5 +1,6 @@
 import { auth } from "../../../auth";
 import { db } from "../../../lib/db";
+import { parseCoordinates } from "../../../lib/delivery-location";
 
 export async function GET() {
   try {
@@ -70,19 +71,7 @@ export async function POST(request: Request) {
         ? body.instructions.trim()
         : "";
 
-    const latitude =
-      body?.latitude !== undefined &&
-      body?.latitude !== null &&
-      body?.latitude !== ""
-        ? Number(body.latitude)
-        : null;
-
-    const longitude =
-      body?.longitude !== undefined &&
-      body?.longitude !== null &&
-      body?.longitude !== ""
-        ? Number(body.longitude)
-        : null;
+    const coordinates = parseCoordinates(body?.latitude, body?.longitude);
 
     if (!label) {
       return Response.json(
@@ -119,24 +108,9 @@ export async function POST(request: Request) {
       );
     }
 
-    if (
-      latitude !== null &&
-      (!Number.isFinite(latitude) || latitude < -90 || latitude > 90)
-    ) {
+    if (!coordinates.ok) {
       return Response.json(
-        { error: "Invalid latitude." },
-        { status: 400 },
-      );
-    }
-
-    if (
-      longitude !== null &&
-      (!Number.isFinite(longitude) ||
-        longitude < -180 ||
-        longitude > 180)
-    ) {
-      return Response.json(
-        { error: "Invalid longitude." },
+        { error: coordinates.error },
         { status: 400 },
       );
     }
@@ -147,8 +121,8 @@ export async function POST(request: Request) {
         label,
         address,
         instructions: instructions || null,
-        latitude,
-        longitude,
+        latitude: coordinates.value?.latitude ?? null,
+        longitude: coordinates.value?.longitude ?? null,
       },
     });
 

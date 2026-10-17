@@ -1,5 +1,6 @@
 import { auth } from "../../../../../auth";
 import { db } from "../../../../../lib/db";
+import { deliveryPointFromSnapshot, mapsLink } from "../../../../../lib/delivery-location";
 
 type Context = { params: Promise<{ id: string }> };
 
@@ -21,7 +22,8 @@ export async function GET(_request: Request, context: Context) {
           deliveryAddress: true,
           deliveryInstructions: true,
           user: { select: { firstName: true, phone: true } },
-          deliveryLocation: { select: { label: true } },
+          deliveryLocation: { select: { label: true, latitude: true, longitude: true } },
+          payment: { select: { checkoutSnapshot: true } },
           items: {
             select: {
               id: true,
@@ -46,15 +48,20 @@ export async function GET(_request: Request, context: Context) {
   });
   if (!assignment?.order) return Response.json({ error: "Mission not found." }, { status: 404 });
   const { order } = assignment;
+  // Prefer the copy frozen at checkout; fall back to the saved location for orders placed before it existed.
+  const frozen = deliveryPointFromSnapshot(order.payment?.checkoutSnapshot);
+  const saved = order.deliveryLocation;
+  const coordinates = frozen.coordinates ?? (saved?.latitude != null && saved?.longitude != null ? { latitude: saved.latitude, longitude: saved.longitude } : null);
   return Response.json({ mission: {
     assignmentStatus: assignment.status,
     id: order.id,
     status: order.status,
     items: order.items,
-    deliveryLocationLabel: order.deliveryLocation?.label ?? "Campus delivery",
+    deliveryLocationLabel: frozen.label ?? saved?.label ?? "Campus delivery",
     ...(assignment.status === "ACCEPTED" ? {
       deliveryAddress: order.deliveryAddress,
       deliveryInstructions: order.deliveryInstructions,
+      deliveryPoint: coordinates ? { ...coordinates, mapsUrl: mapsLink(coordinates) } : null,
       total: order.total,
       student: { firstName: order.user.firstName, phone: order.user.phone },
     } : {}),

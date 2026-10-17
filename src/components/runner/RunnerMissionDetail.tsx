@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import { DeliveryDestination } from "./DeliveryDestination";
 
 type Source = { id: string; status: string; quantity: number; catalogueUnitPrice: number; actualUnitPrice: number | null; orderSource: { vendor: { name: string } } };
 type Item = { id: string; productName: string; quantity: number; unitPrice: number; sourcing: Source[] };
-type Mission = { assignmentStatus: string; id: string; status: string; items: Item[]; deliveryLocationLabel: string; deliveryAddress?: string; deliveryInstructions?: string | null; total?: number; student?: { firstName: string | null; phone: string | null } };
+type Mission = { assignmentStatus: string; id: string; status: string; items: Item[]; deliveryLocationLabel: string; deliveryAddress?: string; deliveryInstructions?: string | null; deliveryPoint?: { latitude: number; longitude: number; mapsUrl: string } | null; total?: number; student?: { firstName: string | null; phone: string | null } };
 type Vendor = { id: string; name: string; location: string | null };
 type IssueType = "CUSTOMER_UNAVAILABLE" | "DELIVERY_ISSUE" | "WRONG_ITEM" | "MISSING_ITEM" | "DAMAGED_ITEM" | "OTHER";
 
@@ -82,10 +83,9 @@ export function RunnerMissionDetail({ orderId }: { orderId: string }) {
         <p className="mt-3 text-sm text-black/60">{mission.items.map((item) => `${item.productName} × ${item.quantity}`).join(", ")}</p>
         <button disabled={busy} onClick={() => void act({ action: "accept" })} className="mt-5 rounded-full bg-black px-6 py-3 text-sm font-black text-white disabled:opacity-50">{busy ? "Accepting…" : "Accept mission"}</button>
       </> : mission.status === "REFUND_PROCESSING" ? <p className="mt-3 text-sm text-black/60">PackAM operations will handle the refund request.</p> : <>
-        {mission.status === "OUT_FOR_DELIVERY" && <div className="mt-4 rounded-2xl bg-[#fff8df] p-4"><p className="font-black">DELIVERY 🚴</p><p className="mt-2 text-sm"><strong>Deliver to:</strong> {mission.deliveryLocationLabel} · {mission.deliveryAddress}</p>{mission.deliveryInstructions && <p className="mt-2 text-sm"><strong>Instructions:</strong> {mission.deliveryInstructions}</p>}{mission.student?.phone && <p className="mt-2 text-sm"><strong>Contact:</strong> <a className="underline" href={`tel:${mission.student.phone}`}>{mission.student.firstName || "Student"} · {mission.student.phone}</a></p>}<ul className="mt-3 text-sm">{mission.items.map((item) => <li key={item.id}>{item.productName} × {item.quantity}</li>)}</ul><p className="mt-3 text-sm font-black">Total: ₦{mission.total?.toLocaleString()}</p></div>}
+        {mission.status === "OUT_FOR_DELIVERY" && <div className="mt-4 rounded-2xl bg-[#fff8df] p-4"><p className="font-black">DELIVERY 🚴</p><DeliveryDestination label={mission.deliveryLocationLabel} address={mission.deliveryAddress} instructions={mission.deliveryInstructions} point={mission.deliveryPoint} />{mission.student?.phone && <p className="mt-2 text-sm"><strong>Contact:</strong> <a className="underline" href={`tel:${mission.student.phone}`}>{mission.student.firstName || "Student"} · {mission.student.phone}</a></p>}<ul className="mt-3 text-sm">{mission.items.map((item) => <li key={item.id}>{item.productName} × {item.quantity}</li>)}</ul><p className="mt-3 text-sm font-black">Total: ₦{mission.total?.toLocaleString()}</p></div>}
         {mission.status !== "OUT_FOR_DELIVERY" && <>
-          <p className="mt-3 text-sm"><strong>Delivery to:</strong> {mission.deliveryAddress}</p>
-          {mission.deliveryInstructions && <p className="mt-1 text-sm text-black/55"><strong>Instructions:</strong> {mission.deliveryInstructions}</p>}
+          <DeliveryDestination label={mission.deliveryLocationLabel} address={mission.deliveryAddress} instructions={mission.deliveryInstructions} point={mission.deliveryPoint} />
           {mission.student?.phone && <p className="mt-1 text-sm"><strong>Contact:</strong> <a className="underline" href={`tel:${mission.student.phone}`}>{mission.student.firstName || "Student"} · {mission.student.phone}</a></p>}
           <h2 className="mt-7 font-black">Shop list</h2>
           <div className="mt-3 space-y-3">{mission.items.map((item) => {

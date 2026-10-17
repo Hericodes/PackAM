@@ -30,6 +30,14 @@ type CheckoutSnapshot = {
   deliveryLocationId: string;
   deliveryAddress: string;
   deliveryInstructions: string | null;
+  /**
+   * Frozen copies so the runner keeps the destination even if the student later deletes the saved
+   * location. Taken from the database, never from the browser. Absent on older snapshots; read them
+   * with deliveryPointFromSnapshot.
+   */
+  deliveryLocationLabel?: string;
+  deliveryLatitude?: number;
+  deliveryLongitude?: number;
 };
 
 export type VerifiedProviderPayment = {
@@ -121,7 +129,7 @@ export async function createPaymentAttempt(
         }),
         tx.savedLocation.findFirst({
           where: { id: deliveryLocationId, userId: student.id },
-          select: { id: true, address: true, instructions: true },
+          select: { id: true, label: true, address: true, instructions: true, latitude: true, longitude: true },
         }),
       ]);
 
@@ -160,6 +168,8 @@ export async function createPaymentAttempt(
         deliveryLocationId: location.id,
         deliveryAddress: location.address,
         deliveryInstructions: deliveryInstructions === undefined ? location.instructions : deliveryInstructions,
+        deliveryLocationLabel: location.label,
+        ...(location.latitude !== null && location.longitude !== null ? { deliveryLatitude: location.latitude, deliveryLongitude: location.longitude } : {}),
       };
 
       return tx.payment.create({
