@@ -15,11 +15,101 @@ const STEPS = [
   { icon: "🛵", title: "We bring it", body: "A campus runner picks it up and you track every step." },
 ];
 
-const PRINT_STEPS: { icon: IconName; label: string }[] = [
-  { icon: "file", label: "Upload a PDF" },
-  { icon: "receipt", label: "See the exact price" },
-  { icon: "truck", label: "Delivered to you" },
+type Service = {
+  id: string;
+  icon: IconName;
+  title: string;
+  body: string;
+  /** Live services link into their existing flow; a service without an href is shown as coming soon. */
+  href?: string;
+  cta?: string;
+  featured?: boolean;
+  meta?: string;
+};
+
+const SERVICES: Service[] = [
+  {
+    id: "order",
+    icon: "shop",
+    title: "Order stuff",
+    body: "Food, drinks, academic materials and everyday essentials, delivered to you.",
+    href: "/search",
+    cta: "Browse and order",
+    featured: true,
+    meta: `₦${STUDENT_DELIVERY_FEE.toLocaleString()} delivery`,
+  },
+  {
+    id: "verification",
+    icon: "shieldCheck",
+    title: "Student Verification",
+    body: "Your student verification needs, made easier. We’re working on it.",
+  },
+  {
+    id: "printing",
+    icon: "printer",
+    title: "Printing",
+    body: "Print your documents without unnecessary campus stress.",
+    href: "/printing",
+    cta: "Print documents",
+    meta: `From ₦${PRINTING_PRICES.A4.BLACK_AND_WHITE.toLocaleString()}/page`,
+  },
 ];
+
+function ServiceCard({ service }: { service: Service }) {
+  const iconTile = (
+    <span
+      className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ${
+        service.featured ? "bg-black text-[#feb80a]" : service.href ? "bg-[#fff4c7] text-[#875a00]" : "bg-black/6 text-black/55"
+      }`}
+    >
+      <Icon name={service.icon} className="h-6 w-6" />
+    </span>
+  );
+
+  if (!service.href) {
+    return (
+      <div
+        aria-labelledby={`service-${service.id}`}
+        aria-describedby={`service-${service.id}-status`}
+        className="relative flex h-full gap-4 rounded-[22px] border border-dashed border-black/15 bg-[repeating-linear-gradient(135deg,rgba(8,8,8,0.025)_0_10px,transparent_10px_20px)] p-5 md:flex-col"
+      >
+        {iconTile}
+        <div className="flex min-w-0 flex-1 flex-col">
+          <span id={`service-${service.id}-status`} className="inline-flex w-fit items-center gap-1.5 rounded-full bg-black px-2.5 py-1 text-[0.6875rem] font-black uppercase tracking-[0.12em] text-[#feb80a]">
+            <Icon name="clock" className="h-3.5 w-3.5" strokeWidth={2.2} /> Coming soon
+          </span>
+          <h3 id={`service-${service.id}`} className="mt-2.5 text-lg font-black tracking-[-0.01em] text-black/80">{service.title}</h3>
+          <p className="mt-1 text-sm leading-6 text-black/60">{service.body}</p>
+          <p className="mt-auto pt-3 text-sm font-bold text-black/45">Not available yet</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <Link
+      href={service.href}
+      aria-labelledby={`service-${service.id}`}
+      className={`group flex h-full gap-4 rounded-[22px] p-5 transition-[box-shadow,transform,border-color] duration-150 hover:-translate-y-0.5 md:flex-col ${
+        service.featured
+          ? "bg-[#feb80a] shadow-[0_18px_40px_-26px_rgba(135,90,0,0.8)] hover:shadow-[0_22px_44px_-24px_rgba(135,90,0,0.9)]"
+          : "border border-black/8 bg-white shadow-[0_1px_2px_rgba(8,8,8,0.04)] hover:border-black/20 hover:shadow-(--shadow-soft)"
+      }`}
+    >
+      {iconTile}
+      <div className="flex min-w-0 flex-1 flex-col">
+        <h3 id={`service-${service.id}`} className="text-lg font-black tracking-[-0.01em]">{service.title}</h3>
+        <span className={`mt-1 text-sm leading-6 ${service.featured ? "text-black/75" : "text-black/65"}`}>{service.body}</span>
+        <span className="mt-auto flex flex-wrap items-center justify-between gap-x-3 gap-y-1 pt-3">
+          <span className="inline-flex items-center gap-1.5 text-sm font-black">
+            {service.cta} <Icon name="arrowRight" className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+          </span>
+          {service.meta && <span className={`text-xs font-semibold ${service.featured ? "text-black/65" : "text-black/55"}`}>{service.meta}</span>}
+        </span>
+      </div>
+    </Link>
+  );
+}
 
 export default async function HomePage() {
   const session = await auth();
@@ -56,9 +146,24 @@ export default async function HomePage() {
               <span className="text-[#875a00]">WE PackAM.</span>
             </h1>
             <p className="pk-muted mt-4 max-w-lg text-base leading-7 sm:text-lg">
-              Food, study supplies, chargers and printing — ordered from wherever you are on campus and brought to you.
+              Your campus needs, all in one place.
             </p>
-            <form action="/search" role="search" className="mt-6 flex max-w-xl gap-2">
+          </div>
+
+          <section className="mt-7 sm:mt-9" aria-labelledby="services-title">
+            <h2 id="services-title" className="sr-only">What do you need today?</h2>
+            <ul className="grid gap-3 md:grid-cols-3 md:gap-4">
+              {SERVICES.map((service) => (
+                <li key={service.id}>
+                  <ServiceCard service={service} />
+                </li>
+              ))}
+            </ul>
+          </section>
+
+          <div className="mt-8 max-w-2xl">
+            <p className="text-sm font-bold text-black/70">Already know what you want?</p>
+            <form action="/search" role="search" className="mt-2 flex max-w-xl gap-2">
               <label htmlFor="home-search" className="sr-only">Search PackAM</label>
               <input id="home-search" name="q" type="search" placeholder="What do you need? Try “indomie” or “charger”" className="pk-input min-h-[52px] flex-1 shadow-sm focus:shadow-[0_0_0_3px_rgba(254,184,10,0.45)]" />
               <button type="submit" className="pk-btn pk-btn-primary pk-btn-lg">Search</button>
@@ -89,55 +194,6 @@ export default async function HomePage() {
           </ul>
         </section>
       )}
-
-      <section className="packam-container pt-10 sm:pt-14" aria-labelledby="printing-card-title">
-        <div className="relative overflow-hidden rounded-[28px] border border-[#feb80a]/40 bg-gradient-to-br from-[#ffe8a1] via-[#fff5d1] to-white shadow-[0_18px_40px_-28px_rgba(135,90,0,0.55)]">
-          <div className="pointer-events-none absolute -right-16 -top-20 h-64 w-64 rounded-full bg-[#feb80a]/25 blur-3xl" aria-hidden="true" />
-          <div className="relative grid gap-8 p-6 sm:p-8 md:grid-cols-[1.25fr_0.75fr] md:items-center lg:p-10">
-            <div>
-              <p className="inline-flex items-center gap-2 rounded-full bg-black px-3 py-1.5 text-xs font-black uppercase tracking-[0.12em] text-[#feb80a]">
-                <Icon name="printer" className="h-4 w-4" /> PackAM Printing
-              </p>
-              <h2 id="printing-card-title" className="mt-4 text-[clamp(1.75rem,4.5vw,2.5rem)] font-black leading-[1.05] tracking-[-0.03em]">Print without the queue.</h2>
-              <p className="mt-3 max-w-xl text-sm leading-6 text-black/75 sm:text-base">
-                Upload a PDF, choose colour, copies and pages, and see the exact price before you pay. A runner brings the prints to you.
-              </p>
-              <ul className="mt-5 grid gap-2 text-sm font-semibold sm:grid-cols-3">
-                {PRINT_STEPS.map((step) => (
-                  <li key={step.label} className="flex items-center gap-2.5 rounded-2xl bg-white/80 px-3 py-2.5 ring-1 ring-black/5">
-                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[#feb80a]/25 text-[#875a00]"><Icon name={step.icon} className="h-4 w-4" /></span>
-                    {step.label}
-                  </li>
-                ))}
-              </ul>
-              <div className="mt-6 flex flex-wrap items-center gap-x-5 gap-y-3">
-                <Link href="/printing" className="pk-btn pk-btn-primary pk-btn-lg">
-                  Start a print job <Icon name="arrowRight" className="h-4 w-4" />
-                </Link>
-                <p className="text-sm text-black/70">
-                  <strong className="text-black">₦{PRINTING_PRICES.A4.BLACK_AND_WHITE.toLocaleString()}</strong>/page B&amp;W · <strong className="text-black">₦{PRINTING_PRICES.A4.COLOR.toLocaleString()}</strong>/page colour
-                </p>
-              </div>
-            </div>
-
-            <div className="relative mx-auto hidden h-48 w-48 md:block lg:h-56 lg:w-56" aria-hidden="true">
-              <div className="absolute inset-x-6 top-2 h-36 -rotate-8 rounded-2xl border border-black/10 bg-white/70 lg:h-44" />
-              <div className="absolute inset-x-4 top-4 h-36 rotate-5 rounded-2xl border border-black/10 bg-white shadow-[0_10px_30px_-12px_rgba(8,8,8,0.25)] lg:h-44">
-                <div className="space-y-2 p-5">
-                  <span className="block h-2 w-3/4 rounded-full bg-black/15" />
-                  <span className="block h-2 w-full rounded-full bg-black/10" />
-                  <span className="block h-2 w-5/6 rounded-full bg-black/10" />
-                  <span className="block h-2 w-2/3 rounded-full bg-black/10" />
-                  <span className="mt-4 block h-10 w-full rounded-lg bg-[#fff4c7]" />
-                </div>
-              </div>
-              <span className="absolute -bottom-1 right-0 flex h-16 w-16 items-center justify-center rounded-2xl bg-black text-[#feb80a] shadow-lg lg:h-20 lg:w-20">
-                <Icon name="printer" className="h-8 w-8 lg:h-10 lg:w-10" strokeWidth={1.7} />
-              </span>
-            </div>
-          </div>
-        </div>
-      </section>
 
       <section className="packam-container pt-10 sm:pt-14" aria-labelledby="popular">
         <div className="flex items-end justify-between gap-4">
