@@ -3,6 +3,7 @@ import { requireRole } from "../../../lib/auth-guard";
 import { db } from "../../../lib/db";
 import { StatusBadge } from "../../../components/ui/StatusBadge";
 import { ProductRowActions } from "../../../components/admin/ProductRowActions";
+import { activationBlocker, isPriceSet } from "../../../lib/catalogue-permissions";
 import {
   ADMIN_PRODUCT_ORDER_BY,
   ADMIN_PRODUCTS_PAGE_SIZE,
@@ -105,6 +106,7 @@ export default async function AdminProductsPage({ searchParams }: { searchParams
                           <p className={`font-black ${product.status === "INACTIVE" ? "text-black/60" : ""}`}>{product.name}</p>
                           <StatusBadge label={product.status === "ACTIVE" ? "Active" : "Inactive"} tone={product.status === "ACTIVE" ? "success" : "neutral"} />
                           {!product.imageUrl && <StatusBadge label="No photo" tone="warning" />}
+                          {!isPriceSet(product.customerPrice) && <StatusBadge label="Price not set" tone="danger" />}
                         </div>
                         {product.description && <p className="mt-1 truncate text-xs text-black/45">{product.description}</p>}
                         <p className="mt-1 text-xs text-black/45">
@@ -112,8 +114,8 @@ export default async function AdminProductsPage({ searchParams }: { searchParams
                         </p>
                       </div>
                       <p className="text-sm font-semibold text-black/60"><span className="sm:hidden text-black/40">Category: </span>{product.category.name}</p>
-                      <p className="text-sm font-black">₦{product.customerPrice.toLocaleString()}</p>
-                      <ProductRowActions product={{ id: product.id, name: product.name, status: product.status }} deleteBlockedReason={blocker} />
+                      <p className="text-sm font-black">{isPriceSet(product.customerPrice) ? `₦${product.customerPrice.toLocaleString()}` : <span className="font-semibold text-black/45">Not set</span>}</p>
+                      <ProductRowActions product={{ id: product.id, name: product.name, status: product.status }} deleteBlockedReason={blocker} activationBlockedReason={product.status === "INACTIVE" ? activationBlocker(product.customerPrice) : null} />
                     </div>
                   </li>
                 );

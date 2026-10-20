@@ -14,6 +14,21 @@ export function isValidCustomerPrice(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 1;
 }
 
+/**
+ * Stored for a product whose real price hasn't been confirmed yet. Such a product must stay INACTIVE:
+ * the products API, checkout and a database CHECK constraint all refuse an ACTIVE product below ₦1.
+ */
+export const PRICE_NOT_SET = 0;
+
+export function isPriceSet(price: number) {
+  return isValidCustomerPrice(price);
+}
+
+/** Why a product with this price can't be made ACTIVE, or null when it can. */
+export function activationBlocker(price: number) {
+  return isPriceSet(price) ? null : "Set a customer price of at least ₦1 before activating this product.";
+}
+
 /** A shop price reported while sourcing must also be a real, positive amount. */
 export function isValidReportedShopPrice(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 1;

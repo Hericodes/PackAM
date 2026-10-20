@@ -22,6 +22,7 @@ const NAME_GLYPHS: [RegExp, string][] = [
   [/\btext\s?books?\b|\bbooks?\b/i, "📕"],
   [/\b(project|ring|box)?\s?files?\b|\bfolders?\b/i, "📁"],
   [/\b(a4|a3)\b|\bpaper\b|\bsheets?\b/i, "📄"],
+  [/\bhighlighters?\b|\bmarkers?\b/i, "🖍️"],
   [/\bpens?\b|\bballpoint\b|\bbiro\b/i, "🖊️"],
   [/\bpencils?\b/i, "✏️"],
   [/\bcalculators?\b/i, "🧮"],

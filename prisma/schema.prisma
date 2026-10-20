@@ -327,6 +327,8 @@ model Product {
 
   // Current customer-facing price.
   // Historical order prices are stored separately.
+  // 0 means "price not set yet": such a product must stay INACTIVE. Enforced by the database CHECK
+  // constraint Product_active_requires_price_check (migration 20261020170000), not expressible in Prisma.
   customerPrice Int
 
   status      ProductStatus @default(ACTIVE)

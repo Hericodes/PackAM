@@ -11,7 +11,8 @@
     "test": "tsx --test src/**/*.test.ts",
     "test:db": "tsx --test --test-concurrency=1 src/**/*.db-test.ts",
     "db:seed": "tsx prisma/seed.ts",
-    "catalogue:hide-demo": "tsx scripts/hide-demo-products.ts"
+    "catalogue:hide-demo": "tsx scripts/hide-demo-products.ts",
+    "catalogue:add-academic": "tsx scripts/add-academic-products.ts"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.10.0",

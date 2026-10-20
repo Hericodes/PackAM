@@ -4,7 +4,7 @@ import { db } from "../../../../lib/db";
 import { writeAuditLog } from "../../../../lib/audit";
 import { consumeRateLimit } from "../../../../lib/rate-limit";
 import { isPackamProductImageUrl } from "../../../../lib/cloudinary-url";
-import { canManageCatalogue, isValidCustomerPrice } from "../../../../lib/catalogue-permissions";
+import { activationBlocker, canManageCatalogue, isValidCustomerPrice } from "../../../../lib/catalogue-permissions";
 import { deleteProductAsAdmin } from "../../../../lib/products/product-deletion";
 
 // Only admins manage the catalogue. Runners report shop prices through order sourcing instead.
@@ -150,6 +150,10 @@ export async function PATCH(
     const product = await db.$transaction(async (tx) => {
     const before = await tx.product.findUnique({ where: { id }, select: { name: true, categoryId: true, customerPrice: true, status: true, updatedAt: true } });
     if (!before) throw new Error("PRODUCT_CHANGED");
+    // A product whose price hasn't been set (₦0) can be edited and given photos, but never sold.
+    const finalStatus = status === "ACTIVE" || status === "INACTIVE" ? status : before.status;
+    const finalPrice = customerPrice !== undefined ? customerPrice : before.customerPrice;
+    if (finalStatus === "ACTIVE" && activationBlocker(finalPrice)) throw new Error("PRICE_REQUIRED");
     const changed = await tx.product.updateMany({
       where: {
         id,
@@ -196,6 +200,9 @@ export async function PATCH(
 
     return NextResponse.json(product);
   } catch (error) {
+    if (error instanceof Error && error.message === "PRICE_REQUIRED") {
+      return NextResponse.json({ error: activationBlocker(0) }, { status: 400 });
+    }
     console.error("UPDATE PRODUCT ERROR:", (error instanceof Error ? error.name : "Unknown error"));
 
     return NextResponse.json(

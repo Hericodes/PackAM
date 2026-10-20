@@ -42,8 +42,9 @@ export function ProductForm({
     initialData?.categoryId ?? "",
   );
 
+  // ₦0 means the price hasn't been set yet, so the field starts empty rather than showing 0.
   const [customerPrice, setCustomerPrice] = useState(
-    initialData?.customerPrice?.toString() ?? "",
+    initialData && initialData.customerPrice >= 1 ? initialData.customerPrice.toString() : "",
   );
 
   const [status, setStatus] = useState<"ACTIVE" | "INACTIVE">(
@@ -72,10 +73,17 @@ export function ProductForm({
       return;
     }
 
-    const price = Number(customerPrice);
+    const priceText = customerPrice.trim();
+    const price = priceText ? Number(priceText) : null;
 
-    if (!Number.isSafeInteger(price) || price < 0) {
-      setError("Please enter a whole-naira price.");
+    if (price !== null && (!Number.isSafeInteger(price) || price < 1)) {
+      setError("Please enter a whole-naira price of at least ₦1.");
+      return;
+    }
+
+    // A product can be saved (name, photo, category) before its price is known, but only while inactive.
+    if (price === null && (status === "ACTIVE" || !isEditing)) {
+      setError(status === "ACTIVE" ? "Set a customer price of at least ₦1 before making this product active." : "Please enter a whole-naira price.");
       return;
     }
 
@@ -96,7 +104,7 @@ export function ProductForm({
             description: description.trim(),
             imageUrl,
             categoryId,
-            customerPrice: price,
+            ...(price !== null ? { customerPrice: price } : {}),
             status,
           }),
         },
@@ -205,19 +213,20 @@ export function ProductForm({
         <input
           id="price"
           type="number"
-          min="0"
+          min="1"
           step="1"
           value={customerPrice}
           onChange={(event) =>
             setCustomerPrice(event.target.value)
           }
-          placeholder="e.g. 1500"
+          placeholder={isEditing ? "Not set yet" : "e.g. 1500"}
           className="packam-input"
           disabled={loading}
         />
 
         <p className="mt-2 text-xs text-black/40">
           This is the price the student will see and pay.
+          {isEditing && " Leave it empty until the real price is confirmed — the product stays inactive until it has one."}
         </p>
       </div>
 

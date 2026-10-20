@@ -15,6 +15,8 @@ export function isDedicatedWorkflowCategory(slug: string | null | undefined) {
 /** Prisma `where` for products a student may browse, open and add to a cart. */
 export const studentCatalogueProductWhere = {
   status: "ACTIVE" as const,
+  // Never show or sell a product whose price hasn't been set (stored as ₦0), even if it were ACTIVE.
+  customerPrice: { gte: 1 },
   category: { isActive: true, slug: { notIn: [...DEDICATED_WORKFLOW_CATEGORY_SLUGS] } },
 };
 

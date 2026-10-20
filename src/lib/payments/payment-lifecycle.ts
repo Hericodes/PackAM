@@ -137,7 +137,7 @@ export async function createPaymentAttempt(
       if (!location) throw new Error("Choose one of your saved delivery locations.");
 
       const items: SnapshotItem[] = cart.items.map((item) => {
-        if (item.product.status !== "ACTIVE" || !item.product.category.isActive || isDedicatedWorkflowCategory(item.product.category.slug)) {
+        if (item.product.status !== "ACTIVE" || item.product.customerPrice < 1 || !item.product.category.isActive || isDedicatedWorkflowCategory(item.product.category.slug)) {
           throw new Error(`${item.product.name} is no longer available.`);
         }
         if (!Number.isInteger(item.quantity) || item.quantity < 1 || item.quantity > 99) {

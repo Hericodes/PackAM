@@ -8,6 +8,8 @@ type Props = {
   product: { id: string; name: string; status: "ACTIVE" | "INACTIVE" };
   /** Server-side reason a delete would be refused, shown before the admin tries. The server re-checks. */
   deleteBlockedReason: string | null;
+  /** Why the product can't be activated yet (e.g. no price). The server enforces the same rule. */
+  activationBlockedReason?: string | null;
 };
 
 const smallButton = "inline-flex min-h-10 items-center justify-center rounded-full px-4 text-xs font-black transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black disabled:cursor-not-allowed disabled:opacity-50";
@@ -16,7 +18,7 @@ const smallButton = "inline-flex min-h-10 items-center justify-center rounded-fu
  * Edit, activate/deactivate and delete for one product. Deactivating and deleting are separate
  * controls with separate wording, so hiding a product can never be mistaken for removing it.
  */
-export function ProductRowActions({ product, deleteBlockedReason }: Props) {
+export function ProductRowActions({ product, deleteBlockedReason, activationBlockedReason = null }: Props) {
   const router = useRouter();
   const [busy, setBusy] = useState<"status" | "delete" | null>(null);
   const [error, setError] = useState("");
@@ -72,7 +74,7 @@ export function ProductRowActions({ product, deleteBlockedReason }: Props) {
     <div className="flex flex-col items-stretch gap-2 sm:items-end">
       <div className="flex flex-wrap gap-2 sm:justify-end">
         <Link href={`/admin/products/${product.id}/edit`} className={`${smallButton} border border-black/10 hover:border-black/25`}>Edit</Link>
-        <button type="button" onClick={() => void toggleStatus()} disabled={busy !== null} className={`${smallButton} border border-black/10 hover:border-black/25`}>
+        <button type="button" onClick={() => void toggleStatus()} disabled={busy !== null || activationBlockedReason !== null} title={activationBlockedReason ?? undefined} className={`${smallButton} border border-black/10 hover:border-black/25`}>
           {busy === "status" ? "Saving…" : product.status === "ACTIVE" ? "Deactivate" : "Activate"}
         </button>
         <button
@@ -86,6 +88,7 @@ export function ProductRowActions({ product, deleteBlockedReason }: Props) {
           Delete
         </button>
       </div>
+      {activationBlockedReason && <p className="max-w-xs text-left text-[0.6875rem] leading-4 text-[#a15c00] sm:text-right">{activationBlockedReason} Use Edit to add it.</p>}
       {deleteBlockedReason && <p id={`${titleId}-blocked`} className="max-w-xs text-left text-[0.6875rem] leading-4 text-black/50 sm:text-right">{deleteBlockedReason.split(". ")[0]}.</p>}
       {error && <p role="alert" className="max-w-xs text-left text-xs font-semibold leading-5 text-[#c92d24] sm:text-right">{error}</p>}
 
