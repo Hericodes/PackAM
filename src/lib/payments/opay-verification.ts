@@ -208,13 +208,56 @@ export async function handleOpayCallback(body: unknown, deps: CallbackDeps): Pro
 
 // ---------------------------------------------------------------- student status poll
 
-export async function checkOpayPaymentStatus(attempt: PaymentAttemptForVerification, deps: VerificationDeps): Promise<HandlerResponse> {
+/**
+ * What one trusted status check established. Only CONFIRMED_* outcomes come from a verified, signed
+ * provider record; every other outcome leaves the payment's money state exactly as it was.
+ */
+export type DetailedVerification =
+  | { outcome: "CONFIRMED_SUCCESS"; providerStatus: string | null; orderId: string | null; printJobId: string | null }
+  | { outcome: "CONFIRMED_FAILED"; providerStatus: string | null }
+  | { outcome: "PROVIDER_PENDING"; providerStatus: string | null }
+  /** The status query itself failed: timeout, network, configuration, provider error or unreadable reply. */
+  | { outcome: "PROVIDER_UNAVAILABLE"; errorName: string; providerCode?: string }
+  /** OPay answered, but PackAM could not apply it (e.g. a database error); retryable. */
+  | { outcome: "NOT_APPLIED"; providerStatus: string | null; errorName: string }
+  /** The signed record disagrees with the attempt; it is flagged for review. */
+  | { outcome: "MISMATCH"; errorName: string; flagged: boolean }
+  /** The lifecycle already holds this payment for operations (e.g. a second print payment). */
+  | { outcome: "UNDER_REVIEW"; errorName: string };
+
+export async function verifyOpayPaymentDetailed(attempt: PaymentAttemptForVerification, deps: VerificationDeps): Promise<DetailedVerification> {
+  let answered = false;
+  let providerStatus: string | null = null;
+  const tracked: VerificationDeps = {
+    ...deps,
+    queryStatus: async (reference) => {
+      const transaction = await deps.queryStatus(reference);
+      answered = true;
+      providerStatus = typeof transaction?.status === "string" ? transaction.status.slice(0, 40) : null;
+      return transaction;
+    },
+  };
   try {
-    const outcome = await verifyAndApplyOpayPayment(attempt, deps);
-    if (outcome.status === "SUCCESS") return { status: 200, body: { status: "SUCCESS", orderId: outcome.orderId, printJobId: outcome.printJobId } };
-    return { status: 200, body: { status: outcome.status } };
+    const outcome = await verifyAndApplyOpayPayment(attempt, tracked);
+    if (outcome.status === "SUCCESS") return { outcome: "CONFIRMED_SUCCESS", providerStatus, orderId: outcome.orderId, printJobId: outcome.printJobId };
+    if (outcome.status === "FAILED") return { outcome: "CONFIRMED_FAILED", providerStatus };
+    return { outcome: "PROVIDER_PENDING", providerStatus };
   } catch (error) {
-    await routeVerificationError(error, attempt.reference, "provider status mismatch", deps);
-    return { status: 503, body: { error: "We’re still confirming your payment. Please check again shortly." } };
+    const routed = await routeVerificationError(error, attempt.reference, "provider status mismatch", deps);
+    const kind = classifyPaymentError(error);
+    const described = describePaymentError(error);
+    if (kind === "under_review") return { outcome: "UNDER_REVIEW", errorName: described.errorName };
+    if (kind === "mismatch") return { outcome: "MISMATCH", errorName: described.errorName, flagged: routed.underReview };
+    return answered
+      ? { outcome: "NOT_APPLIED", providerStatus, errorName: described.errorName }
+      : { outcome: "PROVIDER_UNAVAILABLE", ...described };
   }
+}
+
+export async function checkOpayPaymentStatus(attempt: PaymentAttemptForVerification, deps: VerificationDeps): Promise<HandlerResponse> {
+  const result = await verifyOpayPaymentDetailed(attempt, deps);
+  if (result.outcome === "CONFIRMED_SUCCESS") return { status: 200, body: { status: "SUCCESS", orderId: result.orderId, printJobId: result.printJobId } };
+  if (result.outcome === "CONFIRMED_FAILED") return { status: 200, body: { status: "FAILED" } };
+  if (result.outcome === "PROVIDER_PENDING") return { status: 200, body: { status: "PENDING" } };
+  return { status: 503, body: { error: "We’re still confirming your payment. Please check again shortly." } };
 }

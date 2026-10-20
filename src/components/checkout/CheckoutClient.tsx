@@ -8,6 +8,12 @@ import { Icon } from "../ui/Icon";
 import { useCartExperience } from "../cart/CartExperience";
 import { productImageDeliveryUrl } from "../../lib/cloudinary-url";
 import { productGlyph } from "../../lib/products/category-display";
+import { pickInitialLocation } from "../../lib/location-choice";
+
+/** The location chosen in this browser session, so a reload or a return from OPay keeps it. */
+const LOCATION_MEMORY_KEY = "packam-checkout-location";
+function readRememberedLocation() { try { return window.sessionStorage.getItem(LOCATION_MEMORY_KEY); } catch { return null; } }
+function rememberLocation(id: string) { try { window.sessionStorage.setItem(LOCATION_MEMORY_KEY, id); } catch { /* storage unavailable: the default still works */ } }
 
 type CheckoutItem = {
   id: string;
@@ -35,6 +41,18 @@ export function CheckoutClient({ items: initialItems, deliveryFee, locations }: 
   const subtotal = items.reduce((sum, item) => sum + item.product.customerPrice * item.quantity, 0);
   const currentDeliveryFee = items.length ? deliveryFee : 0;
   const total = subtotal + currentDeliveryFee;
+
+  // Restore this session's choice after hydration (the server can't see sessionStorage).
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const remembered = pickInitialLocation(locations, readRememberedLocation());
+      if (remembered && remembered.id !== locations[0]?.id) {
+        setSelectedLocation(remembered);
+        setDeliveryInstructions(remembered.instructions ?? "");
+      }
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [locations]);
 
   // If the browser restores this page from its back/forward cache after OPay, unfreeze the button.
   useEffect(() => {
@@ -153,7 +171,7 @@ export function CheckoutClient({ items: initialItems, deliveryFee, locations }: 
               <p className="text-xs text-black/55">Where make your runner bring am?</p>
             </div>
           </div>
-          <LocationSelector framed={false} locations={locations} selectedLocation={selectedLocation} onSelect={(location) => { setSelectedLocation(location); setDeliveryInstructions(location.instructions ?? ""); setError(""); }} />
+          <LocationSelector framed={false} locations={locations} selectedLocation={selectedLocation} onSelect={(location) => { setSelectedLocation(location); setDeliveryInstructions(location.instructions ?? ""); setError(""); rememberLocation(location.id); }} />
           <div className="mt-5">
             <label htmlFor="checkout-delivery-instructions" className="block text-sm font-black">Instructions for this order <span className="font-medium text-black/50">(optional)</span></label>
             <textarea id="checkout-delivery-instructions" value={deliveryInstructions} onChange={(event) => setDeliveryInstructions(event.target.value.slice(0, 500))} maxLength={500} rows={2} placeholder="e.g. Call me when you reach the hostel gate" aria-describedby="checkout-delivery-instructions-count" className="mt-2 min-h-20 w-full rounded-xl border border-black/15 bg-white px-4 py-3 text-base outline-none transition placeholder:text-black/45 focus:border-black focus:shadow-[0_0_0_3px_rgba(254,184,10,0.45)]" />

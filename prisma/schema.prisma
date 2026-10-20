@@ -96,6 +96,12 @@ enum PrintSides {
   DOUBLE
 }
 
+/// Whether operations is still working on a payment review. Never describes the money itself.
+enum PaymentReviewStatus {
+  OPEN
+  CLOSED
+}
+
 enum PaymentStatus {
   PENDING
   SUCCESS
@@ -662,6 +668,8 @@ model Payment {
   user                 User            @relation(fields: [userId], references: [id], onDelete: Restrict)
   order                Order?          @relation(fields: [orderId], references: [id], onDelete: Cascade)
   printJob             PrintJob?       @relation(fields: [printJobId], references: [id], onDelete: Restrict)
+  // Operations review of this payment. Separate from `status`: closing a case never changes the money state.
+  reviewCase           PaymentReviewCase?
 
   createdAt            DateTime        @default(now())
   updatedAt            DateTime        @updatedAt
@@ -979,4 +987,35 @@ model RunnerPayout {
 
   @@index([runnerId])
   @@index([status])
+}
+
+/// Admin review of a payment that is unresolved (needs reconciliation, stuck pending, or similar).
+/// The payment's own status stays the single source of truth for money; this row only tracks the
+/// operational case, the last admin-triggered OPay check, and a short lock against overlapping checks.
+/// Every change is also written to AuditLog with the admin's identity and reason.
+model PaymentReviewCase {
+  id                   String              @id @default(cuid())
+  paymentId            String              @unique
+  status               PaymentReviewStatus @default(OPEN)
+
+  lastCheckAt          DateTime?
+  /// CONFIRMED_SUCCESS | CONFIRMED_FAILED | PROVIDER_PENDING | PROVIDER_UNAVAILABLE | MISMATCH | UNDER_REVIEW
+  lastCheckOutcome     String?
+  /// Secret-free detail: provider status, error class, provider response code.
+  lastCheckDetail      String?
+  checkCount           Int                 @default(0)
+  /// While set in the future, another verification for this payment is already running.
+  checkLockedUntil     DateTime?
+
+  closedAt             DateTime?
+  closedById           String?
+  closeNote            String?
+  escalatedAt          DateTime?
+
+  payment              Payment             @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+
+  @@index([status, updatedAt])
 }

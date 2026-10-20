@@ -1,6 +1,7 @@
 import { auth } from "../../../auth";
 import { db } from "../../../lib/db";
 import { parseCoordinates } from "../../../lib/delivery-location";
+import { deriveLocationLabel } from "../../../lib/location-choice";
 
 export async function GET() {
   try {
@@ -60,11 +61,12 @@ export async function POST(request: Request) {
 
     const body = await request.json();
 
-    const label =
-      typeof body?.label === "string" ? body.label.trim() : "";
-
     const address =
       typeof body?.address === "string" ? body.address.trim() : "";
+
+    // The name is optional for students; without one, the first part of the written location is used.
+    const label =
+      typeof body?.label === "string" && body.label.trim() ? body.label.trim() : deriveLocationLabel(address);
 
     const instructions =
       typeof body?.instructions === "string"
@@ -73,16 +75,16 @@ export async function POST(request: Request) {
 
     const coordinates = parseCoordinates(body?.latitude, body?.longitude);
 
-    if (!label) {
+    if (!address) {
       return Response.json(
-        { error: "Please give this location a name." },
+        { error: "Please enter a delivery address." },
         { status: 400 },
       );
     }
 
-    if (!address) {
+    if (!label) {
       return Response.json(
-        { error: "Please enter a delivery address." },
+        { error: "Please give this location a name." },
         { status: 400 },
       );
     }

@@ -4,6 +4,7 @@ import { db } from "../../../lib/db";
 import { redirect } from "next/navigation";
 import { CheckoutClient } from "../../../components/checkout/CheckoutClient";
 import { CHECKOUT_DELIVERY_FEE } from "../../../lib/checkout-pricing";
+import { orderLocationsForCheckout } from "../../../lib/location-choice";
 
 /** A recent marketplace payment we haven't confirmed yet; warn before the student pays again. */
 function findUnconfirmedPayment(userId: string) {
@@ -23,7 +24,7 @@ function findUnconfirmedPayment(userId: string) {
 
 export default async function CheckoutPage() {
   const session = await requireRole("STUDENT", "/checkout");
-  const [cart, locations, unconfirmedPayment] = await Promise.all([
+  const [cart, savedLocations, unconfirmedPayment, lastOrder] = await Promise.all([
     db.cart.findUnique({
       where: { userId: session.user.id },
       include: {
@@ -56,7 +57,10 @@ export default async function CheckoutPage() {
       },
     }),
     findUnconfirmedPayment(session.user.id),
+    // Where the student's last order went: preselected, so a returning student usually just pays.
+    db.order.findFirst({ where: { userId: session.user.id, deliveryLocationId: { not: null } }, orderBy: { createdAt: "desc" }, select: { deliveryLocationId: true } }),
   ]);
+  const locations = orderLocationsForCheckout(savedLocations, lastOrder?.deliveryLocationId);
 
   const items = cart?.items ?? [];
   if (!items.length) redirect("/search");

@@ -35,7 +35,10 @@ function findOwnedAttempt(reference: string, userId: string) {
   });
 }
 
-async function cancelFailedCheckout(paymentId: string, userId: string): Promise<CancelFailedResult> {
+/** Set when PackAM operations closes a student's unpaid checkout; the student's cart is left alone. */
+export type CheckoutCancelAdmin = { adminId: string };
+
+async function cancelFailedCheckout(paymentId: string, userId: string, admin?: CheckoutCancelAdmin): Promise<CancelFailedResult> {
   return retrySerializable(() => db.$transaction(async (tx) => {
     const payment = await tx.payment.findFirst({
       where: { id: paymentId, userId, provider: PaymentProvider.OPAY, printJobId: null },
@@ -43,6 +46,25 @@ async function cancelFailedCheckout(paymentId: string, userId: string): Promise<
     });
     if (!payment || payment.status !== "FAILED" || payment.orderId) return "NOT_FAILED";
     if (await isCheckoutCancelled(payment.id, tx)) return "ALREADY_CANCELLED";
+    if (admin) {
+      // Operations closes the dead checkout only: no cart change, so nothing the student still wants is removed.
+      await writeAuditLog(tx, {
+        actorId: admin.adminId,
+        ...CANCEL_AUDIT,
+        resourceId: payment.id,
+        previousState: { paymentStatus: payment.status },
+        newState: { paymentStatus: payment.status, cancelledByAdmin: true },
+        details: "Admin cancelled an unpaid checkout after OPay verified the payment as not completed. Cart left unchanged.",
+      });
+      await createNotification(tx, {
+        userId,
+        type: "PAYMENT",
+        title: "Unpaid order closed",
+        message: `PackAM closed your unpaid order of ₦${payment.amount.toLocaleString()} because OPay didn’t complete the payment. Your cart is unchanged.`,
+        idempotencyKey: `checkout-cancelled:${payment.id}`,
+      });
+      return "CANCELLED";
+    }
     // A newer checkout may be paying for the same cart items; cancelling this one must not remove them.
     const newer = await tx.payment.findFirst({
       where: { userId, printJobId: null, id: { not: payment.id }, createdAt: { gt: payment.createdAt } },
@@ -74,7 +96,7 @@ export async function checkoutAttemptView(attempt: { id: string; status: Checkou
   return { status: attempt.status, orderId: attempt.orderId, cancelled: attempt.status === "FAILED" ? await isCheckoutCancelled(attempt.id) : false };
 }
 
-export function checkoutCancellationDeps(reference: string, userId: string, verification: VerificationDeps = opayStatusDeps): CancellationDeps {
+export function checkoutCancellationDeps(reference: string, userId: string, verification: VerificationDeps = opayStatusDeps, admin?: CheckoutCancelAdmin): CancellationDeps {
   let paymentId: string | null = null;
   return {
     async findAttempt() {
@@ -94,7 +116,7 @@ export function checkoutCancellationDeps(reference: string, userId: string, veri
     },
     async cancelFailed() {
       if (!paymentId) return "NOT_FAILED";
-      return cancelFailedCheckout(paymentId, userId);
+      return cancelFailedCheckout(paymentId, userId, admin);
     },
   };
 }
