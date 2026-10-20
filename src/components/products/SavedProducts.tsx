@@ -57,7 +57,7 @@ export function SavedProducts() {
       <div className="pk-empty mt-6">
         <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#fff4c7] text-2xl" aria-hidden="true">♡</span>
         <h2 className="mt-4 text-lg font-black">{ids.length ? "Your saved items aren’t available right now" : "Nothing saved yet"}</h2>
-        <p className="pk-muted mt-1 max-w-sm text-sm leading-6">Tap the heart on any product to keep it here for next time.</p>
+        <p className="pk-muted mt-1 max-w-sm text-sm leading-6">Tap the heart on anything wey catch your eye, and e go dey here for next time.</p>
         <Link href="/search" className="pk-btn pk-btn-primary mt-5">Browse products</Link>
       </div>
     );

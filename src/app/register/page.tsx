@@ -94,8 +94,8 @@ export default function RegisterPage() {
           </h1>
 
           <p className="mt-2 text-sm leading-6 text-black/70 sm:text-base">
-            Join PackAM and get what you need without leaving
-            where you are.
+            Join PackAM. Wetin you need go meet you where
+            you dey.
           </p>
         </div>
 

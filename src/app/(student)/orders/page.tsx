@@ -61,7 +61,7 @@ export default async function OrdersPage() {
       <div className="packam-container py-7 sm:py-10">
         <p className="pk-eyebrow">Your orders</p>
         <h1 className="pk-page-title mt-2">Orders</h1>
-        <p className="pk-muted mt-2 text-sm leading-6 sm:text-base">Follow each order from payment to delivery, or order your favourites again.</p>
+        <p className="pk-muted mt-2 text-sm leading-6 sm:text-base">Follow every order from payment to your door — or order your favourites again.</p>
         {printJobCount > 0 && (
           <Link href="/printing" className="mt-4 inline-flex min-h-11 items-center gap-2 text-sm font-bold underline underline-offset-4">
             <span aria-hidden="true">🖨️</span> Looking for a print job? See your print jobs →

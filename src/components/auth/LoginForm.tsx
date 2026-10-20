@@ -44,7 +44,7 @@ export function LoginForm({ registered, callbackUrl }: { registered: boolean; ca
       <div className="mb-8">
         <Link href="/" className="inline-flex min-h-11 items-center text-2xl font-black tracking-tight focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-black">Pack<span className="text-[#875a00]">AM</span></Link>
         <h1 className="mt-6 text-3xl font-black tracking-tight sm:mt-8 sm:text-4xl">Welcome back.</h1>
-        <p className="mt-2 text-sm leading-6 text-black/70 sm:text-base">Log in and let PackAM handle the moving around.</p>
+        <p className="mt-2 text-sm leading-6 text-black/70 sm:text-base">Log in. Make PackAM do the waka for you.</p>
       </div>
 
       {registered && <div role="status" className="mb-5 rounded-2xl bg-green-50 px-4 py-3 text-sm leading-6 font-medium text-green-800">Account created successfully. You can now log in.</div>}

@@ -150,7 +150,7 @@ export function CheckoutClient({ items: initialItems, deliveryFee, locations }: 
             <span className="flex h-8 w-8 items-center justify-center rounded-full bg-black text-sm font-black text-[#feb80a]" aria-hidden="true">1</span>
             <div>
               <h2 id="checkout-delivery-heading" className="text-lg font-black">Delivery</h2>
-              <p className="text-xs text-black/55">Where should your runner bring it?</p>
+              <p className="text-xs text-black/55">Where make your runner bring am?</p>
             </div>
           </div>
           <LocationSelector framed={false} locations={locations} selectedLocation={selectedLocation} onSelect={(location) => { setSelectedLocation(location); setDeliveryInstructions(location.instructions ?? ""); setError(""); }} />
@@ -171,7 +171,7 @@ export function CheckoutClient({ items: initialItems, deliveryFee, locations }: 
           </div>
           {items.length === 0 ? (
             <div className="mt-4 rounded-2xl bg-[#fff8df] p-5 text-sm text-black/70">
-              Your cart is empty. <Link className="font-black text-black underline" href="/search">Find something</Link>
+              You never pick anything o 😂 Your cart dey do fasting. <Link className="font-black text-black underline" href="/search">Find something</Link>
             </div>
           ) : (
             <div className="mt-3 divide-y divide-black/5">

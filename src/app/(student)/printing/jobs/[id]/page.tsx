@@ -27,7 +27,7 @@ export default async function PrintJobTrackingPage({ params }: { params: Promise
     <main className="min-h-screen px-4 py-7 sm:py-10">
       <div className="mx-auto max-w-xl">
         <p className="text-xs font-black uppercase tracking-[0.16em] text-black/45">PackAM Printing · {printMissionReference(job.id)}</p>
-        <h1 className="mt-2 text-3xl font-black tracking-tight">{progress.issue?.title ?? progress.steps.find((step) => step.state === "current")?.label ?? "Delivered 🎉"}</h1>
+        <h1 className="mt-2 text-3xl font-black tracking-tight">{progress.issue?.title ?? progress.steps.find((step) => step.state === "current")?.label ?? "Your prints don land! 🎉"}</h1>
         {!progress.isTerminal && <PrintTrackingRefresher />}
 
         {progress.issue && (

@@ -480,7 +480,7 @@ export async function failPendingPayment(transactionReference: string) {
       title: payment.printJobId ? "Print payment wasn’t completed" : "Payment failed",
       message: payment.printJobId
         ? `Payment wasn’t completed — ₦${payment.amount.toLocaleString()}. Your print job is safe to retry.`
-        : `Payment failed — ₦${payment.amount.toLocaleString()}. Your cart is still here.`,
+        : `Payment no go through — ₦${payment.amount.toLocaleString()}. Your order never confirm, but your cart is still here.`,
       relatedType: payment.printJobId ? "PRINT_JOB" : null,
       relatedId: payment.printJobId,
       idempotencyKey: `payment-failed:${payment.id}`,

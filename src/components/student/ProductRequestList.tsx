@@ -114,7 +114,7 @@ export function ProductRequestList({ initialProductName = "" }: { initialProduct
           </div>
         ) : (
           <p className="mt-3 rounded-2xl bg-white p-5 text-sm leading-6 text-black/65">
-            No product requests yet. Send us a request above and we’ll check around.
+            No requests yet. If you no see am in the shop, ask us above and we go check around.
           </p>
         )}
       </section>

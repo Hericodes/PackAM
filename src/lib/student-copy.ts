@@ -1,6 +1,11 @@
 /**
- * Student-facing wording for order states, in one place so every screen speaks with the same voice.
- * Roughly 80% clarity, 20% personality — and never playful about money, refunds or failures.
+ * Student-facing wording, in one place so every screen speaks with the same voice: a sharp Nigerian
+ * campus friend — English with natural Pidgin, helpful first and funny second.
+ *
+ * Voice rules:
+ * - Personality lives in supporting lines. Anything about money, refunds, payment results, security or
+ *   a required action is stated plainly in English, so it can never be misread.
+ * - Never joke about a student's money, grades or problems. Prices, references and statuses stay exact.
  */
 
 const ORDER_LABELS: Record<string, string> = {
@@ -26,15 +31,15 @@ export function orderStatusMessage(status: string, context: { total: number; run
   switch (status) {
     case "PAYMENT_CONFIRMED":
     case "FINDING_RUNNER":
-      return "Payment confirmed ✓ We’re finding a runner for your order.";
+      return "Payment confirmed ✓ Order don enter! We dey find a runner for you.";
     case "RUNNER_ASSIGNED":
-      return `Someone has accepted the mission 🫡 ${runner} is on it.`;
+      return `Person don accept the mission 🫡 ${runner} is on it.`;
     case "SOURCING_PRODUCT":
-      return "We don dey find your stuff. If anything changes, you’ll hear from us here.";
+      return "We don dey find your stuff 👀 If anything changes, you’ll hear from us here.";
     case "OUT_FOR_DELIVERY":
-      return `${runner} is on the way. Keep your phone close.`;
+      return `${runner} don comot with your order 🛵 Keep your phone close.`;
     case "DELIVERED":
-      return "Your package don land 🎒 Enjoy!";
+      return "Your package don land! 🎒 Enjoy am.";
     case "REFUND_PROCESSING":
       return `We’ve started your refund of ₦${context.total.toLocaleString()}. We’ll notify you as soon as it’s confirmed.`;
     case "REFUNDED":
@@ -47,6 +52,22 @@ export function orderStatusMessage(status: string, context: { total: number; run
       return "We’ll post every update for this order here.";
   }
 }
+
+/**
+ * Payment-state copy shared by the shop and print payment pages. Headlines say the result in plain
+ * words; "please don’t pay again" stays plain English wherever a payment is unconfirmed.
+ */
+export const PAYMENT_COPY = {
+  checkingTitle: "Confirming your payment…",
+  checkingBody: "We dey confirm with OPay. This usually takes under a minute — please don’t pay again.",
+  pendingTitle: "Payment is still being confirmed",
+  reviewTitle: "We’re checking this payment",
+  reviewBody: "Our team needs to confirm this payment by hand. Please don’t pay again — if money left your account, it’s safe, and we’ll update you.",
+  /** After polling stops: still unconfirmed, never described as failed or lost. */
+  slowBody: (whatHappensNext: string) => `We never get payment confirmation from OPay yet — make we keep checking. Please don’t pay again. If money left your account, it’s safe: ${whatHappensNext} as soon as OPay confirms it.`,
+  successTitle: "Payment confirmed 🎉",
+  failedTitle: "Payment no go through",
+} as const;
 
 export const ORDER_FINAL_STATUSES = ["DELIVERED", "REFUNDED", "CANCELLED", "FAILED"] as const;
 

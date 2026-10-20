@@ -5,13 +5,13 @@ import { createNotification } from "../notifications";
 import { canTransitionPrintJob } from "./status-machine";
 
 const events: Partial<Record<PrintJobStatus, { type: "ORDER" | "PAYMENT" | "DELIVERY"; title: string; message: string }>> = {
-  PAYMENT_CONFIRMED: { type: "PAYMENT", title: "Print payment confirmed", message: "Payment confirmed 🎉 We’re finding someone to handle your print job." },
-  RUNNER_ASSIGNED: { type: "DELIVERY", title: "Print runner assigned", message: "Someone has accepted the print mission. 🖨️" },
-  DOCUMENT_RECEIVED: { type: "ORDER", title: "Document received", message: "Your document is with the runner." },
-  PRINTING: { type: "ORDER", title: "Printing started", message: "Your document is being printed. 👀" },
-  PRINTED: { type: "ORDER", title: "Printing complete", message: "Your document is printed. We’re bringing it to you." },
-  OUT_FOR_DELIVERY: { type: "DELIVERY", title: "Print job on the move", message: "Your print job is on the move. 🚶" },
-  DELIVERED: { type: "DELIVERY", title: "Print job delivered", message: "Your document don land. 🖨️🎒" },
+  PAYMENT_CONFIRMED: { type: "PAYMENT", title: "Print payment confirmed", message: "Payment confirmed 🎉 We dey find a runner for your print job." },
+  RUNNER_ASSIGNED: { type: "DELIVERY", title: "Print runner assigned", message: "Person don accept your print mission 🫡🖨️" },
+  DOCUMENT_RECEIVED: { type: "ORDER", title: "Document received", message: "Your document don reach the runner." },
+  PRINTING: { type: "ORDER", title: "Printing started", message: "Printer don start work on your document 👀" },
+  PRINTED: { type: "ORDER", title: "Printing complete", message: "Your document don print! We dey bring am come." },
+  OUT_FOR_DELIVERY: { type: "DELIVERY", title: "Print job on the way", message: "Your prints dey road 🛵 Keep your phone close." },
+  DELIVERED: { type: "DELIVERY", title: "Print job delivered", message: "Your prints don land! 🖨️🎒" },
   DOCUMENT_UNREADABLE: { type: "ORDER", title: "Print issue", message: "The runner couldn’t read the document. PackAM operations is reviewing it." },
   PRINT_FAILED: { type: "ORDER", title: "Print issue", message: "The runner reported a printing problem. PackAM operations is reviewing it." },
   REFUND_PROCESSING: { type: "PAYMENT", title: "Print refund processing", message: "Your print-job refund is being processed. We’ll update you when it is confirmed." },

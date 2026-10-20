@@ -176,7 +176,7 @@ export function ShakeCheckout() {
           <p className="font-bold">Checkout time? 👀</p>
 
           <p className="mt-1 text-sm text-black/70">
-            Your cart is ready when you are.
+            Your cart don ready. Na you remain.
           </p>
 
           <div className="mt-3 flex flex-wrap gap-2">

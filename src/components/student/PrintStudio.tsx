@@ -310,7 +310,7 @@ export function PrintStudio({ locations, initialJob }: PrintStudioProps) {
       setPendingUploadJobId(null);
       setReplacesPrintJobId(null);
       setPrepared(false);
-      setNotice(typeof completeData.document.cleanupWarning === "string" ? completeData.document.cleanupWarning : "PDF uploaded and checked. Your page count is ready.");
+      setNotice(typeof completeData.document.cleanupWarning === "string" ? completeData.document.cleanupWarning : "PDF don land ✓ We checked it and your page count is ready.");
       setError("");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "The PDF could not be uploaded. Please try again.");
@@ -405,7 +405,7 @@ export function PrintStudio({ locations, initialJob }: PrintStudioProps) {
             </div>
           ) : (
             <button type="button" onClick={() => fileInput.current?.click()} disabled={uploading} className="mt-5 flex min-h-14 w-full items-center justify-center rounded-2xl bg-black px-5 text-sm font-black text-white transition hover:bg-black/85 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black disabled:cursor-not-allowed disabled:opacity-50">
-              {uploading ? `Uploading… ${uploadProgress}%` : "Choose a PDF"}
+              {uploading ? `Uploading… ${uploadProgress}%` : "Upload Document"}
             </button>
           )}
           <input
@@ -556,7 +556,7 @@ export function PrintStudio({ locations, initialJob }: PrintStudioProps) {
         ) : (
           <section className="rounded-3xl border border-black/5 bg-white p-5 text-sm leading-6 text-black/55 shadow-sm">
             <p className="text-xs font-black uppercase tracking-wider text-black/40">Next up</p>
-            <p className="mt-2 font-bold text-black">Upload your PDF to start.</p>
+            <p className="mt-2 font-bold text-black">Upload your document. That assignment no go print itself. 😂</p>
             <p className="mt-1">We&apos;ll check the file and pages before showing a price.</p>
           </section>
         )}

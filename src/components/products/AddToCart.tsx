@@ -82,7 +82,7 @@ export function AddToCart({ productId, compact = false }: AddToCartProps) {
         {loading ? "Adding…" : "Add to cart"}
       </button>
     </div>
-    {added && <p role="status" className="mt-3 text-sm font-bold text-green-800">Added to cart ✓ Check out whenever you’re ready.</p>}
+    {added && <p role="status" className="mt-3 text-sm font-bold text-green-800">Added to cart ✓ E don enter. Check out whenever you’re ready.</p>}
     {error && <p role="alert" className="mt-3 rounded-xl bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{error}</p>}
   </div>;
 }

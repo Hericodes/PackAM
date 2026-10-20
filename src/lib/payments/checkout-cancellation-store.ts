@@ -63,7 +63,7 @@ async function cancelFailedCheckout(paymentId: string, userId: string): Promise<
       userId,
       type: "PAYMENT",
       title: "Order cancelled",
-      message: `You cancelled your unpaid order of ₦${payment.amount.toLocaleString()} and we removed those items from your cart.`,
+      message: `You cancelled your unpaid order of ₦${payment.amount.toLocaleString()}. We removed those items from your cart — no wahala.`,
       idempotencyKey: `checkout-cancelled:${payment.id}`,
     });
     return "CANCELLED";

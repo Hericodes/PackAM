@@ -40,7 +40,7 @@ export default async function PrintingPage() {
             <p className="pk-eyebrow">PackAM Printing</p>
             <h1 className="pk-page-title mt-2">Print your document</h1>
             <p className="pk-muted mt-2 max-w-2xl text-sm leading-6 sm:text-base">
-              Upload a PDF, choose how you want it printed, and we&apos;ll bring it to you. You see the exact price before you pay.
+              Upload a PDF, choose how you want it printed, and we&apos;ll bring it to you — no queue, no wahala. You see the exact price before you pay.
             </p>
             <ul className="mt-4 flex flex-wrap gap-2" aria-label="Printing prices">
               <li className="pk-pill">₦{PRINTING_PRICES.A4.BLACK_AND_WHITE.toLocaleString()} / page · black &amp; white</li>

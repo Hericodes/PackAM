@@ -98,7 +98,7 @@ export function SupportCenter({ orders, initialOrderId }: { orders: OrderOption[
             <Icon name="help" className="h-6 w-6" />
           </span>
           <div>
-            <p className="pk-eyebrow">We’re here to help</p>
+            <p className="pk-eyebrow">We dey here for you</p>
             <h1 className="pk-page-title mt-1">Help &amp; support</h1>
             <p className="pk-muted mt-2 max-w-xl text-sm leading-6 sm:text-base">
               Report a problem with an order — missing or wrong items, damage, delivery or payment — or ask us anything else. The PackAM team reviews every request.
@@ -208,7 +208,7 @@ export function SupportCenter({ orders, initialOrderId }: { orders: OrderOption[
                 </article>
               ))}
               {cases?.length === 0 && (
-                <p className="pk-card p-5 text-sm leading-6 text-black/65">No support requests yet. Send one with the form if you need a hand.</p>
+                <p className="pk-card p-5 text-sm leading-6 text-black/65">No support requests yet. If anything no go well, send one with the form — we go sort am.</p>
               )}
             </div>
           </section>

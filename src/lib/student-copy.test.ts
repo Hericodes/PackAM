@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { formatCampusTime, isFinalOrderStatus, orderEventDescription, orderNextStep, orderStatusLabel, orderStatusMessage, orderTimeline } from "./student-copy";
+import { PAYMENT_COPY, formatCampusTime, isFinalOrderStatus, orderEventDescription, orderNextStep, orderStatusLabel, orderStatusMessage, orderTimeline } from "./student-copy";
 
 test("a FAILED order is described as a refund problem, never as a failed payment", () => {
   assert.equal(orderStatusLabel("FAILED"), "Refund needs attention");
@@ -18,9 +18,9 @@ test("refund messages state the amount and never claim the refund is complete ea
 });
 
 test("only an assigned order claims a runner accepted the mission", () => {
-  assert.match(orderStatusMessage("RUNNER_ASSIGNED", { total: 1, runnerName: "Tunde" }), /accepted the mission 🫡 Tunde/);
+  assert.match(orderStatusMessage("RUNNER_ASSIGNED", { total: 1, runnerName: "Tunde" }), /accept the mission 🫡 Tunde/);
   for (const status of ["PAYMENT_CONFIRMED", "FINDING_RUNNER"]) {
-    assert.doesNotMatch(orderStatusMessage(status, { total: 1 }), /accepted/i, status);
+    assert.doesNotMatch(orderStatusMessage(status, { total: 1 }), /accept/i, status);
   }
 });
 
@@ -65,4 +65,16 @@ test("next-step copy never promises a delivery time or refund outcome", () => {
   }
   assert.doesNotMatch(orderNextStep("REFUND_PROCESSING") ?? "", /has been confirmed|refund is complete/i);
   assert.equal(orderNextStep("SOMETHING_NEW"), null);
+});
+
+test("unconfirmed-payment copy never calls the payment failed, lost or refunded, and says not to pay again", () => {
+  const unconfirmed = [PAYMENT_COPY.checkingBody, PAYMENT_COPY.reviewBody, PAYMENT_COPY.slowBody("we’ll create your order"), PAYMENT_COPY.pendingTitle];
+  for (const line of unconfirmed) assert.doesNotMatch(line, /fail|no go through|lost|refund/i, line);
+  for (const line of [PAYMENT_COPY.checkingBody, PAYMENT_COPY.reviewBody, PAYMENT_COPY.slowBody("x")]) assert.match(line, /please don’t pay again/i);
+  assert.equal(PAYMENT_COPY.pendingTitle, "Payment is still being confirmed");
+});
+
+test("payment result headlines state the outcome unambiguously", () => {
+  assert.match(PAYMENT_COPY.successTitle, /^Payment confirmed/);
+  assert.match(PAYMENT_COPY.failedTitle, /^Payment no go through$/);
 });

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useState } from "react";
 import { usePaymentPolling } from "../payments/usePaymentPolling";
 import type { PrintCheckoutSnapshot } from "../../lib/printing/payment-snapshot";
+import { PAYMENT_COPY } from "../../lib/student-copy";
 
 type PaymentState = "PENDING" | "SUCCESS" | "FAILED" | "RECONCILIATION_REQUIRED" | "ERROR";
 
@@ -100,14 +101,14 @@ export function PrintPaymentStatus({
   const { timedOut, restart } = usePaymentPolling(useCallback(async () => !finalOnLoad && checkPayment(), [checkPayment, finalOnLoad]));
 
   const statusMessage = state === "SUCCESS"
-    ? "Payment confirmed 🎉"
+    ? PAYMENT_COPY.successTitle
     : state === "FAILED"
-      ? "Payment wasn’t completed"
+      ? PAYMENT_COPY.failedTitle
       : state === "RECONCILIATION_REQUIRED"
-        ? "We’re checking this payment"
+        ? PAYMENT_COPY.reviewTitle
         : timedOut
-          ? "This is taking longer than usual"
-          : "Confirming your payment…";
+          ? PAYMENT_COPY.pendingTitle
+          : PAYMENT_COPY.checkingTitle;
 
   return (
     <div className="mt-6 space-y-5">
@@ -131,23 +132,23 @@ export function PrintPaymentStatus({
           <>
             <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-green-100 text-3xl font-black text-green-800" aria-hidden="true">✓</div>
             <h1 className="mt-4 text-2xl font-black">{statusMessage}</h1>
-            <p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-black/60">We’re finding someone to handle your print job.</p>
+            <p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-black/60">We dey find a runner for your print job 🖨️</p>
           </>
         ) : state === "FAILED" ? (
           <>
             <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-red-100 text-2xl font-black text-red-800" aria-hidden="true">!</div>
             <h1 className="mt-4 text-2xl font-black">{statusMessage}</h1>
-            <p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-black/60">Your print job is still safe. Return to printing if you’d like to try again.</p>
+            <p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-black/60">Your print job never start, but it’s still saved. Go back to printing to try again.</p>
           </>
         ) : (
           <>
             <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-black/10 border-t-black motion-reduce:animate-none" aria-hidden="true" />
             <h1 className="mt-4 text-2xl font-black">{statusMessage}</h1>
             <p role="status" className="mx-auto mt-2 max-w-sm text-sm leading-6 text-black/70">{state === "RECONCILIATION_REQUIRED"
-              ? "Our team needs to confirm this payment by hand. Please don’t pay again — if money left your account, it’s safe."
+              ? PAYMENT_COPY.reviewBody
               : timedOut
-                ? "Please don’t pay again. If money left your account, it’s safe — your print job starts as soon as OPay confirms it."
-                : "We’re confirming with OPay. This usually takes under a minute — please don’t pay again."}</p>
+                ? PAYMENT_COPY.slowBody("your print job starts")
+                : PAYMENT_COPY.checkingBody}</p>
             {(timedOut || state === "RECONCILIATION_REQUIRED") && <p className="mx-auto mt-2 max-w-sm break-all text-xs text-black/60">Payment reference: {paymentReference} · <Link href="/support" className="font-bold underline">Get help</Link></p>}
           </>
         )}

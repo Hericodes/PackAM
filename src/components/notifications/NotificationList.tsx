@@ -116,7 +116,7 @@ export function NotificationList({ role }: { role: "STUDENT" | "RUNNER" | "ADMIN
           {!loaded && !error && <p role="status" className="rounded-2xl bg-white p-5 text-sm leading-6 text-black/70 shadow-sm">Loading your updates…</p>}
           {loaded && !items.length && !error && (
             <p className="rounded-2xl bg-white p-5 text-sm leading-6 text-black/65 shadow-sm">
-              You’re all caught up. New updates will show up here.
+              You don see everything 🙌 New updates go show here.
             </p>
           )}
         </section>

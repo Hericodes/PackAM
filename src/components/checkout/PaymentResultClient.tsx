@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useState } from "react";
 import { usePaymentPolling } from "../payments/usePaymentPolling";
 import { checkoutPaymentActions } from "../../lib/payments/checkout-cancellation";
+import { PAYMENT_COPY } from "../../lib/student-copy";
 
 type PaymentState = "CHECKING" | "PENDING" | "SUCCESS" | "FAILED" | "CANCELLED" | "REVIEW" | "SIGNED_OUT" | "ERROR";
 
@@ -119,10 +120,10 @@ export function PaymentResultClient({ reference }: { reference: string }) {
   if (state === "SUCCESS") return (
     <>
       <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-green-100 text-3xl font-black text-green-800" aria-hidden="true">✓</div>
-      <h1 aria-live="polite" className="mt-5 text-2xl font-black sm:text-3xl">Payment confirmed 🎉</h1>
-      <p className="mx-auto mt-3 max-w-sm text-sm leading-6 text-black/70">Your order is in. We’re finding a runner to bring your stuff.</p>
+      <h1 aria-live="polite" className="mt-5 text-2xl font-black sm:text-3xl">{PAYMENT_COPY.successTitle}</h1>
+      <p className="mx-auto mt-3 max-w-sm text-sm leading-6 text-black/70">Order don enter! 🫡 We dey find a runner to bring your stuff.</p>
       {noticeLine}
-      <div className="mt-7"><Link href={orderId ? `/orders/${orderId}` : "/orders"} className={primaryLink}>{orderId ? "Track your order" : "View my orders"}</Link></div>
+      <div className="mt-7"><Link href={orderId ? `/orders/${orderId}` : "/orders"} className={primaryLink}>{orderId ? "Track Order" : "View my orders"}</Link></div>
     </>
   );
 
@@ -130,7 +131,7 @@ export function PaymentResultClient({ reference }: { reference: string }) {
     <>
       <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-black/5 text-2xl font-black" aria-hidden="true">×</div>
       <h1 aria-live="polite" className="mt-5 text-2xl font-black sm:text-3xl">Order cancelled</h1>
-      <p className="mx-auto mt-3 max-w-sm text-sm leading-6 text-black/70">We removed these items from your cart. OPay didn’t complete this payment, so no order was placed.</p>
+      <p className="mx-auto mt-3 max-w-sm text-sm leading-6 text-black/70">We removed these items from your cart. OPay didn’t complete this payment, so no order was placed. Whenever you need something again, we dey here.</p>
       <p className="mx-auto mt-3 max-w-sm text-xs leading-5 text-black/60">If money left your account anyway, contact support with this reference: <span className="break-all font-semibold">{reference}</span></p>
       <div className="mt-7 flex flex-col items-center justify-center gap-2 sm:flex-row">
         <Link href="/search" className={primaryLink}>Back to shopping</Link>
@@ -142,8 +143,8 @@ export function PaymentResultClient({ reference }: { reference: string }) {
   if (state === "FAILED") return (
     <>
       <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-red-100 text-2xl font-black text-red-800" aria-hidden="true">!</div>
-      <h1 aria-live="polite" className="mt-5 text-2xl font-black sm:text-3xl">Payment wasn’t completed</h1>
-      <p className="mx-auto mt-3 max-w-sm text-sm leading-6 text-black/70">No order was placed. Your cart is still here — try again, or cancel this order if you no longer need it.</p>
+      <h1 aria-live="polite" className="mt-5 text-2xl font-black sm:text-3xl">{PAYMENT_COPY.failedTitle}</h1>
+      <p className="mx-auto mt-3 max-w-sm text-sm leading-6 text-black/70">Your order never confirm, so no order was placed. Your cart is still here — try again, or cancel this order if you no longer need am.</p>
       {noticeLine}
       {confirmingCancel ? cancelControls : (
         <div className="mt-7 flex flex-col items-center justify-center gap-2 sm:flex-row">
@@ -167,14 +168,14 @@ export function PaymentResultClient({ reference }: { reference: string }) {
     <>
       {!stuck && <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-black/10 border-t-black motion-reduce:animate-none" aria-hidden="true" />}
       <h1 aria-live="polite" className="mt-5 text-2xl font-black sm:text-3xl">
-        {state === "REVIEW" ? "We’re checking this payment" : state === "PENDING" || timedOut ? "Payment is still being confirmed" : "Confirming your payment…"}
+        {state === "REVIEW" ? PAYMENT_COPY.reviewTitle : state === "PENDING" || timedOut ? PAYMENT_COPY.pendingTitle : PAYMENT_COPY.checkingTitle}
       </h1>
       <p role="status" aria-live="polite" className="mx-auto mt-3 max-w-sm text-sm leading-6 text-black/70">
         {state === "REVIEW"
-          ? "Our team needs to confirm this payment by hand. Please don’t pay again — if money left your account, it’s safe, and we’ll update your orders."
+          ? PAYMENT_COPY.reviewBody
           : timedOut
-            ? "Please don’t pay again. If money left your account, it’s safe — we’ll create your order as soon as OPay confirms it."
-            : "We’re confirming with OPay. This usually takes under a minute — please don’t pay again."}
+            ? PAYMENT_COPY.slowBody("we’ll create your order")
+            : PAYMENT_COPY.checkingBody}
       </p>
       {stuck && <p className="mx-auto mt-3 max-w-sm break-all text-xs text-black/60">Payment reference: {reference}</p>}
       {noticeLine}

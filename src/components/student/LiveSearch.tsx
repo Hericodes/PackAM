@@ -64,7 +64,7 @@ export function LiveSearch({
 
           if (!response.ok) {
             throw new Error(
-              data.error || "Search is temporarily unavailable.",
+              data.error || "Search no dey work right now. Try again in a moment.",
             );
           }
 
@@ -74,7 +74,7 @@ export function LiveSearch({
             setError(
               e instanceof Error
                 ? e.message
-                : "Search is temporarily unavailable.",
+                : "Search no dey work right now. Try again in a moment.",
             );
           }
         } finally {
@@ -196,8 +196,8 @@ export function LiveSearch({
           <h2 className="mt-4 text-lg font-black">{query.trim() ? "We no see am" : `No ${selectedCategory?.name.toLowerCase() ?? "products"} listed yet`}</h2>
           <p className="pk-muted mt-1 max-w-md text-sm leading-6">
             {query.trim()
-              ? `Nothing matches “${query.trim()}” right now. Request it and we’ll check campus shops for you.`
-              : "This shelf is still being stocked. Tell us what you need and we’ll check around campus."}
+              ? `We no see “${query.trim()}” on the shelf yet. Request am — we go check campus shops for you.`
+              : "This shelf still dey empty. Tell us wetin you need and we go check around campus."}
           </p>
           <div className="mt-5 flex flex-wrap justify-center gap-2">
             <Link href={requestUrl} className="pk-btn pk-btn-primary">Request {query.trim() ? "this item" : "an item"}</Link>
@@ -207,7 +207,7 @@ export function LiveSearch({
       )}
 
       {!products.length && !loading && !error && !query.trim() && !category && (
-        <p className="pk-muted mt-5 text-sm">Start typing, or pick a category above.</p>
+        <p className="pk-muted mt-5 text-sm">Start typing, or pick a category above. Food, chargers, notebooks — e dey here.</p>
       )}
     </>
   );
