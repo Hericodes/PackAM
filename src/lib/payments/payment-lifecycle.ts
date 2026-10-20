@@ -284,6 +284,30 @@ function parseSnapshot(value: Prisma.JsonValue | null): CheckoutSnapshot {
   };
 }
 
+/** Remove only quantities captured by this attempt. Later cart edits/additions survive. */
+async function removeCapturedCartItems(tx: Prisma.TransactionClient, snapshot: CheckoutSnapshot) {
+  for (const item of snapshot.items) {
+    const currentItem = await tx.cartItem.findFirst({
+      where: { id: item.cartItemId, cartId: snapshot.cartId, productId: item.productId },
+      select: { quantity: true },
+    });
+    if (!currentItem) continue;
+    if (currentItem.quantity <= item.quantity) {
+      await tx.cartItem.delete({ where: { id: item.cartItemId } });
+    } else {
+      await tx.cartItem.update({
+        where: { id: item.cartItemId },
+        data: { quantity: { decrement: item.quantity } },
+      });
+    }
+  }
+}
+
+/** For a student-cancelled unpaid checkout: drop the items that checkout captured from the cart. */
+export async function removeCheckoutItemsFromCart(tx: Prisma.TransactionClient, checkoutSnapshot: Prisma.JsonValue | null) {
+  await removeCapturedCartItems(tx, parseSnapshot(checkoutSnapshot));
+}
+
 /**
  * Call only after a provider adapter has verified the webhook signature and
  * independently confirmed the transaction with the provider. Never expose this
@@ -389,22 +413,7 @@ export async function completeVerifiedPayment(verified: VerifiedProviderPayment)
     });
     if (claim.count !== 1) throw new Error("Payment attempt was already claimed.");
 
-    // Remove only quantities captured by this attempt. Later cart edits/additions survive.
-    for (const item of snapshot.items) {
-      const currentItem = await tx.cartItem.findFirst({
-        where: { id: item.cartItemId, cartId: snapshot.cartId, productId: item.productId },
-        select: { quantity: true },
-      });
-      if (!currentItem) continue;
-      if (currentItem.quantity <= item.quantity) {
-        await tx.cartItem.delete({ where: { id: item.cartItemId } });
-      } else {
-        await tx.cartItem.update({
-          where: { id: item.cartItemId },
-          data: { quantity: { decrement: item.quantity } },
-        });
-      }
-    }
+    await removeCapturedCartItems(tx, snapshot);
 
 await offerFindingOrderToAvailableRunners(tx, order.id);
 

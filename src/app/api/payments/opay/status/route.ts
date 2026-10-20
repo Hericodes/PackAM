@@ -1,8 +1,7 @@
 import { PaymentProvider } from "@prisma/client";
 import { auth } from "../../../../../auth";
 import { db } from "../../../../../lib/db";
-import { completeVerifiedPayment, failPendingPayment, markPaymentNeedsReview } from "../../../../../lib/payments/payment-lifecycle";
-import { queryPaymentStatus } from "../../../../../lib/payments/providers/opay";
+import { isCheckoutCancelled, opayStatusDeps } from "../../../../../lib/payments/checkout-cancellation-store";
 import { checkOpayPaymentStatus, consolePaymentLogger } from "../../../../../lib/payments/opay-verification";
 import { consumeRateLimit } from "../../../../../lib/rate-limit";
 
@@ -26,7 +25,7 @@ export async function GET(request: Request) {
         provider: PaymentProvider.OPAY,
         ...(printJobId ? { printJobId } : {}),
       },
-      select: { providerCheckoutReference: true, amount: true, currency: true, status: true, orderId: true, printJobId: true },
+      select: { id: true, providerCheckoutReference: true, amount: true, currency: true, status: true, orderId: true, printJobId: true },
     });
   } catch (error) {
     consolePaymentLogger.warn("opay_status_lookup_failed", { errorName: error instanceof Error ? error.name : "UnknownError" });
@@ -34,17 +33,14 @@ export async function GET(request: Request) {
   }
   if (!attempt) return Response.json({ error: "Payment attempt not found." }, { status: 404 });
   if (attempt.status === "SUCCESS") return Response.json({ status: "SUCCESS", orderId: attempt.orderId, printJobId: attempt.printJobId });
-  if (attempt.status === "FAILED") return Response.json({ status: "FAILED" });
+  if (attempt.status === "FAILED") {
+    const cancelled = !attempt.printJobId && await isCheckoutCancelled(attempt.id).catch(() => false);
+    return Response.json({ status: "FAILED", cancelled });
+  }
 
   const result = await checkOpayPaymentStatus(
     { reference, amount: attempt.amount, currency: attempt.currency, providerCheckoutReference: attempt.providerCheckoutReference },
-    {
-      queryStatus: queryPaymentStatus,
-      complete: (verified) => completeVerifiedPayment({ ...verified, provider: PaymentProvider.OPAY, status: "SUCCESS" }),
-      fail: failPendingPayment,
-      markReview: markPaymentNeedsReview,
-      log: consolePaymentLogger,
-    },
+    opayStatusDeps,
   );
   return Response.json(result.body, { status: result.status });
 }
