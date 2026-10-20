@@ -703,9 +703,17 @@ export async function getStudentPrintTracking(userId: string, printJobId: string
 }
 
 /** Recent paid print jobs, so students can get back to tracking from the Printing page. */
+/** Jobs that were never paid: still being set up, or cancelled before any payment succeeded. */
+export const UNPAID_PRINT_JOB_WHERE: Prisma.PrintJobWhereInput = {
+  OR: [
+    { status: { in: ["DRAFT", "READY_FOR_PAYMENT"] } },
+    { status: "CANCELLED", payments: { none: { status: "SUCCESS" } } },
+  ],
+};
+
 export async function listStudentPaidPrintJobs(userId: string) {
   const jobs = await db.printJob.findMany({
-    where: { userId, status: { notIn: ["DRAFT", "READY_FOR_PAYMENT"] } },
+    where: { userId, NOT: UNPAID_PRINT_JOB_WHERE },
     orderBy: { updatedAt: "desc" },
     take: 5,
     select: { id: true, status: true, copies: true, selectedPageCount: true, total: true, updatedAt: true, document: { select: { originalFileName: true } } },

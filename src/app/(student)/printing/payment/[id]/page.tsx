@@ -21,6 +21,7 @@ export default async function PrintPaymentPage({ params }: { params: Promise<{ i
             printJobId={workspace.id}
             paymentReference={workspace.payment.reference}
             initialStatus={workspace.payment.status}
+            jobStatus={workspace.status}
             cashierUrl={workspace.payment.cashierUrl}
             snapshot={workspace.snapshot}
           />

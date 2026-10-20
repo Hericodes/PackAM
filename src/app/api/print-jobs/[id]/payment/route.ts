@@ -44,6 +44,11 @@ export async function POST(request: Request, context: Context) {
       },
     });
     if (!stored) throw new Error("Print payment attempt could not be loaded.");
+    // A cancelled job must never be handed a checkout link, even for an attempt created before it was cancelled.
+    const job = await db.printJob.findFirst({ where: { id: printJobId, userId: session.user.id }, select: { status: true } });
+    if (job?.status === "CANCELLED") {
+      return Response.json({ error: "This print job was cancelled, so it can’t be paid for. Start a new print job instead." }, { status: 409 });
+    }
     const resultUrl = `/printing/payment/${encodeURIComponent(printJobId)}`;
     if (stored.status === "SUCCESS" || stored.status === "FAILED" || stored.status === "RECONCILIATION_REQUIRED") {
       return Response.json({ resultUrl });

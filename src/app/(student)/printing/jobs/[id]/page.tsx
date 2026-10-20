@@ -16,7 +16,8 @@ export default async function PrintJobTrackingPage({ params }: { params: Promise
   const { id } = await params;
   const job = await getStudentPrintTracking(session.user.id, id);
   if (!job) notFound();
-  if (job.status === "DRAFT" || job.status === "READY_FOR_PAYMENT") {
+  // Unpaid jobs (including ones cancelled before payment succeeded) have no fulfilment to track.
+  if (job.status === "DRAFT" || job.status === "READY_FOR_PAYMENT" || (job.status === "CANCELLED" && job.paymentStatus !== "SUCCESS")) {
     redirect(job.paymentStatus ? `/printing/payment/${encodeURIComponent(job.id)}` : "/printing");
   }
 

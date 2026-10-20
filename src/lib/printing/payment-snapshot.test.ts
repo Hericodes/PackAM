@@ -261,3 +261,11 @@ test("a verified success for an already-paid print job is a duplicate, never a s
     payment: { status: "FAILED" }, job: { status: "FINDING_RUNNER" }, verified: { amount: 1 },
   })), /amount or currency/i);
 });
+
+test("a verified success arriving after the job was cancelled is never finalised into fulfilment", () => {
+  for (const status of ["PENDING", "FAILED", "RECONCILIATION_REQUIRED"]) {
+    const result = validatePrintPaymentFinalization(finalizationFixture({ payment: { status }, job: { status: "CANCELLED" } }));
+    assert.equal(result.alreadyProcessed, false, status);
+    assert.equal(result.duplicate, true, `${status}: recorded for review, not finalised`);
+  }
+});

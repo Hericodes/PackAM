@@ -77,7 +77,15 @@ export async function completeVerifiedPrintPayment(verified: VerifiedPrintPaymen
         return { orderId: null, printJobId: job.id, alreadyProcessed: true };
       }
       if (validation.duplicate) {
-        await recordDuplicatePrintPayment(tx, { paymentId: payment.id, userId: payment.userId, amount: payment.amount, printJobId: job.id, verified });
+        await recordDuplicatePrintPayment(tx, {
+          paymentId: payment.id,
+          userId: payment.userId,
+          amount: payment.amount,
+          printJobId: job.id,
+          verified,
+          // A cancelled job was never paid: this is a late payment, not a second one.
+          jobWasCancelled: job.status === "CANCELLED" && !otherSuccess,
+        });
         return { orderId: null, printJobId: job.id, alreadyProcessed: false, duplicatePayment: true as const };
       }
       finalizationStarted = true;
@@ -179,14 +187,14 @@ export async function completeVerifiedPrintPayment(verified: VerifiedPrintPaymen
 }
 
 /**
- * Records a verified provider success for a print job that was already paid. The money is not
- * discarded: the attempt keeps the provider reference in RECONCILIATION_REQUIRED (never SUCCESS, so
- * fulfilment cannot start twice) and operations and the student are told once. Nothing is refunded
- * here; operations must refund through the provider and record it.
+ * Records a verified provider success for a print job that was already paid, or that was cancelled
+ * before this late payment arrived. The money is not discarded: the attempt keeps the provider
+ * reference in RECONCILIATION_REQUIRED (never SUCCESS, so fulfilment cannot start) and operations and
+ * the student are told once. Nothing is refunded here; operations must refund through the provider.
  */
 async function recordDuplicatePrintPayment(
   tx: Prisma.TransactionClient,
-  input: { paymentId: string; userId: string; amount: number; printJobId: string; verified: VerifiedPrintPayment },
+  input: { paymentId: string; userId: string; amount: number; printJobId: string; verified: VerifiedPrintPayment; jobWasCancelled: boolean },
 ) {
   await tx.payment.updateMany({
     where: {
@@ -203,7 +211,14 @@ async function recordDuplicatePrintPayment(
     data: { paidAt: new Date() },
   });
   const reference = printMissionReference(input.printJobId);
-  await notifyAdmins(tx, {
+  await notifyAdmins(tx, input.jobWasCancelled ? {
+    type: "PAYMENT",
+    title: "Payment received for a cancelled print job",
+    message: `OPay confirmed a payment of ₦${input.amount.toLocaleString()} (${input.verified.transactionReference}) for print job ${reference} after it was cancelled. Fulfilment was not started. Check it and refund the payment through OPay.`,
+    relatedType: "PRINT_JOB",
+    relatedId: input.printJobId,
+    idempotencyKey: `print-payment-duplicate:${input.paymentId}`,
+  } : {
     type: "PAYMENT",
     title: "Possible double payment for a print job",
     message: `OPay confirmed a second payment of ₦${input.amount.toLocaleString()} (${input.verified.transactionReference}) for print job ${reference}, which was already paid. Fulfilment was not started again. Check it and refund the extra payment through OPay.`,
@@ -211,7 +226,15 @@ async function recordDuplicatePrintPayment(
     relatedId: input.printJobId,
     idempotencyKey: `print-payment-duplicate:${input.paymentId}`,
   });
-  await createNotification(tx, {
+  await createNotification(tx, input.jobWasCancelled ? {
+    userId: input.userId,
+    type: "PAYMENT",
+    title: "Payment received for a cancelled print job",
+    message: `We received ₦${input.amount.toLocaleString()} for print job ${reference} after it was cancelled, so it won’t be printed. Our team will review this payment and contact you. Please don’t pay again.`,
+    relatedType: "PRINT_JOB",
+    relatedId: input.printJobId,
+    idempotencyKey: `print-payment-duplicate:${input.paymentId}`,
+  } : {
     userId: input.userId,
     type: "PAYMENT",
     title: "We received an extra payment",

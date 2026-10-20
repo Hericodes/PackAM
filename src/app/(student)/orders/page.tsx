@@ -3,6 +3,7 @@ import { ReorderButton } from "../../../components/orders/ReorderButton";
 import { EmptyState } from "../../../components/ui/EmptyState";
 import { requireRole } from "../../../lib/auth-guard";
 import { db } from "../../../lib/db";
+import { UNPAID_PRINT_JOB_WHERE } from "../../../lib/printing/service";
 import { formatCampusTime, isFinalOrderStatus, orderProgress, orderStatusLabel, shortReference } from "../../../lib/student-copy";
 
 type OrderRow = {
@@ -51,7 +52,7 @@ export default async function OrdersPage() {
       take: 50,
       select: { id: true, status: true, total: true, createdAt: true, items: { select: { productId: true, productName: true, quantity: true } } },
     }),
-    db.printJob.count({ where: { userId: session.user.id, status: { notIn: ["DRAFT", "READY_FOR_PAYMENT"] } } }),
+    db.printJob.count({ where: { userId: session.user.id, NOT: UNPAID_PRINT_JOB_WHERE } }),
   ]);
   const active = orders.filter((order) => !isFinalOrderStatus(order.status));
   const past = orders.filter((order) => isFinalOrderStatus(order.status));

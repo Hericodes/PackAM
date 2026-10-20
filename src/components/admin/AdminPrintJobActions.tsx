@@ -3,10 +3,11 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-export function AdminPrintJobActions({ printJobId, canRetry, canRefund }: { printJobId: string; canRetry: boolean; canRefund: boolean }) {
+export function AdminPrintJobActions({ printJobId, canRetry, canRefund, canCancelUnpaid = false }: { printJobId: string; canRetry: boolean; canRefund: boolean; canCancelUnpaid?: boolean }) {
   const router = useRouter(); const [busy, setBusy] = useState(false); const [message, setMessage] = useState("");
-  async function call(action: "retry" | "refund") {
+  async function call(action: "retry" | "refund" | "cancel-unpaid") {
     if (action === "refund" && !window.confirm("Stop fulfilment and move this print job to refund processing? The OPay refund itself must be completed manually.")) return;
+    if (action === "cancel-unpaid" && !window.confirm("Cancel this unpaid print job? Any pending payment is checked with OPay first; a paid or uncertain payment blocks cancelling.")) return;
     setBusy(true); setMessage("");
     try {
       const response = await fetch(`/api/admin/print-jobs/${encodeURIComponent(printJobId)}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action }) });
@@ -15,10 +16,11 @@ export function AdminPrintJobActions({ printJobId, canRetry, canRefund }: { prin
     } catch (error) { setMessage(error instanceof Error ? error.message : "Action failed."); }
     finally { setBusy(false); }
   }
-  if (!canRetry && !canRefund) return null;
+  if (!canRetry && !canRefund && !canCancelUnpaid) return null;
   return <div className="mt-4 flex flex-wrap items-center gap-2">
     {canRetry && <button disabled={busy} onClick={() => void call("retry")} className="rounded-full border border-black/15 px-4 py-2 text-xs font-bold disabled:opacity-50">Send back to runner</button>}
     {canRefund && <button disabled={busy} onClick={() => void call("refund")} className="rounded-full bg-black px-4 py-2 text-xs font-bold text-white disabled:opacity-50">Move to refund processing</button>}
+    {canCancelUnpaid && <button disabled={busy} onClick={() => void call("cancel-unpaid")} className="rounded-full border border-black/15 px-4 py-2 text-xs font-bold disabled:opacity-50">Cancel unpaid job</button>}
     {message && <p role="status" className="text-xs text-black/60">{message}</p>}
   </div>;
 }
