@@ -63,7 +63,7 @@ export default async function CheckoutPage() {
   return (
     <main className="min-h-screen pb-32 lg:pb-20">
       <div className="packam-container pt-5 sm:pt-10">
-        <Link href="/" className="inline-flex min-h-11 items-center text-sm font-bold text-black/55 transition hover:text-black focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-black">← Keep browsing</Link>
+        <Link href="/search" className="inline-flex min-h-11 items-center text-sm font-bold text-black/55 transition hover:text-black focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-black">← Keep browsing</Link>
         <div className="mt-4 max-w-2xl">
           <p className="pk-eyebrow">Secure checkout</p>
           <h1 className="pk-page-title mt-2">Checkout</h1>

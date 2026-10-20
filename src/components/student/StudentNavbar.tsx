@@ -11,13 +11,21 @@ import { StudentProfileMenu } from "./StudentProfileMenu";
 
 const ROLE_LABELS = { STUDENT: "Student account", RUNNER: "Runner account", ADMIN: "Operations" } as const;
 
+type SessionUser = { name?: string | null; email?: string | null; role?: NavRole } | undefined;
+
+/** Shared by every header that shows the profile / mobile menus, so they label the user the same way. */
+export function menuUserFor(user: SessionUser) {
+  if (!user) return null;
+  const displayName = user.name?.trim() || user.email?.trim() || "Student";
+  return { displayName, initial: displayName.charAt(0).toUpperCase(), roleLabel: user.role ? ROLE_LABELS[user.role] : "Signed in" };
+}
+
 export async function StudentNavbar() {
   const session = await auth();
   const user = session?.user;
   const role: NavRole = user?.role ?? null;
   const { primary, secondary } = navItemsFor(role);
-  const displayName = user?.name?.trim() || user?.email?.trim() || "Student";
-  const menuUser = user ? { displayName, initial: displayName.charAt(0).toUpperCase(), roleLabel: role ? ROLE_LABELS[role] : "Signed in" } : null;
+  const menuUser = menuUserFor(user);
 
   return (
     <header className="sticky top-0 z-50 border-b border-black/[0.06] bg-[#fffdf7]/85 shadow-[0_1px_0_rgba(255,255,255,0.6)_inset,0_6px_24px_-18px_rgba(135,90,0,0.35)] backdrop-blur-md">
