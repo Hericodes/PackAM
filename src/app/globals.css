@@ -646,3 +646,29 @@ a {
   .pk-skeleton { animation: none; }
   .pk-card-interactive, .pk-btn, .pk-chip { transition: none; }
 }
+
+/* ========================================
+   OPERATIONS (ADMIN) ON PHONES
+   Admin pages are dense; these rules keep them usable at phone width without separate mobile markup.
+   ======================================== */
+
+@layer components {
+  /* Long ids, payment references and emails wrap instead of pushing the page sideways. */
+  .pk-ops-main { overflow-wrap: anywhere; }
+
+  @media (max-width: 767px) {
+    /* Comfortable tap targets for the many small admin buttons and selects. */
+    .pk-ops-main :is(button, select) { min-height: 2.5rem; }
+
+    /*
+     * Data tables become one labelled card per row. Each cell carries data-label="Column"; the header
+     * row stays in the accessibility tree (visually hidden) so screen readers still get column names.
+     */
+    .pk-stack-table { min-width: 0 !important; }
+    .pk-stack-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+    .pk-stack-table, .pk-stack-table tbody, .pk-stack-table tr, .pk-stack-table td { display: block; width: 100%; }
+    .pk-stack-table tr { padding: 0.75rem 1rem; }
+    .pk-stack-table td { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; padding: 0.25rem 0 !important; text-align: right; }
+    .pk-stack-table td::before { content: attr(data-label); flex-shrink: 0; text-align: left; font-size: 0.6875rem; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; color: rgba(8, 8, 8, 0.5); }
+  }
+}

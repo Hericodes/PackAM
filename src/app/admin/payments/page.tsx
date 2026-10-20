@@ -8,26 +8,46 @@ import { printMissionReference } from "../../../lib/printing/runner-mission-poli
 import { formatCampusTime } from "../../../lib/student-copy";
 import { StatusBadge } from "../../../components/ui/StatusBadge";
 import { PaymentReviewActions } from "../../../components/admin/PaymentReviewActions";
+import { PAYMENT_REVIEW_MIGRATION, isPaymentReviewTableMissing } from "../../../lib/db-errors";
 
 const CANCEL_MARKER = "checkout.cancelled_by_student";
+
+const PAYMENT_FIELDS = {
+  id: true, status: true, amount: true, currency: true, transactionReference: true, providerReference: true, providerCheckoutReference: true, createdAt: true, paidAt: true, failedAt: true, updatedAt: true, orderId: true, printJobId: true,
+  user: { select: { email: true } },
+  order: { select: { status: true } },
+  printJob: { select: { status: true } },
+} as const;
+
+/**
+ * Payments needing review, with their review cases. If the review-case table hasn't been migrated
+ * yet, the unresolved payments are still listed (without case data) so financial exposure stays
+ * visible, and the page says which migration is missing instead of failing.
+ */
+async function loadReviewCandidates(staleBefore: Date) {
+  const unresolved = [{ status: "RECONCILIATION_REQUIRED" as const }, orphanedSuccessfulMarketplacePaymentWhere, { status: "PENDING" as const, createdAt: { lte: staleBefore } }];
+  try {
+    const rows = await db.payment.findMany({
+      where: { provider: "OPAY", OR: [...unresolved, { reviewCase: { is: { status: "OPEN" } } }] },
+      orderBy: { createdAt: "asc" },
+      take: 100,
+      select: { ...PAYMENT_FIELDS, reviewCase: { select: { status: true, lastCheckAt: true, lastCheckOutcome: true, lastCheckDetail: true, checkCount: true, closedAt: true, closeNote: true, escalatedAt: true } } },
+    });
+    return { rows, reviewCasesAvailable: true };
+  } catch (error) {
+    if (!isPaymentReviewTableMissing(error)) throw error;
+    console.error(`ADMIN PAYMENTS: PaymentReviewCase table missing; apply migration ${PAYMENT_REVIEW_MIGRATION} (npx prisma migrate deploy). Showing payments without review cases.`);
+    const rows = await db.payment.findMany({ where: { provider: "OPAY", OR: unresolved }, orderBy: { createdAt: "asc" }, take: 100, select: PAYMENT_FIELDS });
+    return { rows: rows.map((row) => ({ ...row, reviewCase: null })), reviewCasesAvailable: false };
+  }
+}
 
 export default async function AdminPaymentsPage() {
   await requireRole("ADMIN");
   const now = new Date();
   const staleBefore = new Date(now.getTime() - STALE_PENDING_AFTER_MS);
-  const [candidates, payments, refunds] = await Promise.all([
-    db.payment.findMany({
-      where: { provider: "OPAY", OR: [{ status: "RECONCILIATION_REQUIRED" }, orphanedSuccessfulMarketplacePaymentWhere, { status: "PENDING", createdAt: { lte: staleBefore } }, { reviewCase: { is: { status: "OPEN" } } }] },
-      orderBy: { createdAt: "asc" },
-      take: 100,
-      select: {
-        id: true, status: true, amount: true, currency: true, transactionReference: true, providerReference: true, providerCheckoutReference: true, createdAt: true, paidAt: true, failedAt: true, updatedAt: true, orderId: true, printJobId: true,
-        user: { select: { email: true } },
-        order: { select: { status: true } },
-        printJob: { select: { status: true } },
-        reviewCase: { select: { status: true, lastCheckAt: true, lastCheckOutcome: true, lastCheckDetail: true, checkCount: true, closedAt: true, closeNote: true, escalatedAt: true } },
-      },
-    }),
+  const [{ rows: candidates, reviewCasesAvailable }, payments, refunds] = await Promise.all([
+    loadReviewCandidates(staleBefore),
     db.payment.findMany({ orderBy: { createdAt: "desc" }, take: 100, select: { id: true, status: true, provider: true, amount: true, transactionReference: true, orderId: true, printJobId: true, user: { select: { email: true } } } }),
     db.refund.findMany({ orderBy: { createdAt: "desc" }, take: 100, select: { id: true, status: true, amount: true, reason: true, transactionReference: true, order: { select: { id: true, user: { select: { email: true } } } } } }),
   ]);
@@ -80,7 +100,7 @@ export default async function AdminPaymentsPage() {
         {reviewCase?.status === "CLOSED" && reviewCase.closeNote && <p className="mt-1"><span className="font-black">Closed{reviewCase.closedAt ? ` ${formatCampusTime(reviewCase.closedAt)}` : ""}: </span>{reviewCase.closeNote}</p>}
       </div>
 
-      <PaymentReviewActions paymentId={payment.id} available={actions} />
+      {reviewCasesAvailable && <PaymentReviewActions paymentId={payment.id} available={actions} />}
     </li>;
   };
 
@@ -89,6 +109,10 @@ export default async function AdminPaymentsPage() {
     <h1 className="mt-1 text-3xl font-black">Payments &amp; refunds</h1>
     <p className="mt-2 max-w-3xl text-sm text-black/60">Only OPay’s signed status record can mark a payment paid or failed. A timeout or error proves nothing, so those payments stay unresolved. Closing a review case is bookkeeping — it never says money was received, refunded or not received. A pending refund is not a completed provider refund.</p>
 
+    {!reviewCasesAvailable && <div role="alert" className="mt-5 rounded-2xl border border-[#c92d24]/25 bg-[#ffe9e7] p-4 text-sm text-[#7a1a14]">
+      <p className="font-black">Payment review actions are unavailable: a database migration hasn’t been applied.</p>
+      <p className="mt-1 leading-6">The database is missing the review-case table from migration <code className="font-mono text-xs">{PAYMENT_REVIEW_MIGRATION}</code>. Unresolved payments are still listed below, but Retry verification, Cancel, Close, Reopen and Escalate stay hidden until the migration is applied (<code className="font-mono text-xs">npx prisma migrate deploy</code>). No payment records were changed.</p>
+    </div>}
     <section aria-labelledby="review-open" className="mt-6">
       <h2 id="review-open" className="flex items-center gap-2 text-xl font-black">Payments needing review <span className={`rounded-full px-2 py-0.5 text-xs ${open.length ? "bg-[#c92d24] text-white" : "bg-black/10 text-black/60"}`}>{open.length}</span></h2>
       <p className="mt-1 text-xs text-black/55">Under review, captured without an order, still pending {Math.round(STALE_PENDING_AFTER_MS / 60_000)}+ minutes after checkout, or with an open case.</p>
@@ -102,9 +126,9 @@ export default async function AdminPaymentsPage() {
     </section>}
 
     <h2 className="mt-10 text-xl font-black">Recent payments</h2>
-    <div className="mt-3 overflow-x-auto rounded-2xl bg-white"><table className="w-full min-w-[760px] text-left text-sm"><thead className="bg-black/5 text-xs uppercase text-black/50"><tr>{["Student", "Status", "Amount", "Provider", "Reference", "For"].map((x) => <th key={x} className="px-4 py-3">{x}</th>)}</tr></thead><tbody className="divide-y divide-black/5">{payments.map((p) => { const d = paymentStatusDisplay(p.status); return <tr key={p.id}><td className="px-4 py-3">{p.user.email}</td><td className="px-4 py-3"><StatusBadge label={d.label} tone={d.tone} /></td><td className="px-4 py-3">₦{p.amount.toLocaleString()}</td><td className="px-4 py-3">{p.provider}</td><td className="max-w-52 truncate px-4 py-3" title={p.transactionReference ?? ""}>{p.transactionReference ?? "—"}</td><td className="px-4 py-3">{p.orderId ? <Link className="underline" href={`/admin/orders/${p.orderId}`}>Order</Link> : p.printJobId ? <Link className="underline" href={`/admin/print-jobs/${p.printJobId}`}>Print job</Link> : "—"}</td></tr>; })}</tbody></table></div>
+    <div className="mt-3 overflow-x-auto rounded-2xl bg-white"><table className="pk-stack-table w-full md:min-w-[760px] text-left text-sm"><thead className="bg-black/5 text-xs uppercase text-black/50"><tr>{["Student", "Status", "Amount", "Provider", "Reference", "For"].map((x) => <th key={x} className="px-4 py-3">{x}</th>)}</tr></thead><tbody className="divide-y divide-black/5">{payments.map((p) => { const d = paymentStatusDisplay(p.status); return <tr key={p.id}><td data-label="Student" className="px-4 py-3">{p.user.email}</td><td data-label="Status" className="px-4 py-3"><StatusBadge label={d.label} tone={d.tone} /></td><td data-label="Amount" className="px-4 py-3">₦{p.amount.toLocaleString()}</td><td data-label="Provider" className="px-4 py-3">{p.provider}</td><td data-label="Reference" className="break-all px-4 py-3 md:max-w-52 md:truncate" title={p.transactionReference ?? ""}>{p.transactionReference ?? "—"}</td><td data-label="For" className="px-4 py-3">{p.orderId ? <Link className="underline" href={`/admin/orders/${p.orderId}`}>Order</Link> : p.printJobId ? <Link className="underline" href={`/admin/print-jobs/${p.printJobId}`}>Print job</Link> : "—"}</td></tr>; })}</tbody></table></div>
 
     <h2 className="mt-8 text-xl font-black">Refunds</h2>
-    <div className="mt-3 overflow-x-auto rounded-2xl bg-white"><table className="w-full min-w-[700px] text-left text-sm"><thead className="bg-black/5 text-xs uppercase text-black/50"><tr>{["Order", "Student", "Status", "Amount", "Reason", "Reference"].map((x) => <th key={x} className="px-4 py-3">{x}</th>)}</tr></thead><tbody className="divide-y divide-black/5">{refunds.map((r) => <tr key={r.id}><td className="px-4 py-3"><Link className="underline" href={`/admin/orders/${r.order.id}`}>{r.order.id}</Link></td><td className="px-4 py-3">{r.order.user.email}</td><td className="px-4 py-3">{r.status}</td><td className="px-4 py-3">₦{r.amount.toLocaleString()}</td><td className="px-4 py-3">{r.reason}</td><td className="px-4 py-3">{r.transactionReference ?? "—"}</td></tr>)}</tbody></table></div>
+    <div className="mt-3 overflow-x-auto rounded-2xl bg-white"><table className="pk-stack-table w-full md:min-w-[700px] text-left text-sm"><thead className="bg-black/5 text-xs uppercase text-black/50"><tr>{["Order", "Student", "Status", "Amount", "Reason", "Reference"].map((x) => <th key={x} className="px-4 py-3">{x}</th>)}</tr></thead><tbody className="divide-y divide-black/5">{refunds.map((r) => <tr key={r.id}><td data-label="Order" className="px-4 py-3"><Link className="underline" href={`/admin/orders/${r.order.id}`}>{r.order.id}</Link></td><td data-label="Student" className="px-4 py-3">{r.order.user.email}</td><td data-label="Status" className="px-4 py-3">{r.status}</td><td data-label="Amount" className="px-4 py-3">₦{r.amount.toLocaleString()}</td><td data-label="Reason" className="px-4 py-3">{r.reason}</td><td data-label="Reference" className="px-4 py-3">{r.transactionReference ?? "—"}</td></tr>)}</tbody></table></div>
   </div></main>;
 }

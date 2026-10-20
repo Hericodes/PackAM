@@ -2,7 +2,7 @@ import { db } from "../../lib/db";
 import { LiveSearch } from "../../components/student/LiveSearch";
 import { StudentNavbar } from "../../components/student/StudentNavbar";
 import { searchProducts, searchTerms } from "../../lib/products/search";
-import { STUDENT_DELIVERY_FEE, studentCatalogueCategoryWhere, studentCatalogueProductWhere } from "../../lib/products/catalogue";
+import { studentCatalogueCategoryWhere, studentCatalogueProductWhere } from "../../lib/products/catalogue";
 
 type SearchPageProps = { searchParams: Promise<{ q?: string; category?: string }> };
 
@@ -29,7 +29,6 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
       <div className="packam-container py-6 sm:py-10">
         <p className="pk-eyebrow">Campus marketplace</p>
         <h1 className="pk-page-title mt-2">{category === "" && !query ? "Wetin you need today?" : "Search PackAM"}</h1>
-        <p className="pk-muted mt-2 max-w-xl text-sm leading-6 sm:text-base">Prices include everything except the flat ₦{STUDENT_DELIVERY_FEE.toLocaleString()} delivery fee, added once per order at checkout.</p>
         <LiveSearch key={`${query}:${category}`} query={query} category={category} categories={categories} initialProducts={products} />
       </div>
     </main>

@@ -1,6 +1,7 @@
 import { auth } from "../../../../../auth";
 import { consumeRateLimit } from "../../../../../lib/rate-limit";
 import { cancelLinkedUnpaid, closeReviewCase, escalateReviewCase, reopenReviewCase, retryPaymentVerification } from "../../../../../lib/payments/payment-review";
+import { PAYMENT_REVIEW_MIGRATION, isPaymentReviewTableMissing } from "../../../../../lib/db-errors";
 
 export const runtime = "nodejs";
 type Context = { params: Promise<{ id: string }> };
@@ -35,7 +36,12 @@ export async function POST(request: Request, context: Context) {
             : await escalateReviewCase(adminId, id, record.note);
     return Response.json(result.body, { status: result.status });
   } catch (error) {
-    console.error("ADMIN PAYMENT REVIEW ERROR:", action, error instanceof Error ? error.name : "Unknown error");
+    // Every action touches the review-case table before OPay or any payment write, so nothing changed.
+    if (isPaymentReviewTableMissing(error)) {
+      console.error(`ADMIN PAYMENT REVIEW: PaymentReviewCase table missing; apply migration ${PAYMENT_REVIEW_MIGRATION}.`, action);
+      return Response.json({ error: `Payment review isn’t set up on this database yet (migration ${PAYMENT_REVIEW_MIGRATION} is pending). Nothing was changed and OPay wasn’t contacted.` }, { status: 503 });
+    }
+    console.error("ADMIN PAYMENT REVIEW ERROR:", action, error instanceof Error ? error.name : "Unknown error", error && typeof error === "object" && "code" in error ? String((error as { code: unknown }).code) : "");
     return Response.json({ error: "That action didn’t complete. The payment record is unchanged — refresh and try again." }, { status: 500 });
   }
 }

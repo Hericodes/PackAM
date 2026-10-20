@@ -84,8 +84,8 @@ export default function HomePage() {
       <main className="packam-container flex flex-1 flex-col justify-center py-10 sm:py-14">
         <div className="mx-auto w-full max-w-2xl">
           <div className="text-center">
-            <h1 className="text-balance text-[clamp(1.75rem,6vw,2.5rem)] font-black leading-[1.1] tracking-[-0.03em]">What brings you here today?</h1>
-            <p className="pk-muted mt-2 text-base sm:text-lg">Choose a service to get started.</p>
+            <h1 className="text-balance text-[clamp(1.75rem,6vw,2.5rem)] font-black leading-[1.1] tracking-[-0.03em]">Wetin dey sup? <span aria-hidden="true">👀</span></h1>
+            <p className="pk-muted mt-2 text-base sm:text-lg">Pick wetin you need — we go handle the waka.</p>
           </div>
 
           <ul className="mt-8 grid gap-3 sm:mt-10 sm:gap-4" aria-label="PackAM services">
