@@ -2,15 +2,40 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import { orderStatusDisplay, printStatusDisplay, runnerOrderNextStep, runnerPrintNextStep } from "../../lib/ops-status";
+import { StatusBadge } from "../ui/StatusBadge";
 
-type Mission = { id: string; status: string; order: { id: string; status: string; items: { id: string; productName: string; quantity: number }[]; deliveryLocationLabel: string } };
+type Mission = { id: string; status: string; order: { id: string; status: string; items: { id: string; productName: string; quantity: number }[]; deliveryLocationLabel: string; deliveryAddress?: string; deliveryInstructions?: string | null } };
 type PrintMission = { assignmentId: string; id: string; reference: string; assignmentStatus: string; status: string; colorMode: string | null; sides: string | null; copies: number; selectedPageCount: number | null; deliveryLocationLabel: string };
 
 const REFRESH_MS = 30_000;
 
+// Closest to done first: a runner on the road should see that delivery before anything else.
+const URGENCY = ["OUT_FOR_DELIVERY", "PRINTED", "PRINTING", "SOURCING_PRODUCT", "DOCUMENT_RECEIVED", "RUNNER_ASSIGNED"];
+const urgency = (status: string) => { const index = URGENCY.indexOf(status); return index === -1 ? URGENCY.length : index; };
+
 function printSummary(mission: PrintMission) {
   const pages = mission.selectedPageCount ?? 0;
   return `${pages} ${pages === 1 ? "page" : "pages"} · ${mission.copies} ${mission.copies === 1 ? "copy" : "copies"} · ${mission.colorMode === "COLOR" ? "Colour" : "B&W"} · ${mission.sides === "DOUBLE" ? "Double-sided" : "Single-sided"} · A4`;
+}
+
+type Card = {
+  key: string; href: string; kind: "order" | "print"; accepted: boolean; status: string; badge: { label: string; tone: Parameters<typeof StatusBadge>[0]["tone"] };
+  title: string; summary: string; location: string; address?: string; instructions?: string | null; nextStep: string | null; cta: string;
+};
+
+function MissionCard({ card }: { card: Card }) {
+  return <li><Link href={card.href} className={`block rounded-2xl border bg-white p-4 transition hover:border-black/20 sm:p-5 ${card.accepted ? "border-black/10" : "border-[#feb80a]/60 shadow-[0_8px_24px_-18px_rgba(135,90,0,0.7)]"}`}>
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="inline-flex rounded-full bg-black/6 px-2.5 py-1 text-xs font-black">{card.kind === "print" ? "🖨️ Print" : "🛒 Order"}</span>
+      <StatusBadge label={card.badge.label} tone={card.badge.tone} />
+    </div>
+    <p className="mt-2 font-black">{card.title}</p>
+    <p className="mt-1 text-sm text-black/70">{card.summary}</p>
+    <p className="mt-2 text-sm"><span className="font-bold">📍 {card.location}</span>{card.address && <span className="block text-black/65">{card.address}</span>}{card.instructions && <span className="block text-xs text-black/55">Note: {card.instructions}</span>}</p>
+    {card.nextStep && <p className="mt-3 rounded-xl bg-[#fffdf7] px-3 py-2 text-sm"><span className="font-black">Next: </span>{card.nextStep}</p>}
+    <span className="mt-3 inline-flex min-h-11 w-full items-center justify-center rounded-full bg-black px-5 text-sm font-black text-white sm:w-auto">{card.cta} →</span>
+  </Link></li>;
 }
 
 export function RunnerMissionBoard({ adminView = false }: { adminView?: boolean }) {
@@ -19,10 +44,13 @@ export function RunnerMissionBoard({ adminView = false }: { adminView?: boolean 
   const [missions, setMissions] = useState<Mission[]>([]);
   const [printMissions, setPrintMissions] = useState<PrintMission[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
   const [toggling, setToggling] = useState(false);
   const [error, setError] = useState("");
 
   const load = useCallback(async () => {
+    setRefreshing(true);
     try {
       const availability = await fetch("/api/runner/availability", { cache: "no-store" });
       const a = await availability.json();
@@ -36,11 +64,12 @@ export function RunnerMissionBoard({ adminView = false }: { adminView?: boolean 
       const missionResponse = await fetch("/api/runner/missions", { cache: "no-store" });
       const m = await missionResponse.json();
       if (!missionResponse.ok) throw new Error(m.error || "Unable to load missions.");
-      setMissions(m.missions); setPrintMissions(m.printMissions ?? []); setError("");
+      setMissions(m.missions); setPrintMissions(m.printMissions ?? []); setError(""); setUpdatedAt(new Date());
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unable to load missions.");
     } finally {
       setLoaded(true);
+      setRefreshing(false);
     }
   }, []);
 
@@ -70,18 +99,66 @@ export function RunnerMissionBoard({ adminView = false }: { adminView?: boolean 
     </section>;
   }
 
-  const empty = !missions.length && !printMissions.length;
+  const cards: Card[] = [
+    ...printMissions.map((mission): Card => {
+      const accepted = mission.assignmentStatus === "ACCEPTED";
+      const display = printStatusDisplay(mission.status);
+      return {
+        key: `print-${mission.assignmentId}`, kind: "print", accepted, status: mission.status,
+        href: adminView ? `/admin/print-jobs/${mission.id}` : `/runner/print-missions/${mission.id}`,
+        badge: accepted ? display : { label: "New offer", tone: "warning" },
+        title: adminView ? `${accepted ? "Assigned" : "Offered"} · ${mission.reference}` : `${accepted ? "Your print job" : "Print mission"} · ${mission.reference}`,
+        summary: printSummary(mission), location: mission.deliveryLocationLabel,
+        nextStep: adminView ? null : runnerPrintNextStep(mission.status, mission.assignmentStatus),
+        cta: adminView ? "Open print job" : accepted ? "Continue" : "Review & accept",
+      };
+    }),
+    ...missions.map(({ id, status, order }): Card => {
+      const accepted = status === "ACCEPTED";
+      const display = orderStatusDisplay(order.status);
+      return {
+        key: `order-${id}`, kind: "order", accepted, status: order.status,
+        href: adminView ? `/admin/orders/${order.id}` : `/runner/missions/${order.id}`,
+        badge: accepted ? display : { label: "New offer", tone: "warning" },
+        title: adminView ? `${accepted ? "Assigned" : "Offered"} runner mission` : accepted ? "Your delivery" : "New mission 🫡",
+        summary: order.items.map((item) => `${item.productName} × ${item.quantity}`).join(", "),
+        location: order.deliveryLocationLabel, address: order.deliveryAddress, instructions: order.deliveryInstructions,
+        nextStep: adminView ? null : runnerOrderNextStep(order.status, status),
+        cta: adminView ? "Open order" : accepted ? "Continue" : "Review & accept",
+      };
+    }),
+  ];
+  const active = cards.filter((card) => card.accepted).sort((a, b) => urgency(a.status) - urgency(b.status));
+  const offers = cards.filter((card) => !card.accepted);
+
   return <>
     <section className="mt-6 flex flex-wrap items-center justify-between gap-4 rounded-2xl bg-white p-5">
-      <div><p className="font-black">{adminView ? "Operations mission view" : `You’re ${available ? "available for missions" : "offline"}`}</p><p className="mt-1 text-sm text-black/70">{adminView ? "Read-only view. Operational changes stay in the order record." : available ? "New paid orders and print jobs can be offered to you. This list refreshes on its own." : "Go available when you’re ready to deliver."}</p></div>
-      {!adminView && <button disabled={toggling || !loaded} onClick={() => void toggle()} className="min-h-11 rounded-full bg-black px-5 py-3 text-sm font-bold text-white disabled:opacity-50">{toggling ? "Please wait…" : available ? "Go offline" : "Go available"}</button>}
+      <div className="flex items-start gap-3">
+        {!adminView && <span aria-hidden="true" className={`mt-1.5 h-3 w-3 shrink-0 rounded-full ${available ? "bg-[#16803c]" : "bg-black/25"}`} />}
+        <div><p className="font-black">{adminView ? "Operations mission view" : `You’re ${available ? "available for missions" : "offline"}`}</p><p className="mt-1 text-sm text-black/70">{adminView ? "Read-only view. Operational changes stay in the order record." : available ? "New paid orders and print jobs can be offered to you. This list refreshes on its own." : "Go available when you’re ready to deliver."}</p></div>
+      </div>
+      {!adminView && <button disabled={toggling || !loaded} onClick={() => void toggle()} className={`min-h-12 w-full rounded-full px-5 text-sm font-black disabled:opacity-50 sm:w-auto ${available ? "border border-black/15 bg-white text-black" : "bg-black text-white"}`}>{toggling ? "Please wait…" : available ? "Go offline" : "Go available"}</button>}
     </section>
-    {error && <div role="alert" className="mt-4 flex flex-wrap items-center gap-3 text-sm text-red-700"><span>{error}</span><button type="button" onClick={() => void load()} className="min-h-11 font-bold underline underline-offset-4">Try again</button></div>}
-    <h2 className="mt-8 text-xl font-black">Missions</h2>
-    {!loaded ? <p role="status" className="mt-4 text-sm text-black/70">Loading missions…</p> : <>
-      {printMissions.length > 0 && <div className="mt-4 grid gap-3">{printMissions.map((mission) => <Link key={mission.assignmentId} href={adminView ? `/admin/print-jobs/${mission.id}` : `/runner/print-missions/${mission.id}`} className="rounded-2xl border border-black/5 bg-white p-5"><span className="inline-flex rounded-full bg-[#fff3bf] px-2.5 py-1 text-xs font-black">🖨️ Print mission</span><strong className="mt-2 block">{adminView ? `${mission.assignmentStatus === "OFFERED" ? "Offered" : "Assigned"} · ${mission.reference}` : mission.assignmentStatus === "ACCEPTED" ? `Your print job · ${mission.reference}` : `New print mission · ${mission.reference}`}</strong><p className="mt-2 text-sm text-black/70">{printSummary(mission)}</p><p className="mt-2 text-xs text-black/60">{mission.deliveryLocationLabel} · {mission.status.replaceAll("_", " ").toLowerCase()} · {adminView ? "Open print job" : "Open mission"} →</p></Link>)}</div>}
-      {missions.length > 0 && <div className="mt-4 grid gap-3">{missions.map(({ id, status, order }) => <Link key={id} href={adminView ? `/admin/orders/${order.id}` : `/runner/missions/${order.id}`} className="rounded-2xl border border-black/5 bg-white p-5"><strong>{adminView ? `${status === "ACCEPTED" ? "Assigned" : "Offered"} runner mission` : status === "ACCEPTED" ? "Your active delivery" : "New mission 🫡"}</strong><p className="mt-2 text-sm text-black/70">{order.items.map((item) => `${item.productName} × ${item.quantity}`).join(", ")}</p><p className="mt-2 text-xs text-black/60">{order.deliveryLocationLabel} · {adminView ? "Open order" : "Open mission"} →</p></Link>)}</div>}
-      {empty && !error && <p className="mt-3 rounded-2xl bg-white p-5 text-sm text-black/70">{adminView ? "No active missions." : available ? "No missions right now. Stay available — new ones show up here automatically." : "You’re offline, so no missions will be offered. Go available when you’re ready."}</p>}
+
+    <div className="mt-4 flex flex-wrap items-center justify-between gap-2 text-xs text-black/55">
+      <span role="status" aria-live="polite">{refreshing ? "Refreshing…" : updatedAt ? `Updated ${updatedAt.toLocaleTimeString("en-NG", { hour: "numeric", minute: "2-digit" })}` : ""}</span>
+      <button type="button" onClick={() => void load()} disabled={refreshing} className="inline-flex min-h-10 items-center font-bold underline underline-offset-4 disabled:opacity-50">Refresh now</button>
+    </div>
+    {error && <div role="alert" className="mt-2 flex flex-wrap items-center gap-3 rounded-2xl bg-[#ffe9e7] p-4 text-sm text-[#c92d24]"><span>{error}</span><button type="button" onClick={() => void load()} className="min-h-11 font-bold underline underline-offset-4">Try again</button></div>}
+
+    {!loaded ? <div role="status" aria-label="Loading missions" className="mt-6 grid gap-3">{[0, 1].map((n) => <div key={n} className="h-36 animate-pulse rounded-2xl bg-white motion-reduce:animate-none" />)}</div> : <>
+      <section aria-labelledby="active-missions" className="mt-6">
+        <h2 id="active-missions" className="flex items-center gap-2 text-xl font-black">{adminView ? "Assigned" : "Your active missions"} <span className="rounded-full bg-black px-2 py-0.5 text-xs text-white">{active.length}</span></h2>
+        {active.length ? <ul className="mt-3 grid gap-3 lg:grid-cols-2">{active.map((card) => <MissionCard key={card.key} card={card} />)}</ul>
+          : <p className="mt-3 rounded-2xl bg-white p-5 text-sm text-black/65">{adminView ? "No assigned missions." : "Nothing in progress. Accept an offer below and it moves here."}</p>}
+      </section>
+
+      <section aria-labelledby="mission-offers" className="mt-8">
+        <h2 id="mission-offers" className="flex items-center gap-2 text-xl font-black">{adminView ? "Offered" : "New offers"} <span className={`rounded-full px-2 py-0.5 text-xs ${offers.length ? "bg-[#feb80a] text-black" : "bg-black/10 text-black/60"}`}>{offers.length}</span></h2>
+        {!adminView && offers.length > 0 && <p className="mt-1 text-xs text-black/55">Offers go to every available runner — the first to accept gets the mission.</p>}
+        {offers.length ? <ul className="mt-3 grid gap-3 lg:grid-cols-2">{offers.map((card) => <MissionCard key={card.key} card={card} />)}</ul>
+          : !error && <p className="mt-3 rounded-2xl bg-white p-5 text-sm text-black/65">{adminView ? "No open offers." : available ? "No new missions right now. Stay available — new ones show up here automatically 🛵" : "You’re offline, so no missions will be offered. Go available when you’re ready."}</p>}
+      </section>
     </>}
   </>;
 }

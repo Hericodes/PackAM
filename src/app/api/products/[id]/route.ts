@@ -5,6 +5,7 @@ import { writeAuditLog } from "../../../../lib/audit";
 import { consumeRateLimit } from "../../../../lib/rate-limit";
 import { isPackamProductImageUrl } from "../../../../lib/cloudinary-url";
 import { canManageCatalogue, isValidCustomerPrice } from "../../../../lib/catalogue-permissions";
+import { deleteProductAsAdmin } from "../../../../lib/products/product-deletion";
 
 // Only admins manage the catalogue. Runners report shop prices through order sourcing instead.
 const canManageProducts = canManageCatalogue;
@@ -201,5 +202,33 @@ export async function PATCH(
       { error: "Something went wrong while updating the product." },
       { status: 500 },
     );
+  }
+}
+
+/**
+ * Permanently deletes a product only when that is safe (inactive, never ordered, in no open checkout).
+ * Otherwise responds 409 with the reason; the admin keeps the product INACTIVE instead.
+ */
+export async function DELETE(
+  _request: Request,
+  context: RouteContext,
+) {
+  try {
+    const session = await auth();
+    if (!session?.user || !canManageProducts(session.user.role)) {
+      return NextResponse.json({ error: "Only PackAM admins can delete products." }, { status: 403 });
+    }
+    const rate = await consumeRateLimit(`product-write:${session.user.id}`, 30, 60 * 60 * 1000);
+    if (!rate.allowed) return NextResponse.json({ error: "Product changes are temporarily rate limited." }, { status: 429, headers: { "Retry-After": String(rate.retryAfterSeconds) } });
+
+    const { id } = await context.params;
+    if (!id || id.length > 100) return NextResponse.json({ error: "Product not found." }, { status: 404 });
+    const result = await deleteProductAsAdmin(session.user.id, id);
+    if (result.kind === "NOT_FOUND") return NextResponse.json({ error: "Product not found. It may already have been deleted." }, { status: 404 });
+    if (result.kind === "BLOCKED") return NextResponse.json({ error: result.reason }, { status: 409 });
+    return NextResponse.json({ deleted: true, name: result.name, removedFromCarts: result.removedFromCarts });
+  } catch (error) {
+    console.error("DELETE PRODUCT ERROR:", (error instanceof Error ? error.name : "Unknown error"));
+    return NextResponse.json({ error: "The product couldn’t be deleted. Nothing was changed — please try again." }, { status: 500 });
   }
 }

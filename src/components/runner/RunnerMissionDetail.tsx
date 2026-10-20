@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { DeliveryDestination } from "./DeliveryDestination";
+import { orderStatusDisplay, runnerOrderNextStep } from "../../lib/ops-status";
+import { StatusBadge } from "../ui/StatusBadge";
 
 type Source = { id: string; status: string; quantity: number; catalogueUnitPrice: number; actualUnitPrice: number | null; orderSource: { vendor: { name: string } } };
 type Item = { id: string; productName: string; quantity: number; unitPrice: number; sourcing: Source[] };
@@ -60,6 +62,7 @@ export function RunnerMissionDetail({ orderId }: { orderId: string }) {
       } else {
         await load();
         if (body.action === "delivery-issue") setNotice("Issue sent to PackAM operations.");
+        if (body.action === "accept") setNotice("Mission accepted 🫡 It’s yours — start sourcing below.");
       }
       if (body.action === "delivery-issue") setIssueNote("");
     } catch (e) {
@@ -75,13 +78,18 @@ export function RunnerMissionDetail({ orderId }: { orderId: string }) {
   const readyToDeliver = noPendingPrice && mission.items.every((item) => sourcedQuantity(item) >= item.quantity);
   const unavailableNeedsResolution = noPendingPrice && mission.items.every((item) => sourcedQuantity(item) >= item.quantity || item.sourcing.some((source) => source.status === "UNAVAILABLE"));
 
+  const display = mission.assignmentStatus === "OFFERED" ? { label: "New offer", tone: "warning" as const } : orderStatusDisplay(mission.status);
+  const nextStep = runnerOrderNextStep(mission.status, mission.assignmentStatus);
+
   return <>
-    <div className="mt-6 rounded-3xl border border-black/5 bg-white p-5 sm:p-7">
-      <p className="text-xs font-bold uppercase tracking-wider text-black/40">{mission.deliveryLocationLabel}</p>
-      <h1 className="mt-2 text-2xl font-black">{mission.status.replaceAll("_", " ")}</h1>
+    <Link href="/runner" className="mt-4 inline-flex min-h-11 items-center text-sm font-bold text-black/60">← Missions</Link>
+    <div className="mt-2 rounded-3xl border border-black/5 bg-white p-5 sm:p-7">
+      <p className="text-xs font-bold uppercase tracking-wider text-black/40">📍 {mission.deliveryLocationLabel}</p>
+      <div className="mt-2 flex flex-wrap items-center gap-2"><h1 className="text-2xl font-black">{display.label}</h1><StatusBadge label={mission.assignmentStatus === "OFFERED" ? "Not yet accepted" : "Your mission"} tone={mission.assignmentStatus === "OFFERED" ? "neutral" : "success"} /></div>
+      {nextStep && <p className="mt-3 rounded-xl bg-[#fffdf7] px-3 py-2 text-sm"><span className="font-black">Next: </span>{nextStep}</p>}
       {mission.assignmentStatus === "OFFERED" ? <>
         <p className="mt-3 text-sm text-black/60">{mission.items.map((item) => `${item.productName} × ${item.quantity}`).join(", ")}</p>
-        <button disabled={busy} onClick={() => void act({ action: "accept" })} className="mt-5 rounded-full bg-black px-6 py-3 text-sm font-black text-white disabled:opacity-50">{busy ? "Accepting…" : "Accept mission"}</button>
+        <button disabled={busy} onClick={() => void act({ action: "accept" })} className="mt-5 min-h-12 w-full rounded-full bg-black px-6 py-3 text-sm font-black text-white disabled:opacity-50 sm:w-auto">{busy ? "Accepting…" : "Accept mission"}</button>
       </> : mission.status === "REFUND_PROCESSING" ? <p className="mt-3 text-sm text-black/60">PackAM operations will handle the refund request.</p> : <>
         {mission.status === "OUT_FOR_DELIVERY" && <div className="mt-4 rounded-2xl bg-[#fff8df] p-4"><p className="font-black">DELIVERY 🚴</p><DeliveryDestination label={mission.deliveryLocationLabel} address={mission.deliveryAddress} instructions={mission.deliveryInstructions} point={mission.deliveryPoint} />{mission.student?.phone && <p className="mt-2 text-sm"><strong>Contact:</strong> <a className="underline" href={`tel:${mission.student.phone}`}>{mission.student.firstName || "Student"} · {mission.student.phone}</a></p>}<ul className="mt-3 text-sm">{mission.items.map((item) => <li key={item.id}>{item.productName} × {item.quantity}</li>)}</ul><p className="mt-3 text-sm font-black">Total: ₦{mission.total?.toLocaleString()}</p></div>}
         {mission.status !== "OUT_FOR_DELIVERY" && <>
@@ -97,23 +105,23 @@ export function RunnerMissionDetail({ orderId }: { orderId: string }) {
                 <label className="grid gap-1 text-xs font-bold text-black/70">Shop<select aria-label={`Shop for ${item.productName}`} className="min-h-11 rounded-xl border border-black/10 bg-white px-3 py-2 text-sm font-normal text-black" value={vendorByItem[item.id] ?? ""} onChange={(event) => setVendorByItem({ ...vendorByItem, [item.id]: event.target.value })}><option value="">Choose shop</option>{vendors.map((vendor) => <option key={vendor.id} value={vendor.id}>{vendor.name}{vendor.location ? ` · ${vendor.location}` : ""}</option>)}</select></label>
                 <label className="grid gap-1 text-xs font-bold text-black/70">Qty<input aria-label={`Quantity sourced for ${item.productName}`} type="number" min="1" max={remaining} value={quantityByItem[item.id] ?? remaining} onChange={(event) => setQuantityByItem({ ...quantityByItem, [item.id]: Number(event.target.value) })} className="min-h-11 rounded-xl border border-black/10 px-3 py-2 text-sm font-normal text-black" /></label>
                 <label className="grid gap-1 text-xs font-bold text-black/70">Unit price ₦<input aria-label={`Unit price for ${item.productName}`} type="number" min="0" value={priceByItem[item.id] ?? item.unitPrice} onChange={(event) => setPriceByItem({ ...priceByItem, [item.id]: Number(event.target.value) })} className="min-h-11 rounded-xl border border-black/10 px-3 py-2 text-sm font-normal text-black" /></label>
-                <div className="flex flex-wrap gap-2 sm:col-span-3"><button disabled={busy || !vendorByItem[item.id]} onClick={() => void act({ action: "source", orderItemId: item.id, vendorId: vendorByItem[item.id], result: "AVAILABLE", quantity: quantityByItem[item.id], actualUnitPrice: priceByItem[item.id] })} className="rounded-full bg-black px-4 py-2 text-xs font-bold text-white disabled:opacity-40">Record sourced</button>
-                <button disabled={busy || !vendorByItem[item.id]} onClick={() => void act({ action: "source", orderItemId: item.id, vendorId: vendorByItem[item.id], result: "UNAVAILABLE" })} className="rounded-full border border-black/15 px-4 py-2 text-xs font-bold disabled:opacity-40">Unavailable here</button></div>
+                <div className="flex flex-wrap gap-2 sm:col-span-3"><button disabled={busy || !vendorByItem[item.id]} onClick={() => void act({ action: "source", orderItemId: item.id, vendorId: vendorByItem[item.id], result: "AVAILABLE", quantity: quantityByItem[item.id], actualUnitPrice: priceByItem[item.id] })} className="min-h-11 rounded-full bg-black px-4 py-2 text-xs font-bold text-white disabled:opacity-40">Record sourced</button>
+                <button disabled={busy || !vendorByItem[item.id]} onClick={() => void act({ action: "source", orderItemId: item.id, vendorId: vendorByItem[item.id], result: "UNAVAILABLE" })} className="min-h-11 rounded-full border border-black/15 px-4 py-2 text-xs font-bold disabled:opacity-40">Unavailable here</button></div>
               </div>}
             </section>;
           })}</div>
-          {mission.status === "SOURCING_PRODUCT" && unavailableNeedsResolution && <button disabled={busy} onClick={() => void act({ action: "start-delivery" })} className="mt-5 rounded-full bg-black px-6 py-3 text-sm font-black text-white disabled:opacity-50">{busy ? "Updating…" : readyToDeliver ? "Start delivery" : "Resolve unavailable items"}</button>}
+          {mission.status === "SOURCING_PRODUCT" && unavailableNeedsResolution && <button disabled={busy} onClick={() => void act({ action: "start-delivery" })} className="mt-5 min-h-12 w-full rounded-full bg-black px-6 py-3 text-sm font-black text-white disabled:opacity-50 sm:w-auto">{busy ? "Updating…" : readyToDeliver ? "Start delivery" : "Resolve unavailable items"}</button>}
         </>}
         {mission.status === "OUT_FOR_DELIVERY" && <>
-          <button disabled={busy} onClick={() => void act({ action: "delivered" })} className="mt-5 rounded-full bg-black px-6 py-3 text-sm font-black text-white disabled:opacity-50">{busy ? "Updating…" : "Mark delivered"}</button>
+          <button disabled={busy} onClick={() => void act({ action: "delivered" })} className="mt-5 min-h-12 w-full rounded-full bg-black px-6 py-3 text-sm font-black text-white disabled:opacity-50 sm:w-auto">{busy ? "Updating…" : "Mark delivered"}</button>
           <form className="mt-6 border-t border-black/5 pt-5" onSubmit={(event) => { event.preventDefault(); void act({ action: "delivery-issue", type: issueType, description: issueNote }); }}>
             <h2 className="font-black">Can&apos;t complete delivery?</h2>
-            <div className="mt-3 grid gap-2 sm:grid-cols-[200px_1fr_auto]"><select aria-label="Issue type" className="min-h-11 rounded-xl border border-black/10 bg-white px-3 py-2 text-sm" value={issueType} onChange={(event) => setIssueType(event.target.value as IssueType)}><option value="CUSTOMER_UNAVAILABLE">Customer unavailable</option><option value="DELIVERY_ISSUE">Delivery issue</option><option value="WRONG_ITEM">Wrong item</option><option value="MISSING_ITEM">Missing item</option><option value="DAMAGED_ITEM">Damaged item</option><option value="OTHER">Other</option></select><input aria-label="Short note for PackAM" value={issueNote} onChange={(event) => setIssueNote(event.target.value)} maxLength={1000} placeholder="Short note for PackAM" className="rounded-xl border border-black/10 px-3 py-2 text-sm"/><button disabled={busy} className="rounded-full border border-black/15 px-4 py-2 text-xs font-bold disabled:opacity-50">Report issue</button></div>
+            <div className="mt-3 grid gap-2 sm:grid-cols-[200px_1fr_auto]"><select aria-label="Issue type" className="min-h-11 rounded-xl border border-black/10 bg-white px-3 py-2 text-sm" value={issueType} onChange={(event) => setIssueType(event.target.value as IssueType)}><option value="CUSTOMER_UNAVAILABLE">Customer unavailable</option><option value="DELIVERY_ISSUE">Delivery issue</option><option value="WRONG_ITEM">Wrong item</option><option value="MISSING_ITEM">Missing item</option><option value="DAMAGED_ITEM">Damaged item</option><option value="OTHER">Other</option></select><input aria-label="Short note for PackAM" value={issueNote} onChange={(event) => setIssueNote(event.target.value)} maxLength={1000} placeholder="Short note for PackAM" className="min-h-11 rounded-xl border border-black/10 px-3 py-2 text-sm"/><button disabled={busy} className="min-h-11 rounded-full border border-black/15 px-4 py-2 text-xs font-bold disabled:opacity-50">Report issue</button></div>
           </form>
         </>}
       </>}
     </div>
-    {error && <p role="alert" className="mt-4 text-sm text-red-700">{error}</p>}{notice && <p role="status" className="mt-4 text-sm text-green-800">{notice}</p>}
+    {error && <p role="alert" className="mt-4 rounded-2xl bg-[#ffe9e7] p-4 text-sm text-[#c92d24]">{error}</p>}{notice && <p role="status" className="mt-4 rounded-2xl bg-[#e9f8ee] p-4 text-sm text-[#16803c]">{notice}</p>}
     <Link href="/runner" className="mt-5 inline-flex min-h-11 items-center text-sm font-bold text-black/60">← Missions</Link>
   </>;
 }
