@@ -4,7 +4,6 @@ import { Prisma } from "@prisma/client";
 import { db } from "../db";
 import { writeAuditLog } from "../audit";
 import { createNotification, notifyAdmins } from "../notifications";
-import { getRunnerAcceptanceTimeoutMinutes } from "../orders/price-policy";
 import { printMissionReference } from "./runner-mission-policy";
 import { canTransitionPrintJob } from "./status-machine";
 import { transitionPrintJobInTransaction } from "./status";

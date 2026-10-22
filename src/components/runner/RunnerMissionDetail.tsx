@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { DeliveryDestination } from "./DeliveryDestination";
 import { orderStatusDisplay, runnerOrderNextStep } from "../../lib/ops-status";
@@ -17,6 +18,7 @@ function sourcedQuantity(item: Item) {
 }
 
 export function RunnerMissionDetail({ orderId }: { orderId: string }) {
+  const router = useRouter();
   const [mission, setMission] = useState<Mission | null>(null);
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [vendorByItem, setVendorByItem] = useState<Record<string, string>>({});
@@ -57,7 +59,7 @@ export function RunnerMissionDetail({ orderId }: { orderId: string }) {
       const response = await fetch(`/api/runner/orders/${orderId}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Unable to update mission.");
-      if (body.action === "decline") { window.location.assign("/runner"); return; }
+      if (body.action === "decline") { router.push("/runner"); return; }
       if (data.status === "REFUND_PROCESSING") {
         setMission((current) => current ? { ...current, status: "REFUND_PROCESSING", assignmentStatus: "CANCELLED" } : current);
         setNotice("The order needs a refund because an item couldn’t be sourced.");

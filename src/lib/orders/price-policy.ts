@@ -26,7 +26,7 @@ export function isPriceIncreaseWithinConfiguredTolerance(
  */
 export const DEFAULT_RUNNER_ACCEPTANCE_TIMEOUT_MINUTES = 30;
 
-export function getRunnerAcceptanceTimeoutMinutes(environment: NodeJS.ProcessEnv = process.env) {
+export function getRunnerAcceptanceTimeoutMinutes(environment: Record<string, string | undefined> = process.env) {
   const value = Number(environment.RUNNER_ACCEPTANCE_TIMEOUT_MINUTES ?? String(DEFAULT_RUNNER_ACCEPTANCE_TIMEOUT_MINUTES));
   if (!Number.isInteger(value) || value < 1 || value > 1440) return DEFAULT_RUNNER_ACCEPTANCE_TIMEOUT_MINUTES;
   return value;

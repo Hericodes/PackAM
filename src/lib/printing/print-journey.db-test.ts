@@ -254,6 +254,8 @@ test("unaccepted print jobs time out into refund processing exactly once", { ski
   const runner = await createTestUser("RUNNER", { isVerified: true, isAvailable: true });
   const printJobId = await paidPrintJob(student);
   await db.printJob.update({ where: { id: printJobId }, data: { findingRunnerAt: new Date(Date.now() - 24 * 60 * 60_000) } });
+  // Offers expire by their own age; age them so the job is past its deadline with nobody left to try.
+  await db.runnerAssignment.updateMany({ where: { printJobId }, data: { offeredAt: new Date(Date.now() - 24 * 60 * 60_000) } });
 
   signInAs(runner);
   assert.equal((await callRoute(mission.POST, { method: "POST", params: { id: printJobId }, body: { action: "accept" } })).status, 409, "expired offer can't be accepted");

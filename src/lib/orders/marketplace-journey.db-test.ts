@@ -311,6 +311,9 @@ test("unclaimed orders time out into refund processing once, and admin-only refu
   const { products } = await createTestCatalogue([{ name: "Shawarma", price: 2_500 }]);
   const orderId = await paidOrder(student, [{ productId: products[0].id, quantity: 1 }]);
   await db.order.update({ where: { id: orderId }, data: { findingRunnerAt: new Date(Date.now() - 24 * 60 * 60_000) } });
+  // Every eligible runner was offered it at payment time; age those offers past their window too, so the
+  // order is past its dispatch deadline with nobody left to try (one expired offer alone never refunds it).
+  await db.runnerAssignment.updateMany({ where: { orderId }, data: { offeredAt: new Date(Date.now() - 24 * 60 * 60_000) } });
 
   await scheduled.expireUnclaimedRunnerOrders();
   await scheduled.expireUnclaimedRunnerOrders();

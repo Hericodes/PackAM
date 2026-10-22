@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
 type PrintMission = {
@@ -46,6 +47,7 @@ const statusCopy: Record<string, string> = {
 };
 
 export function RunnerPrintMissionDetail({ printJobId }: { printJobId: string }) {
+  const router = useRouter();
   const [mission, setMission] = useState<PrintMission | null>(null);
   const [loadError, setLoadError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -84,7 +86,7 @@ export function RunnerPrintMissionDetail({ printJobId }: { printJobId: string })
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Unable to update this print mission.");
-      if (action === "decline") { window.location.assign("/runner"); return; }
+      if (action === "decline") { router.push("/runner"); return; }
       if (successNotice) setNotice(successNotice);
       if (action !== "accept" && action !== "start-delivery") setIssueNote("");
       await load();
