@@ -34,7 +34,7 @@ export type PrintAcceptanceDecision = { kind: "accept" } | { kind: "already-acce
 
 export function decidePrintAcceptance(input: {
   runner: { id: string; isAvailable: boolean };
-  assignment: { status: string } | null;
+  assignment: { status: string; offeredAt: Date } | null;
   job: { status: string; assignedRunnerId: string | null; findingRunnerAt: Date | null } | null;
   now: Date;
   timeoutMinutes: number;
@@ -48,7 +48,8 @@ export function decidePrintAcceptance(input: {
   }
   if (assignment.status !== "OFFERED") return { kind: "rejected", message: "This mission is no longer available.", status: 409 };
   if (!runner.isAvailable) return { kind: "rejected", message: "Go available before accepting a mission.", status: 409 };
-  if (job.findingRunnerAt && input.now.getTime() - job.findingRunnerAt.getTime() > input.timeoutMinutes * 60_000) {
+  // Each offer has its own window from when it was made (redispatched offers are fresh), not the job's age.
+  if (input.now.getTime() - assignment.offeredAt.getTime() > input.timeoutMinutes * 60_000) {
     return { kind: "rejected", message: "This mission has expired.", status: 409 };
   }
   return { kind: "accept" };

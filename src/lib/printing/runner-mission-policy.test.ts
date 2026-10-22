@@ -16,7 +16,7 @@ const runner = { id: "runner-1", isAvailable: true };
 const openJob = { status: "FINDING_RUNNER", assignedRunnerId: null, findingRunnerAt: new Date(now.getTime() - 5 * 60_000) };
 
 function accept(overrides: Partial<Parameters<typeof decidePrintAcceptance>[0]> = {}) {
-  return decidePrintAcceptance({ runner, assignment: { status: "OFFERED" }, job: openJob, now, timeoutMinutes: 15, ...overrides });
+  return decidePrintAcceptance({ runner, assignment: { status: "OFFERED", offeredAt: new Date(now.getTime() - 5 * 60_000) }, job: openJob, now, timeoutMinutes: 15, ...overrides });
 }
 
 test("a valid print offer can be accepted", () => {
@@ -25,7 +25,7 @@ test("a valid print offer can be accepted", () => {
 
 test("repeated acceptance by the winning runner is idempotent", () => {
   assert.deepEqual(accept({
-    assignment: { status: "ACCEPTED" },
+    assignment: { status: "ACCEPTED", offeredAt: now },
     job: { ...openJob, status: "RUNNER_ASSIGNED", assignedRunnerId: "runner-1" },
   }), { kind: "already-accepted" });
 });
@@ -36,7 +36,7 @@ test("a losing runner gets a clear conflict once another runner holds the job", 
   assert.equal(decision.kind === "rejected" && decision.status, 409);
   assert.match(decision.kind === "rejected" ? decision.message : "", /already picked/i);
   // Even an assignment the acceptance flow expired cannot be revived.
-  assert.equal(accept({ assignment: { status: "EXPIRED" }, job: { ...openJob, status: "RUNNER_ASSIGNED", assignedRunnerId: "runner-2" } }).kind, "rejected");
+  assert.equal(accept({ assignment: { status: "EXPIRED", offeredAt: now }, job: { ...openJob, status: "RUNNER_ASSIGNED", assignedRunnerId: "runner-2" } }).kind, "rejected");
 });
 
 test("runners without an offer for the job cannot accept it", () => {
@@ -47,12 +47,15 @@ test("runners without an offer for the job cannot accept it", () => {
 
 test("expired, cancelled and stale offers cannot be accepted", () => {
   for (const status of ["EXPIRED", "CANCELLED", "REJECTED"]) {
-    assert.equal(accept({ assignment: { status } }).kind, "rejected", status);
+    assert.equal(accept({ assignment: { status, offeredAt: now } }).kind, "rejected", status);
   }
+  // An offer expires by its own age…
   assert.match(
-    (accept({ job: { ...openJob, findingRunnerAt: new Date(now.getTime() - 16 * 60_000) } }) as { message: string }).message,
+    (accept({ assignment: { status: "OFFERED", offeredAt: new Date(now.getTime() - 16 * 60_000) } }) as { message: string }).message,
     /expired/i,
   );
+  // …not the job's: a fresh redispatched offer on a job that has waited two hours can be accepted.
+  assert.deepEqual(accept({ job: { ...openJob, findingRunnerAt: new Date(now.getTime() - 120 * 60_000) }, assignment: { status: "OFFERED", offeredAt: new Date(now.getTime() - 1 * 60_000) } }), { kind: "accept" });
   assert.equal(accept({ job: { ...openJob, status: "REFUND_PROCESSING" } }).kind, "rejected");
 });
 

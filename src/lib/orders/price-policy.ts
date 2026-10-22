@@ -19,8 +19,15 @@ export function isPriceIncreaseWithinConfiguredTolerance(
     (percentLimit === null || (catalogueUnitPrice > 0 && difference / catalogueUnitPrice * 100 <= percentLimit));
 }
 
+/**
+ * How long one runner offer stays open (minutes) before it expires and the mission is offered to other
+ * runners. It is a per-offer window measured from the offer's `offeredAt`, not an order deadline; see
+ * dispatch-policy.ts. Override with RUNNER_ACCEPTANCE_TIMEOUT_MINUTES (1–1440); invalid values use the default.
+ */
+export const DEFAULT_RUNNER_ACCEPTANCE_TIMEOUT_MINUTES = 30;
+
 export function getRunnerAcceptanceTimeoutMinutes(environment: NodeJS.ProcessEnv = process.env) {
-  const value = Number(environment.RUNNER_ACCEPTANCE_TIMEOUT_MINUTES ?? "15");
-  if (!Number.isInteger(value) || value < 1 || value > 1440) return 15;
+  const value = Number(environment.RUNNER_ACCEPTANCE_TIMEOUT_MINUTES ?? String(DEFAULT_RUNNER_ACCEPTANCE_TIMEOUT_MINUTES));
+  if (!Number.isInteger(value) || value < 1 || value > 1440) return DEFAULT_RUNNER_ACCEPTANCE_TIMEOUT_MINUTES;
   return value;
 }

@@ -1,6 +1,8 @@
 import { auth } from "../../../../auth";
 import { db } from "../../../../lib/db";
 import { listActivePrintMissionsForAdmin, listRunnerPrintMissions } from "../../../../lib/printing/runner-service";
+import { offerCutoff } from "../../../../lib/orders/dispatch-policy";
+import { getRunnerAcceptanceTimeoutMinutes } from "../../../../lib/orders/price-policy";
 
 export async function GET() {
   const session = await auth();
@@ -28,7 +30,15 @@ export async function GET() {
   if (!runner) return Response.json({ error: "Your runner profile is not active and verified." }, { status: 403 });
 
   const assignments = await db.runnerAssignment.findMany({
-    where: { runnerId: runner.id, orderId: { not: null }, status: { in: ["OFFERED", "ACCEPTED"] } },
+    where: {
+      runnerId: runner.id,
+      orderId: { not: null },
+      // Offers show only while they can still be accepted; expired ones are redispatched to others.
+      OR: [
+        { status: "OFFERED", offeredAt: { gte: offerCutoff(new Date(), getRunnerAcceptanceTimeoutMinutes()) }, order: { status: "FINDING_RUNNER", assignedRunnerId: null } },
+        { status: "ACCEPTED" },
+      ],
+    },
     orderBy: { offeredAt: "desc" },
     select: {
       id: true,

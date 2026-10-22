@@ -1,4 +1,5 @@
 import "server-only";
+import { offerCutoff } from "../orders/dispatch-policy";
 
 import { Prisma } from "@prisma/client";
 import { db } from "../db";
@@ -57,13 +58,28 @@ async function activeRunner(tx: Tx, userId: string) {
   return runner;
 }
 
+/**
+ * A runner turns down an open print offer: it becomes REJECTED (never re-offered to them) and the job is
+ * redispatched to other eligible runners in the same transaction.
+ */
+export async function declinePrintMission(userId: string, printJobId: string) {
+  return serializable(async (tx) => {
+    const runner = await activeRunner(tx, userId);
+    const declined = await tx.runnerAssignment.updateMany({ where: { printJobId, runnerId: runner.id, status: "OFFERED" }, data: { status: "REJECTED" } });
+    if (declined.count !== 1) throw new PrintMissionError("This mission is no longer available.", 409);
+    const { dispatchPrintJobInTransaction } = await import("../orders/dispatch");
+    const redispatch = await dispatchPrintJobInTransaction(tx, printJobId);
+    return { declined: true, redispatch: redispatch.outcome };
+  }, "This mission just changed. Refresh and try again.");
+}
+
 export async function acceptPrintMission(userId: string, printJobId: string) {
   return serializable(async (tx) => {
     const runner = await activeRunner(tx, userId);
     const [assignment, job] = await Promise.all([
       tx.runnerAssignment.findUnique({
         where: { printJobId_runnerId: { printJobId, runnerId: runner.id } },
-        select: { id: true, status: true },
+        select: { id: true, status: true, offeredAt: true },
       }),
       tx.printJob.findUnique({
         where: { id: printJobId },
@@ -305,7 +321,7 @@ export async function listRunnerPrintMissions(runnerId: string) {
       runnerId,
       printJobId: { not: null },
       OR: [
-        { status: "OFFERED", printJob: { status: "FINDING_RUNNER", assignedRunnerId: null } },
+        { status: "OFFERED", offeredAt: { gte: offerCutoff(new Date(), getRunnerAcceptanceTimeoutMinutes()) }, printJob: { status: "FINDING_RUNNER", assignedRunnerId: null } },
         { status: "ACCEPTED", printJob: { status: { in: [...ACTIVE_PRINT_STATUSES] }, assignedRunnerId: runnerId } },
       ],
     },

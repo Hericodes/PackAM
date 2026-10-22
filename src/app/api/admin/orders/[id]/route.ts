@@ -1,16 +1,30 @@
 import { auth } from "../../../../../auth";
 import { db } from "../../../../../lib/db";
 import { startRefundWorkflow } from "../../../../../lib/orders/refunds";
-import { writeAuditLog } from "../../../../../lib/audit";
+import { writeAuditLog, writeAuditLogOutsideTransaction } from "../../../../../lib/audit";
 import { consumeRateLimit } from "../../../../../lib/rate-limit";
+import { redispatchOrderNow } from "../../../../../lib/orders/dispatch";
 
 type Context = { params: Promise<{ id: string }> };
-export async function POST(_request: Request, context: Context) {
+export async function POST(request: Request, context: Context) {
   const session = await auth();
   if (!session?.user || session.user.role !== "ADMIN") return Response.json({ error: "Admin access required." }, { status: 403 });
   const rate = await consumeRateLimit(`admin-refund:${session.user.id}`, 20, 60_000);
   if (!rate.allowed) return Response.json({ error: "Too many refund requests. Try again shortly." }, { status: 429, headers: { "Retry-After": String(rate.retryAfterSeconds) } });
   const { id } = await context.params;
+  // {"action":"redispatch"} re-offers a waiting order to runners; anything else (including no body, as
+  // the existing refund button sends) keeps starting the refund workflow.
+  const action = await request.json().then((body: unknown) => (body && typeof body === "object" ? (body as { action?: unknown }).action : undefined)).catch(() => undefined);
+  if (action === "redispatch") {
+    try {
+      const result = await redispatchOrderNow(id);
+      await writeAuditLogOutsideTransaction({ actorId: session.user.id, action: "ORDER_REDISPATCHED", resource: "Order", resourceId: id, newState: result, details: `Manual redispatch: ${result.outcome}` });
+      return Response.json(result);
+    } catch (error) {
+      console.error("ADMIN REDISPATCH ERROR:", error instanceof Error ? error.name : "Unknown error");
+      return Response.json({ error: "The order couldn’t be redispatched. Nothing was changed — try again." }, { status: 409 });
+    }
+  }
   try {
     const refund = await db.$transaction(async (tx) => {
       const previous = await tx.refund.findUnique({ where: { requestKey: `${id}:full` }, select: { id: true } });

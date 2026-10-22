@@ -41,7 +41,7 @@ export default async function AdminPrintJobPage({ params }: { params: Promise<{ 
     <Link href="/admin/exceptions" className="text-sm font-bold text-black/50">← Exceptions</Link>
     <section className="mt-4 rounded-3xl bg-white p-5 sm:p-7">
       <div className="flex flex-wrap justify-between gap-3"><div><p className="text-xs text-black/40">Print job {printMissionReference(job.id)} · {job.id}</p><h1 className="mt-1 text-2xl font-black">{job.status.replaceAll("_", " ")}</h1></div><p className="text-xl font-black">₦{(job.total ?? 0).toLocaleString()}</p></div>
-      <AdminPrintJobActions printJobId={job.id} canRetry={canRetry} canRefund={canRefund} canCancelUnpaid={canCancelUnpaid} />
+      <AdminPrintJobActions printJobId={job.id} canRetry={canRetry} canRefund={canRefund} canCancelUnpaid={canCancelUnpaid} canRedispatch={job.status === "FINDING_RUNNER" && !job.assignedRunner} />
       {job.status === "REFUND_PROCESSING" && <p className="mt-4 rounded-xl bg-[#fff8df] p-3 text-sm">Refund processing: complete the refund manually in OPay. PackAM has no automated print refund — this job is not marked refunded.</p>}
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
         <section><h2 className="font-black">Student and delivery</h2>

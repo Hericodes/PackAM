@@ -69,6 +69,7 @@ export function RunnerPrintMissionDetail({ printJobId }: { printJobId: string })
     delivered: "Mark this print job as delivered? Only do this once the student has it.",
     "document-unreadable": "Report the document as unreadable? PackAM operations will take over from here.",
     "print-failed": "Report that printing failed? PackAM operations will take over from here.",
+    decline: "Decline this print mission? It goes to another runner and won't be offered to you again.",
   };
 
   async function act(action: string, successNotice = "") {
@@ -83,6 +84,7 @@ export function RunnerPrintMissionDetail({ printJobId }: { printJobId: string })
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Unable to update this print mission.");
+      if (action === "decline") { window.location.assign("/runner"); return; }
       if (successNotice) setNotice(successNotice);
       if (action !== "accept" && action !== "start-delivery") setIssueNote("");
       await load();
@@ -122,6 +124,7 @@ export function RunnerPrintMissionDetail({ printJobId }: { printJobId: string })
       {mission.assignmentStatus === "OFFERED" ? <>
         <p className="mt-5 text-sm text-black/60">Accept to see the document and delivery details. The first runner to accept gets the mission.</p>
         <button disabled={busy} onClick={() => void act("accept", "Mission accepted 🫡")} className="mt-4 min-h-12 w-full rounded-full bg-black px-6 py-3 text-sm font-black text-white disabled:opacity-50 sm:w-auto">{busy ? "Accepting…" : "Accept print mission"}</button>
+        <button disabled={busy} onClick={() => void act("decline")} className="mt-2 min-h-12 w-full rounded-full border border-black/15 px-6 py-3 text-sm font-bold disabled:opacity-50 sm:ml-2 sm:mt-4 sm:w-auto">Decline</button>
       </> : <>
         <section className="mt-6 border-t border-black/5 pt-5">
           <h2 className="font-black">Document</h2>

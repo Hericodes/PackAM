@@ -1,5 +1,5 @@
 import { auth } from "../../../../../auth";
-import { acceptRunnerMission, markOrderDelivered, reportDeliveryIssue, reportSourcing, startOrderDelivery } from "../../../../../lib/orders/runner-service";
+import { acceptRunnerMission, declineRunnerMission, markOrderDelivered, reportDeliveryIssue, reportSourcing, startOrderDelivery } from "../../../../../lib/orders/runner-service";
 
 type Context = { params: Promise<{ id: string }> };
 
@@ -11,6 +11,7 @@ export async function POST(request: Request, context: Context) {
   try {
     const body = await request.json();
     if (body?.action === "accept") return Response.json(await acceptRunnerMission(session.user.id, orderId));
+    if (body?.action === "decline") return Response.json(await declineRunnerMission(session.user.id, orderId));
     if (body?.action === "source") {
       if (typeof body.orderItemId !== "string" || typeof body.vendorId !== "string" || !["AVAILABLE", "UNAVAILABLE"].includes(body.result)) {
         return Response.json({ error: "Sourcing update is incomplete." }, { status: 400 });

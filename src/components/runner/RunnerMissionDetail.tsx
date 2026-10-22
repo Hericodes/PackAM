@@ -51,11 +51,13 @@ export function RunnerMissionDetail({ orderId }: { orderId: string }) {
     if (busy) return;
     // Delivered can't be undone, so ask before recording it.
     if (body.action === "delivered" && !window.confirm("Mark this order as delivered? Only do this once the student has it.")) return;
+    if (body.action === "decline" && !window.confirm("Decline this mission? It goes to another runner and won't be offered to you again.")) return;
     setBusy(true); setError(""); setNotice("");
     try {
       const response = await fetch(`/api/runner/orders/${orderId}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Unable to update mission.");
+      if (body.action === "decline") { window.location.assign("/runner"); return; }
       if (data.status === "REFUND_PROCESSING") {
         setMission((current) => current ? { ...current, status: "REFUND_PROCESSING", assignmentStatus: "CANCELLED" } : current);
         setNotice("The order needs a refund because an item couldn’t be sourced.");
@@ -90,6 +92,7 @@ export function RunnerMissionDetail({ orderId }: { orderId: string }) {
       {mission.assignmentStatus === "OFFERED" ? <>
         <p className="mt-3 text-sm text-black/60">{mission.items.map((item) => `${item.productName} × ${item.quantity}`).join(", ")}</p>
         <button disabled={busy} onClick={() => void act({ action: "accept" })} className="mt-5 min-h-12 w-full rounded-full bg-black px-6 py-3 text-sm font-black text-white disabled:opacity-50 sm:w-auto">{busy ? "Accepting…" : "Accept mission"}</button>
+        <button disabled={busy} onClick={() => void act({ action: "decline" })} className="mt-2 min-h-12 w-full rounded-full border border-black/15 px-6 py-3 text-sm font-bold disabled:opacity-50 sm:ml-2 sm:mt-5 sm:w-auto">Decline</button>
       </> : mission.status === "REFUND_PROCESSING" ? <p className="mt-3 text-sm text-black/60">PackAM operations will handle the refund request.</p> : <>
         {mission.status === "OUT_FOR_DELIVERY" && <div className="mt-4 rounded-2xl bg-[#fff8df] p-4"><p className="font-black">DELIVERY 🚴</p><DeliveryDestination label={mission.deliveryLocationLabel} address={mission.deliveryAddress} instructions={mission.deliveryInstructions} point={mission.deliveryPoint} />{mission.student?.phone && <p className="mt-2 text-sm"><strong>Contact:</strong> <a className="underline" href={`tel:${mission.student.phone}`}>{mission.student.firstName || "Student"} · {mission.student.phone}</a></p>}<ul className="mt-3 text-sm">{mission.items.map((item) => <li key={item.id}>{item.productName} × {item.quantity}</li>)}</ul><p className="mt-3 text-sm font-black">Total: ₦{mission.total?.toLocaleString()}</p></div>}
         {mission.status !== "OUT_FOR_DELIVERY" && <>

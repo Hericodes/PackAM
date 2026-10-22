@@ -6,6 +6,8 @@ import { isValidReportedShopPrice } from "../catalogue-permissions";
 import { retrySerializable } from "../db-retry";
 import { isPriceIncreaseWithinConfiguredTolerance } from "./price-policy";
 import { getRunnerAcceptanceTimeoutMinutes } from "./price-policy";
+import { offerStillAcceptable } from "./dispatch-policy";
+import { dispatchOrderInTransaction } from "./dispatch";
 import { offerFindingOrdersToRunner, offerFindingPrintJobsToRunner } from "./runner-assignments";
 import { startRefundWorkflow } from "./refunds";
 import { transitionOrderInTransaction } from "./transition";
@@ -37,7 +39,7 @@ export async function acceptRunnerMission(userId: string, orderId: string) {
     if (!runner) throw new Error("You need to be verified and available to accept a mission.");
     const assignment = await tx.runnerAssignment.findUnique({
       where: { orderId_runnerId: { orderId, runnerId: runner.id } },
-      select: { id: true, status: true },
+      select: { id: true, status: true, offeredAt: true },
     });
     if (!assignment || assignment.status !== "OFFERED") throw new Error("This mission is no longer available.");
     const order = await tx.order.findUnique({
@@ -45,8 +47,8 @@ export async function acceptRunnerMission(userId: string, orderId: string) {
       select: { status: true, findingRunnerAt: true, userId: true },
     });
     if (!order || order.status !== "FINDING_RUNNER") throw new Error("Someone already picked this mission 🫡");
-    const timeoutMinutes = getRunnerAcceptanceTimeoutMinutes();
-    if (order.findingRunnerAt && Date.now() - order.findingRunnerAt.getTime() > timeoutMinutes * 60_000) {
+    // Each offer has its own window from when it was made; a redispatched offer is fresh.
+    if (!offerStillAcceptable(assignment, new Date(), getRunnerAcceptanceTimeoutMinutes())) {
       throw new Error("This mission has expired.");
     }
 
@@ -68,6 +70,24 @@ export async function acceptRunnerMission(userId: string, orderId: string) {
       data: { status: "EXPIRED" },
     });
     return { accepted: true };
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }));
+}
+
+/**
+ * A runner turns down an open offer. The offer becomes REJECTED (so it is never offered to them again)
+ * and the order is redispatched to other eligible runners in the same transaction.
+ */
+export async function declineRunnerMission(userId: string, orderId: string) {
+  return retrySerializable(() => db.$transaction(async (tx) => {
+    const runner = await tx.runnerProfile.findFirst({
+      where: { userId, isVerified: true, user: { role: "RUNNER", status: "ACTIVE" } },
+      select: { id: true },
+    });
+    if (!runner) throw new Error("Your runner profile is not active and verified.");
+    const declined = await tx.runnerAssignment.updateMany({ where: { orderId, runnerId: runner.id, status: "OFFERED" }, data: { status: "REJECTED" } });
+    if (declined.count !== 1) throw new Error("This mission is no longer available.");
+    const redispatch = await dispatchOrderInTransaction(tx, orderId);
+    return { declined: true, redispatch: redispatch.outcome };
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }));
 }
 

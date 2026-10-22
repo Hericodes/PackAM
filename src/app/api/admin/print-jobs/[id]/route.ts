@@ -3,6 +3,8 @@ import { consumeRateLimit } from "../../../../../lib/rate-limit";
 import { adminRetryPrintJob, adminStartPrintRefund } from "../../../../../lib/printing/fulfilment-recovery";
 import { cancelUnpaidPrintJob, printCancellationResponse } from "../../../../../lib/printing/print-cancellation";
 import { printCancellationDeps } from "../../../../../lib/printing/print-cancellation-store";
+import { redispatchPrintJobNow } from "../../../../../lib/orders/dispatch";
+import { writeAuditLogOutsideTransaction } from "../../../../../lib/audit";
 
 type Context = { params: Promise<{ id: string }> };
 
@@ -18,11 +20,16 @@ export async function POST(request: Request, context: Context) {
   try {
     if (action === "retry") return Response.json(await adminRetryPrintJob(session.user.id, id));
     if (action === "refund") return Response.json(await adminStartPrintRefund(session.user.id, id));
+    if (action === "redispatch") {
+      const result = await redispatchPrintJobNow(id);
+      await writeAuditLogOutsideTransaction({ actorId: session.user.id, action: "PRINT_JOB_REDISPATCHED", resource: "PrintJob", resourceId: id, newState: result, details: `Manual redispatch: ${result.outcome}` });
+      return Response.json(result);
+    }
     if (action === "cancel-unpaid") {
       const response = printCancellationResponse(await cancelUnpaidPrintJob(printCancellationDeps(id, { id: session.user.id, role: "ADMIN" })));
       return Response.json(response.body, { status: response.status });
     }
-    return Response.json({ error: "Choose retry, refund or cancel-unpaid." }, { status: 400 });
+    return Response.json({ error: "Choose retry, refund, redispatch or cancel-unpaid." }, { status: 400 });
   } catch (error) {
     console.error("ADMIN PRINT JOB ACTION ERROR:", error instanceof Error ? error.name : "Unknown error");
     // Database errors carry query text and file paths; never forward them.

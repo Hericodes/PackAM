@@ -148,37 +148,12 @@ export async function adminRetryPrintJob(adminId: string, printJobId: string) {
 }
 
 /** Call periodically from the fulfilment scheduler. Safe to run repeatedly. */
+/**
+ * Scheduled pass for paid print jobs still looking for a runner: expire stale offers, redispatch, and
+ * only move a job that nobody can take after its dispatch deadline to refund processing.
+ */
 export async function expireUnclaimedPrintJobs(now = new Date()) {
-  const cutoff = new Date(now.getTime() - getRunnerAcceptanceTimeoutMinutes() * 60_000);
-  const overdue = await db.printJob.findMany({
-    where: { status: "FINDING_RUNNER", assignedRunnerId: null, findingRunnerAt: { lte: cutoff } },
-    select: { id: true },
-    take: 100,
-    orderBy: { findingRunnerAt: "asc" },
-  });
-
-  let started = 0;
-  for (const candidate of overdue) {
-    try {
-      const changed = await db.$transaction(async (tx) => {
-        const current = await tx.printJob.findUnique({
-          where: { id: candidate.id },
-          select: { status: true, assignedRunnerId: true, findingRunnerAt: true },
-        });
-        if (!current || current.status !== "FINDING_RUNNER" || current.assignedRunnerId || !current.findingRunnerAt || current.findingRunnerAt > cutoff) {
-          return false;
-        }
-        await startPrintRefundProcessing(tx, {
-          printJobId: candidate.id,
-          reason: "NO_RUNNER",
-          note: "No eligible runner accepted this print mission before its deadline.",
-        });
-        return true;
-      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
-      if (changed) started++;
-    } catch (error) {
-      console.error("PRINT RUNNER TIMEOUT PROCESSING ERROR:", candidate.id, error instanceof Error ? error.name : "Unknown error");
-    }
-  }
-  return { scanned: overdue.length, refundProcessingStarted: started };
+  const { dispatchDuePrintJobs } = await import("../orders/dispatch");
+  const summary = await dispatchDuePrintJobs(now);
+  return { ...summary, refundProcessingStarted: summary.refundReviews };
 }

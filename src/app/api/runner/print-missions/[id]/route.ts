@@ -1,7 +1,7 @@
 import { auth } from "../../../../../auth";
 import { consumeRateLimit } from "../../../../../lib/rate-limit";
 import {
-  acceptPrintMission,
+  acceptPrintMission, declinePrintMission,
   advancePrintMission,
   getRunnerPrintMission,
   PrintMissionError,
@@ -47,6 +47,7 @@ export async function POST(request: Request, context: Context) {
 
   try {
     if (input.action === "accept") return Response.json(await acceptPrintMission(session.user.id, id));
+    if (input.action === "decline") return Response.json(await declinePrintMission(session.user.id, id));
     if (isPrintMissionStepAction(input.action)) return Response.json(await advancePrintMission(session.user.id, id, input.action));
     if (isPrintMissionIssueAction(input.action) || input.action === "delivery-issue") {
       return Response.json(await reportPrintMissionIssue(session.user.id, id, input.action, input.note));

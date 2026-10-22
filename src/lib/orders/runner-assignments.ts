@@ -1,7 +1,6 @@
 import "server-only";
 
 import { Prisma } from "@prisma/client";
-import { getRunnerAcceptanceTimeoutMinutes } from "./price-policy";
 import {
   buildMarketplaceMissionOffers,
   buildPrintMissionOffers,
@@ -52,11 +51,6 @@ export async function offerFindingOrderToAvailableRunners(tx: Tx, orderId: strin
   return newRunners.length;
 }
 
-/** Jobs past the acceptance window can no longer be accepted, so they are not offered. */
-function acceptanceCutoff() {
-  return new Date(Date.now() - getRunnerAcceptanceTimeoutMinutes() * 60_000);
-}
-
 /**
  * Offers waiting orders to a runner who just became available. Uses one lookup and a skipDuplicates
  * insert: a failed statement would abort the surrounding Postgres transaction, so nothing here may
@@ -69,7 +63,6 @@ export async function offerFindingOrdersToRunner(tx: Tx, runnerProfileId: string
     where: {
       status: "FINDING_RUNNER",
       assignedRunnerId: null,
-      findingRunnerAt: { gte: acceptanceCutoff() },
       assignments: { none: { runnerId: runnerProfileId } },
     },
     select: { id: true },
@@ -125,7 +118,6 @@ export async function offerFindingPrintJobsToRunner(tx: Tx, runnerProfileId: str
     where: {
       status: "FINDING_RUNNER",
       assignedRunnerId: null,
-      findingRunnerAt: { gte: acceptanceCutoff() },
       assignments: { none: { runnerId: runnerProfileId } },
     },
     select: { id: true },
