@@ -3,11 +3,51 @@
  * class, never by matching words in a message. Messages must stay free of secrets and customer data.
  */
 
+/** Any provider's authoritative record disagrees with PackAM's payment attempt. Routed to manual review. */
+export class ProviderVerificationMismatchError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ProviderVerificationMismatchError";
+  }
+}
+
+/** A provider answered but declined the request with an error code. Retryable; never proof of anything. */
+export class ProviderRejectedError extends Error {
+  constructor(readonly code: string, provider = "Provider") {
+    super(`${provider} rejected the request (${code}).`);
+    this.name = "ProviderRejectedError";
+  }
+}
+
 /** A signed provider record disagrees with PackAM's payment attempt (reference, order, amount, currency or transaction). */
-export class OpayVerificationMismatchError extends Error {
+export class OpayVerificationMismatchError extends ProviderVerificationMismatchError {
   constructor(message: string) {
     super(message);
     this.name = "OpayVerificationMismatchError";
+  }
+}
+
+/** Paystack's verified transaction disagrees with the attempt (reference, amount, currency or transaction id). */
+export class PaystackVerificationMismatchError extends ProviderVerificationMismatchError {
+  constructor(message: string) {
+    super(message);
+    this.name = "PaystackVerificationMismatchError";
+  }
+}
+
+/** Paystack keys are missing, malformed, or live keys are used before live payments are approved. */
+export class PaystackConfigurationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "PaystackConfigurationError";
+  }
+}
+
+/** Paystack could not be reached, timed out, or returned an unusable response. Safe to retry. */
+export class PaystackProviderUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "PaystackProviderUnavailableError";
   }
 }
 
@@ -28,9 +68,9 @@ export class OpayProviderUnavailableError extends Error {
 }
 
 /** OPay answered but declined the request with a non-success code (e.g. an unknown reference). */
-export class OpayProviderRejectedError extends Error {
-  constructor(readonly code: string) {
-    super(`OPay rejected the request (${code}).`);
+export class OpayProviderRejectedError extends ProviderRejectedError {
+  constructor(code: string) {
+    super(code, "OPay");
     this.name = "OpayProviderRejectedError";
   }
 }
@@ -55,7 +95,7 @@ export type PaymentErrorClass =
   | "transient";
 
 export function classifyPaymentError(error: unknown): PaymentErrorClass {
-  if (error instanceof OpayVerificationMismatchError || error instanceof PaymentFinalizationMismatchError) return "mismatch";
+  if (error instanceof ProviderVerificationMismatchError || error instanceof PaymentFinalizationMismatchError) return "mismatch";
   // Defined in the server-only print lifecycle, so it is recognised by name here.
   if (error instanceof Error && error.name === "PrintPaymentNeedsReviewError") return "under_review";
   return "transient";
@@ -63,6 +103,6 @@ export function classifyPaymentError(error: unknown): PaymentErrorClass {
 
 /** Secret-free fields for logs: the error class and, for provider rejections, OPay's response code. */
 export function describePaymentError(error: unknown) {
-  if (error instanceof OpayProviderRejectedError) return { errorName: error.name, providerCode: error.code };
+  if (error instanceof ProviderRejectedError) return { errorName: error.name, providerCode: error.code };
   return { errorName: error instanceof Error ? error.name : "UnknownError" };
 }

@@ -1,23 +1,18 @@
 import "server-only";
 
-import { PaymentProvider, Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { db } from "../db";
 import { retrySerializable } from "../db-retry";
 import { writeAuditLog } from "../audit";
 import { createNotification } from "../notifications";
-import { completeVerifiedPayment, failPendingPayment, markPaymentNeedsReview, removeCheckoutItemsFromCart } from "./payment-lifecycle";
-import { queryPaymentStatus } from "./providers/opay";
-import { checkOpayPaymentStatus, consolePaymentLogger, type VerificationDeps } from "./opay-verification";
+import { removeCheckoutItemsFromCart } from "./payment-lifecycle";
+import { checkOpayPaymentStatus, type VerificationDeps } from "./opay-verification";
+import { opayStatusDeps, verificationDepsFor } from "./gateways";
+import { SUPPORTED_PROVIDERS } from "./provider-selection";
 import type { CancelFailedResult, CancellationDeps, CheckoutAttemptView } from "./checkout-cancellation";
 
-/** The trusted OPay verification used by the student's status check and by cancellation. */
-export const opayStatusDeps: VerificationDeps = {
-  queryStatus: queryPaymentStatus,
-  complete: (verified) => completeVerifiedPayment({ ...verified, provider: PaymentProvider.OPAY, status: "SUCCESS" }),
-  fail: failPendingPayment,
-  markReview: markPaymentNeedsReview,
-  log: consolePaymentLogger,
-};
+/** Re-exported for existing imports; defined with the other provider deps in gateways.ts. */
+export { opayStatusDeps };
 
 // The audit row is the durable "cancelled by student" marker; the payment itself stays FAILED.
 const CANCEL_AUDIT = { action: "checkout.cancelled_by_student", resource: "Payment" } as const;
@@ -30,8 +25,8 @@ export async function isCheckoutCancelled(paymentId: string, tx: Prisma.Transact
 /** Marketplace OPay attempt owned by this student. Another student's reference is simply not found. */
 function findOwnedAttempt(reference: string, userId: string) {
   return db.payment.findFirst({
-    where: { transactionReference: reference, userId, provider: PaymentProvider.OPAY, printJobId: null },
-    select: { id: true, status: true, orderId: true, amount: true, currency: true, providerCheckoutReference: true },
+    where: { transactionReference: reference, userId, provider: { in: [...SUPPORTED_PROVIDERS] }, printJobId: null },
+    select: { id: true, status: true, orderId: true, amount: true, currency: true, providerCheckoutReference: true, provider: true },
   });
 }
 
@@ -41,7 +36,7 @@ export type CheckoutCancelAdmin = { adminId: string };
 async function cancelFailedCheckout(paymentId: string, userId: string, admin?: CheckoutCancelAdmin): Promise<CancelFailedResult> {
   return retrySerializable(() => db.$transaction(async (tx) => {
     const payment = await tx.payment.findFirst({
-      where: { id: paymentId, userId, provider: PaymentProvider.OPAY, printJobId: null },
+      where: { id: paymentId, userId, provider: { in: [...SUPPORTED_PROVIDERS] }, printJobId: null },
       select: { id: true, status: true, orderId: true, amount: true, createdAt: true, checkoutSnapshot: true },
     });
     if (!payment || payment.status !== "FAILED" || payment.orderId) return "NOT_FAILED";
@@ -96,7 +91,8 @@ export async function checkoutAttemptView(attempt: { id: string; status: Checkou
   return { status: attempt.status, orderId: attempt.orderId, cancelled: attempt.status === "FAILED" ? await isCheckoutCancelled(attempt.id) : false };
 }
 
-export function checkoutCancellationDeps(reference: string, userId: string, verification: VerificationDeps = opayStatusDeps, admin?: CheckoutCancelAdmin): CancellationDeps {
+/** `verification` overrides the attempt's own provider (tests); by default each attempt uses its provider. */
+export function checkoutCancellationDeps(reference: string, userId: string, verification?: VerificationDeps, admin?: CheckoutCancelAdmin): CancellationDeps {
   let paymentId: string | null = null;
   return {
     async findAttempt() {
@@ -111,7 +107,7 @@ export function checkoutCancellationDeps(reference: string, userId: string, veri
       // Same trusted path as the status poll: errors are logged and reported as "still pending".
       await checkOpayPaymentStatus(
         { reference, amount: attempt.amount, currency: attempt.currency, providerCheckoutReference: attempt.providerCheckoutReference },
-        verification,
+        verification ?? verificationDepsFor(attempt.provider),
       );
     },
     async cancelFailed() {

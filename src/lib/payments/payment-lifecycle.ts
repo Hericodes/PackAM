@@ -492,7 +492,7 @@ export async function failPendingPayment(transactionReference: string) {
 /** Preserve an uncertain provider attempt for operations review; never convert it to SUCCESS/FAILED. */
 export async function markPaymentNeedsReview(transactionReference: string, reason: string) {
   return db.$transaction(async (tx) => {
-    const payment = await tx.payment.findFirst({ where: { transactionReference, provider: "OPAY", status: { in: ["PENDING", "RECONCILIATION_REQUIRED"] }, orderId: null }, select: { id: true, userId: true, amount: true, status: true, printJobId: true } });
+    const payment = await tx.payment.findFirst({ where: { transactionReference, provider: { in: ["OPAY", "PAYSTACK"] }, status: { in: ["PENDING", "RECONCILIATION_REQUIRED"] }, orderId: null }, select: { id: true, userId: true, amount: true, status: true, printJobId: true } });
     if (!payment) return false;
     if (payment.status === "PENDING") {
       const changed = await tx.payment.updateMany({ where: { id: payment.id, status: "PENDING", orderId: null }, data: { status: "RECONCILIATION_REQUIRED" } });

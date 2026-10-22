@@ -23,6 +23,7 @@ export default async function PrintPaymentPage({ params }: { params: Promise<{ i
             initialStatus={workspace.payment.status}
             jobStatus={workspace.status}
             cashierUrl={workspace.payment.cashierUrl}
+            provider={workspace.payment.provider}
             snapshot={workspace.snapshot}
           />
         </div>

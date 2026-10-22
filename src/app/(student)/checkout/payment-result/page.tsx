@@ -4,9 +4,11 @@ import { PaymentResultClient } from "../../../../components/checkout/PaymentResu
 export default async function PaymentResultPage({
   searchParams,
 }: {
-  searchParams: Promise<{ reference?: string }>;
+  searchParams: Promise<{ reference?: string | string[] }>;
 }) {
-  const { reference } = await searchParams;
+  const raw = (await searchParams).reference;
+  // OPay returns ?reference=; Paystack appends ?trxref=…&reference=… itself. Either way, one value.
+  const reference = (Array.isArray(raw) ? raw[0] : raw)?.trim().slice(0, 100) || undefined;
   return (
     <main className="flex min-h-[calc(100svh-4rem)] items-center px-4 py-8 sm:py-12">
       <section className="mx-auto w-full max-w-lg rounded-[1.5rem] border border-black/5 bg-white px-5 py-8 text-center shadow-sm sm:rounded-[2rem] sm:px-10 sm:py-12">

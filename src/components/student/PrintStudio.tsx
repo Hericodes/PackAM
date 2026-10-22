@@ -360,7 +360,7 @@ export function PrintStudio({ locations, initialJob }: PrintStudioProps) {
           ? paymentResult.error
           : "Payment couldn’t be started. Your print job is still safe — try again.");
       }
-      if (!isRecord(paymentResult)) throw new Error("OPay checkout details were incomplete. Please try again.");
+      if (!isRecord(paymentResult)) throw new Error("Checkout details were incomplete. Please try again.");
 
       window.sessionStorage.removeItem(storageKey);
       if (typeof paymentResult.cashierUrl === "string") {
@@ -371,7 +371,7 @@ export function PrintStudio({ locations, initialJob }: PrintStudioProps) {
         window.location.assign(paymentResult.resultUrl);
         return;
       }
-      throw new Error("OPay checkout details were incomplete. Please try again.");
+      throw new Error("Checkout details were incomplete. Please try again.");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "We couldn't prepare this print job for payment.");
       setNotice("");
@@ -550,7 +550,7 @@ export function PrintStudio({ locations, initialJob }: PrintStudioProps) {
               <button type="button" onClick={() => void prepareForPayment()} disabled={!canPrepare} className="flex min-h-12 w-full items-center justify-center rounded-full bg-black px-5 text-sm font-black text-white transition hover:bg-black/85 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black disabled:cursor-not-allowed disabled:opacity-40">
                 {preparing ? "Preparing payment…" : "Continue to payment"}
               </button>
-              <p className="mt-2 text-center text-xs leading-5 text-black/50">Your total is checked and saved by PackAM before secure OPay checkout.</p>
+              <p className="mt-2 text-center text-xs leading-5 text-black/50">Your total is checked and saved by PackAM before secure checkout.</p>
             </section>
           </>
         ) : (

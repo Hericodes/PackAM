@@ -47,7 +47,7 @@ test("a provider error code is recorded without being treated as a failed paymen
   const result = await verifyOpayPaymentDetailed(ATTEMPT, verification);
   assert.deepEqual(result, { outcome: "PROVIDER_UNAVAILABLE", errorName: "OpayProviderRejectedError", providerCode: "02001" });
   assert.equal(calls.fails, 0);
-  assert.match(describeCheck(result), /OPay code 02001/);
+  assert.match(describeCheck(result), /provider code 02001/);
 });
 
 test("an invalid provider record is a mismatch and is flagged, never applied", async () => {

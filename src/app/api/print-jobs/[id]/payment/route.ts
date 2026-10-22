@@ -1,9 +1,8 @@
-import { PaymentProvider } from "@prisma/client";
 import { auth } from "../../../../../auth";
 import { db } from "../../../../../lib/db";
 import { createPrintPaymentAttempt } from "../../../../../lib/printing/service";
 import { parsePrintCheckoutSnapshot } from "../../../../../lib/printing/payment-snapshot";
-import { createCashierPayment } from "../../../../../lib/payments/providers/opay";
+import { checkoutProvider, createHostedCheckout } from "../../../../../lib/payments/gateways";
 import { consumeRateLimit } from "../../../../../lib/rate-limit";
 
 export const runtime = "nodejs";
@@ -26,8 +25,9 @@ export async function POST(request: Request, context: Context) {
   if (!idempotencyKey) return Response.json({ error: "Payment request key is missing. Please try again." }, { status: 400 });
 
   try {
-    const attempt = await createPrintPaymentAttempt(PaymentProvider.OPAY, session.user.id, printJobId, idempotencyKey);
-    if (attempt.provider !== PaymentProvider.OPAY || attempt.printJobId !== printJobId) {
+    // New attempts use the active provider; a reused attempt keeps the provider it was created with.
+    const attempt = await createPrintPaymentAttempt(checkoutProvider(), session.user.id, printJobId, idempotencyKey);
+    if (attempt.printJobId !== printJobId) {
       throw new Error("Print payment attempt did not match the requested job.");
     }
     if (!attempt.transactionReference) throw new Error("Print payment attempt has no reference.");
@@ -63,7 +63,7 @@ export async function POST(request: Request, context: Context) {
       Promise.resolve(process.env.APP_URL),
     ]);
     if (!student) throw new Error("Active student account not found.");
-    if (!appUrl) throw new Error("APP_URL is required for OPay return and callback URLs.");
+    if (!appUrl) throw new Error("APP_URL is required for payment return and webhook URLs.");
     const baseUrl = new URL(appUrl);
     if (baseUrl.protocol !== "https:" && process.env.NODE_ENV === "production") {
       throw new Error("APP_URL must use HTTPS in production.");
@@ -74,21 +74,22 @@ export async function POST(request: Request, context: Context) {
     }
 
     const reference = attempt.transactionReference;
-    const result = await createCashierPayment({
+    const checkout = await createHostedCheckout(attempt.provider, {
       reference,
       amount: stored.amount,
       productName: "PackAM printing",
-      productDescription: `${snapshot.documentName} · ${snapshot.selectedPageCount} pages · ${snapshot.copies} ${snapshot.copies === 1 ? "copy" : "copies"}`,
+      description: `${snapshot.documentName} · ${snapshot.selectedPageCount} pages · ${snapshot.copies} ${snapshot.copies === 1 ? "copy" : "copies"}`,
       customer: {
         id: student.id,
         name: [student.firstName, student.lastName].filter(Boolean).join(" "),
         email: student.email,
         phone: student.phone ?? undefined,
       },
-      returnUrl: new URL(resultUrl, baseUrl).toString(),
-      cancelUrl: new URL(resultUrl, baseUrl).toString(),
-      callbackUrl: new URL("/api/webhooks/opay", baseUrl).toString(),
+      returnPath: resultUrl,
+      baseUrl,
+      metadata: { packamReference: reference, kind: "PRINT_JOB", printJobId },
     });
+    const result = { cashierUrl: checkout.checkoutUrl, providerCheckoutReference: checkout.providerCheckoutReference };
 
     const saved = await db.payment.updateMany({
       where: { transactionReference: reference, userId: student.id, printJobId, status: "PENDING", cashierUrl: null },

@@ -5,6 +5,7 @@ import { useCallback, useState } from "react";
 import { usePaymentPolling } from "../payments/usePaymentPolling";
 import { checkoutPaymentActions } from "../../lib/payments/checkout-cancellation";
 import { PAYMENT_COPY } from "../../lib/student-copy";
+import { providerName } from "../../lib/payments/provider-selection";
 
 type PaymentState = "CHECKING" | "PENDING" | "SUCCESS" | "FAILED" | "CANCELLED" | "REVIEW" | "SIGNED_OUT" | "ERROR";
 
@@ -18,15 +19,18 @@ export function PaymentResultClient({ reference }: { reference: string }) {
   const [confirmingCancel, setConfirmingCancel] = useState(false);
   const [cancelBusy, setCancelBusy] = useState(false);
   const [notice, setNotice] = useState("");
+  const [provider, setProvider] = useState<string | null>(null);
+  const payWith = providerName(provider);
 
   const checkPayment = useCallback(async (): Promise<boolean> => {
     try {
-      const response = await fetch(`/api/payments/opay/status?reference=${encodeURIComponent(reference)}`, { cache: "no-store" });
+      const response = await fetch(`/api/payments/status?reference=${encodeURIComponent(reference)}`, { cache: "no-store" });
       if (response.status === 401) {
         setState("SIGNED_OUT");
         return false;
       }
       const data = await response.json();
+      if (typeof data.provider === "string") setProvider(data.provider);
       if (!response.ok) throw new Error("Payment status is not available yet.");
       if (data.status === "SUCCESS") {
         if (typeof data.orderId === "string") setOrderId(data.orderId);
@@ -38,7 +42,7 @@ export function PaymentResultClient({ reference }: { reference: string }) {
         return false;
       }
       if (data.status === "RECONCILIATION_REQUIRED") {
-        // Keep re-checking: the status route re-verifies with OPay and can still complete it.
+        // Keep re-checking: the status route re-verifies with the provider and can still complete it.
         setState("REVIEW");
         return true;
       }
@@ -57,7 +61,7 @@ export function PaymentResultClient({ reference }: { reference: string }) {
     setCancelBusy(true);
     setNotice("");
     try {
-      const response = await fetch("/api/payments/opay/cancel", {
+      const response = await fetch("/api/payments/cancel", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ reference }),
@@ -102,8 +106,8 @@ export function PaymentResultClient({ reference }: { reference: string }) {
         <p id="cancel-confirm-title" className="text-sm font-black">Cancel this order?</p>
         <p className="mt-1 text-sm leading-6 text-black/70">
           {state === "FAILED"
-            ? "OPay didn’t complete this payment, so no order was placed. Cancelling removes these items from your cart."
-            : "We’ll check with OPay first. If your payment has gone through, your order stays and won’t be cancelled. If it’s still being confirmed, nothing changes yet."}
+            ? `${payWith} didn’t complete this payment, so no order was placed. Cancelling removes these items from your cart.`
+            : `We’ll check with ${payWith} first. If your payment has gone through, your order stays and won’t be cancelled. If it’s still being confirmed, nothing changes yet.`}
         </p>
         <div className="mt-4 flex flex-col gap-2 sm:flex-row">
           <button type="button" onClick={() => void cancelOrder()} disabled={cancelBusy} aria-busy={cancelBusy} className={`${primaryLink} disabled:cursor-wait disabled:opacity-60`}>
@@ -131,7 +135,7 @@ export function PaymentResultClient({ reference }: { reference: string }) {
     <>
       <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-black/5 text-2xl font-black" aria-hidden="true">×</div>
       <h1 aria-live="polite" className="mt-5 text-2xl font-black sm:text-3xl">Order cancelled</h1>
-      <p className="mx-auto mt-3 max-w-sm text-sm leading-6 text-black/70">We removed these items from your cart. OPay didn’t complete this payment, so no order was placed. Whenever you need something again, we dey here.</p>
+      <p className="mx-auto mt-3 max-w-sm text-sm leading-6 text-black/70">We removed these items from your cart. {payWith} didn’t complete this payment, so no order was placed. Whenever you need something again, we dey here.</p>
       <p className="mx-auto mt-3 max-w-sm text-xs leading-5 text-black/60">If money left your account anyway, contact support with this reference: <span className="break-all font-semibold">{reference}</span></p>
       <div className="mt-7 flex flex-col items-center justify-center gap-2 sm:flex-row">
         <Link href="/search" className={primaryLink}>Back to shopping</Link>

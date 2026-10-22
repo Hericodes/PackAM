@@ -1,11 +1,12 @@
 import "server-only";
 
-import { PaymentProvider, Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { db } from "../db";
 import { retrySerializable } from "../db-retry";
 import { writeAuditLog } from "../audit";
 import { createNotification } from "../notifications";
-import { opayStatusDeps } from "../payments/checkout-cancellation-store";
+import { verificationDepsFor } from "../payments/gateways";
+import { SUPPORTED_PROVIDERS } from "../payments/provider-selection";
 import { checkOpayPaymentStatus, type VerificationDeps } from "../payments/opay-verification";
 import { transitionPrintJobInTransaction } from "./status";
 import { printMissionReference } from "./runner-mission-policy";
@@ -27,8 +28,8 @@ async function loadJob(printJobId: string, actor: PrintCancelActor) {
       id: true,
       status: true,
       payments: {
-        where: { provider: PaymentProvider.OPAY },
-        select: { status: true, transactionReference: true, amount: true, currency: true, providerCheckoutReference: true },
+        where: { provider: { in: [...SUPPORTED_PROVIDERS] } },
+        select: { status: true, transactionReference: true, amount: true, currency: true, providerCheckoutReference: true, provider: true },
       },
     },
   });
@@ -77,7 +78,8 @@ async function cancelInTransaction(printJobId: string, actor: PrintCancelActor):
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }), { attempts: 6, baseDelayMs: 25 });
 }
 
-export function printCancellationDeps(printJobId: string, actor: PrintCancelActor, verification: VerificationDeps = opayStatusDeps): PrintCancellationDeps {
+/** `verification` overrides each payment's own provider (tests); by default every attempt uses its provider. */
+export function printCancellationDeps(printJobId: string, actor: PrintCancelActor, verification?: VerificationDeps): PrintCancellationDeps {
   return {
     async findJob(): Promise<PrintJobPaymentView | null> {
       const job = await loadJob(printJobId, actor);
@@ -90,7 +92,7 @@ export function printCancellationDeps(printJobId: string, actor: PrintCancelActo
         // Same trusted path as the status poll: provider trouble is logged and leaves the attempt pending.
         await checkOpayPaymentStatus(
           { reference: payment.transactionReference, amount: payment.amount, currency: payment.currency, providerCheckoutReference: payment.providerCheckoutReference },
-          verification,
+          verification ?? verificationDepsFor(payment.provider),
         );
       }
     },

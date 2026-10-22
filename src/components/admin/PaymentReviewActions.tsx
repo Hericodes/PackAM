@@ -14,7 +14,7 @@ const NOTE_COPY: Record<NoteAction, { title: string; explain: string; confirm: s
     confirm: "Close case",
   },
   reopen: { title: "Reopen this review case", explain: "Reopening puts the case back in the open queue. Say why.", confirm: "Reopen case" },
-  escalate: { title: "Escalate / keep unresolved", explain: "The payment stays unresolved and every admin is notified with your note. Use this when OPay can’t confirm the payment and someone needs to follow up (for example with OPay support).", confirm: "Escalate" },
+  escalate: { title: "Escalate / keep unresolved", explain: "The payment stays unresolved and every admin is notified with your note. Use this when the payment provider can’t confirm the payment and someone needs to follow up (for example with OPay or Paystack support).", confirm: "Escalate" },
 };
 
 const button = "inline-flex min-h-10 items-center justify-center rounded-full px-4 text-xs font-black transition disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black";
@@ -57,7 +57,7 @@ export function PaymentReviewActions({ paymentId, available }: { paymentId: stri
   return (
     <div className="mt-3">
       <div className="flex flex-wrap gap-2">
-        {available.verify && <button type="button" onClick={() => void send("verify")} disabled={busy !== null} aria-busy={busy === "verify"} className={`${button} bg-black text-white`}>{busy === "verify" ? "Checking with OPay…" : "Retry verification"}</button>}
+        {available.verify && <button type="button" onClick={() => void send("verify")} disabled={busy !== null} aria-busy={busy === "verify"} className={`${button} bg-black text-white`}>{busy === "verify" ? "Checking with the provider…" : "Retry verification"}</button>}
         {available.cancel && <button type="button" onClick={() => { setNoteAction(null); setConfirmCancel(true); }} disabled={busy !== null} className={`${button} border border-black/15 bg-white`}>{available.cancel === "PRINT_JOB" ? "Cancel print job" : "Cancel unpaid order"}</button>}
         {available.escalate && <button type="button" onClick={() => { setConfirmCancel(false); setNoteAction("escalate"); }} disabled={busy !== null} className={`${button} border border-black/15 bg-white`}>Escalate / keep unresolved</button>}
         {available.close && <button type="button" onClick={() => { setConfirmCancel(false); setNoteAction("close"); }} disabled={busy !== null} className={`${button} border border-black/15 bg-white`}>Close review case</button>}
@@ -67,9 +67,9 @@ export function PaymentReviewActions({ paymentId, available }: { paymentId: stri
       {confirmCancel && available.cancel && (
         <div role="group" aria-label="Confirm cancellation" className="mt-3 rounded-2xl border border-black/10 bg-[#fffdf7] p-4 text-sm">
           <p className="font-black">Cancel the {available.cancel === "PRINT_JOB" ? "print job" : "unpaid order"}?</p>
-          <p className="mt-1 leading-6 text-black/70">PackAM checks with OPay first. It only cancels if OPay’s signed record confirms the payment wasn’t completed. If OPay says it was paid, or can’t be reached, nothing changes. No refund is issued and the payment record is kept.</p>
+          <p className="mt-1 leading-6 text-black/70">PackAM checks with the payment provider first. It only cancels if the provider’s verified record confirms the payment wasn’t completed. If the provider says it was paid, or can’t be reached, nothing changes. No refund is issued and the payment record is kept.</p>
           <div className="mt-3 flex flex-wrap gap-2">
-            <button type="button" onClick={() => void send("cancel")} disabled={busy !== null} aria-busy={busy === "cancel"} className={`${button} bg-black text-white`}>{busy === "cancel" ? "Checking with OPay…" : "Check and cancel"}</button>
+            <button type="button" onClick={() => void send("cancel")} disabled={busy !== null} aria-busy={busy === "cancel"} className={`${button} bg-black text-white`}>{busy === "cancel" ? "Checking with the provider…" : "Check and cancel"}</button>
             <button type="button" onClick={() => setConfirmCancel(false)} disabled={busy !== null} className={`${button} border border-black/15 bg-white`}>Keep it</button>
           </div>
         </div>

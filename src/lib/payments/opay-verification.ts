@@ -1,5 +1,7 @@
 /**
- * OPay verification shared by the webhook and the student's status poll.
+ * Provider payment verification shared by webhooks and the student's status poll. Written for OPay
+ * and reused by Paystack: the provider-specific part is only how a provider record is fetched
+ * (`queryStatus`) and checked (`verifyTransaction`, OPay's rules by default).
  *
  * Rules:
  * - The signed Cashier status query is the only authority for a payment's final state and amount.
@@ -27,8 +29,21 @@ export type PaymentLogger = {
   error: (event: string, fields: Record<string, unknown>) => void;
 };
 
-export type VerificationDeps = {
-  queryStatus: (reference: string) => Promise<OpayTransaction>;
+/** The least any provider status record carries. */
+export type ProviderRecord = { status?: unknown };
+
+export type ProviderVerdict = { status: "SUCCESS" | "FAILED" | "PENDING"; providerReference?: string };
+
+export type VerificationDeps<T extends ProviderRecord = ProviderRecord> = {
+  /** Fetches the provider's own authoritative record for this PackAM reference. */
+  queryStatus(reference: string): Promise<T>;
+  /**
+   * Checks the record against the attempt (reference, amount, currency, provider ids) and maps its
+   * status; throws a mismatch error on disagreement. Defaults to OPay's rules.
+   */
+  verifyTransaction?(transaction: T, expected: { reference: string; amount: number; currency: string; providerCheckoutReference?: string | null }): ProviderVerdict;
+  /** Label for logs only. */
+  provider?: string;
   /** Finalizes a provider-verified success. Chooses the order or print-job root and is idempotent. */
   complete: (verified: { transactionReference: string; providerReference: string; amount: number; currency: string }) => Promise<CompletionResult>;
   /** Marks a still-PENDING attempt FAILED; a no-op for anything else. */
@@ -62,17 +77,18 @@ export async function verifyAndApplyOpayPayment(
   options: { callbackTransactionId?: string } = {},
 ): Promise<VerificationOutcome> {
   const transaction = await deps.queryStatus(attempt.reference);
-  const verified = verifyOpayTransaction(transaction, {
+  const verify = deps.verifyTransaction ?? ((record: ProviderRecord, expected: Parameters<typeof verifyOpayTransaction>[1]) => verifyOpayTransaction(record as OpayTransaction, expected));
+  const verified = verify(transaction, {
     reference: attempt.reference,
     amount: attempt.amount,
     currency: attempt.currency,
     providerCheckoutReference: attempt.providerCheckoutReference,
   });
-  deps.log.info("opay_status_verified", { refTail: referenceTail(attempt.reference), providerStatus: transaction.status ?? null, verifiedStatus: verified.status });
+  deps.log.info("opay_status_verified", { provider: deps.provider ?? "OPAY", refTail: referenceTail(attempt.reference), providerStatus: typeof transaction.status === "string" ? transaction.status : null, verifiedStatus: verified.status });
 
   if (verified.status === "SUCCESS") {
     if (options.callbackTransactionId !== undefined && verified.providerReference !== options.callbackTransactionId) {
-      throw new OpayVerificationMismatchError("OPay callback transaction identifier does not match the queried payment.");
+      throw new OpayVerificationMismatchError("Callback transaction identifier does not match the queried payment.");
     }
     const result = await deps.complete({
       transactionReference: attempt.reference,
@@ -95,7 +111,7 @@ type HandlerResponse = { status: number; body?: Record<string, unknown> };
  * Shared failure handling: a verified mismatch is flagged once (and acknowledged), everything else is
  * retryable. Returns whether the attempt is now under review.
  */
-async function routeVerificationError(error: unknown, reference: string, reason: string, deps: VerificationDeps) {
+export async function routeVerificationError(error: unknown, reference: string, reason: string, deps: VerificationDeps) {
   const kind = classifyPaymentError(error);
   const fields = { refTail: referenceTail(reference), classification: kind, ...describePaymentError(error) };
   if (kind === "transient") {

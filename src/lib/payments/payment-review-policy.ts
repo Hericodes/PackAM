@@ -3,15 +3,19 @@
  * the API. The API re-checks everything; hiding an action here is a convenience, never the safeguard.
  *
  * Principles:
- * - Only a verified, signed OPay status record changes a payment's money state.
+ * - Only a verified provider status record (OPay or Paystack) changes a payment's money state.
  * - A timeout, an error or an empty reply is not evidence of anything; the payment stays unresolved.
  * - A review case is operational bookkeeping. Closing it never says money was or wasn't received.
  */
 import type { DetailedVerification } from "./opay-verification";
 
-/** OPay cashier sessions expire after 30 minutes; an attempt still PENDING well after that is stuck. */
+/**
+ * OPay cashier sessions expire after 30 minutes; an attempt still PENDING well after that is stuck.
+ * Paystack has no fixed expiry (an "abandoned" checkout can still be paid), so a stale Paystack
+ * attempt is listed for review the same way but is never assumed to have failed.
+ */
 export const STALE_PENDING_AFTER_MS = 45 * 60_000;
-/** Longer than one OPay request (15s timeout) plus finalisation, so checks for one payment never overlap. */
+/** Longer than one provider request (15s timeout) plus finalisation, so checks for one payment never overlap. */
 export const VERIFY_LOCK_MS = 45_000;
 export const REVIEW_NOTE_MIN = 10;
 export const REVIEW_NOTE_MAX = 1000;
@@ -61,12 +65,12 @@ export function validateReviewNote(note: unknown): { ok: true; note: string } | 
 export type CheckOutcome = DetailedVerification["outcome"];
 
 export const CHECK_OUTCOME_DISPLAY: Record<CheckOutcome, { label: string; tone: "success" | "danger" | "warning" | "neutral"; meaning: string }> = {
-  CONFIRMED_SUCCESS: { label: "OPay confirmed paid", tone: "success", meaning: "OPay’s signed record shows the payment succeeded. The existing finalisation ran once (order/print job created or already existed)." },
-  CONFIRMED_FAILED: { label: "OPay confirmed not paid", tone: "neutral", meaning: "OPay’s signed record shows the payment failed or closed. No money was captured for this attempt." },
-  PROVIDER_PENDING: { label: "OPay still pending", tone: "warning", meaning: "OPay hasn’t finished this payment yet. Nothing changed. Check again later." },
-  PROVIDER_UNAVAILABLE: { label: "OPay unreachable", tone: "danger", meaning: "The status check didn’t get an answer (timeout, network or provider error). This proves nothing about the payment. Nothing changed." },
-  NOT_APPLIED: { label: "Answer not applied", tone: "danger", meaning: "OPay answered, but PackAM couldn’t apply it. Nothing changed. Try again." },
-  MISMATCH: { label: "Record mismatch", tone: "danger", meaning: "OPay’s signed record doesn’t match this attempt (amount, currency or reference). The payment stays under review." },
+  CONFIRMED_SUCCESS: { label: "Provider confirmed paid", tone: "success", meaning: "The provider’s verified record shows the payment succeeded. The existing finalisation ran once (order/print job created or already existed)." },
+  CONFIRMED_FAILED: { label: "Provider confirmed not paid", tone: "neutral", meaning: "The provider’s verified record shows the payment failed or closed. No money was captured for this attempt." },
+  PROVIDER_PENDING: { label: "Provider still pending", tone: "warning", meaning: "The provider hasn’t finished this payment yet. Nothing changed. Check again later." },
+  PROVIDER_UNAVAILABLE: { label: "Provider unreachable", tone: "danger", meaning: "The status check didn’t get an answer (timeout, network or provider error). This proves nothing about the payment. Nothing changed." },
+  NOT_APPLIED: { label: "Answer not applied", tone: "danger", meaning: "The provider answered, but PackAM couldn’t apply it. Nothing changed. Try again." },
+  MISMATCH: { label: "Record mismatch", tone: "danger", meaning: "The provider’s verified record doesn’t match this attempt (amount, currency or reference). The payment stays under review." },
   UNDER_REVIEW: { label: "Held for review", tone: "danger", meaning: "This success can’t be finalised automatically (for example a second payment for a paid print job). Resolve it manually." },
 };
 
@@ -76,11 +80,11 @@ export function describeCheck(result: DetailedVerification) {
     case "CONFIRMED_SUCCESS":
     case "CONFIRMED_FAILED":
     case "PROVIDER_PENDING":
-      return `OPay status: ${result.providerStatus ?? "not given"}`;
+      return `Provider status: ${result.providerStatus ?? "not given"}`;
     case "NOT_APPLIED":
-      return `OPay status: ${result.providerStatus ?? "not given"} · ${result.errorName}`;
+      return `Provider status: ${result.providerStatus ?? "not given"} · ${result.errorName}`;
     case "PROVIDER_UNAVAILABLE":
-      return result.providerCode ? `${result.errorName} · OPay code ${result.providerCode}` : result.errorName;
+      return result.providerCode ? `${result.errorName} · provider code ${result.providerCode}` : result.errorName;
     case "MISMATCH":
       return `${result.errorName}${result.flagged ? " · flagged for review" : ""}`;
     case "UNDER_REVIEW":

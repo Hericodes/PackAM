@@ -59,12 +59,12 @@ export function orderStatusMessage(status: string, context: { total: number; run
  */
 export const PAYMENT_COPY = {
   checkingTitle: "Confirming your payment…",
-  checkingBody: "We dey confirm with OPay. This usually takes under a minute — please don’t pay again.",
+  checkingBody: "We dey confirm your payment. This usually takes under a minute — please don’t pay again.",
   pendingTitle: "Payment is still being confirmed",
   reviewTitle: "We’re checking this payment",
   reviewBody: "Our team needs to confirm this payment by hand. Please don’t pay again — if money left your account, it’s safe, and we’ll update you.",
   /** After polling stops: still unconfirmed, never described as failed or lost. */
-  slowBody: (whatHappensNext: string) => `We never get payment confirmation from OPay yet — make we keep checking. Please don’t pay again. If money left your account, it’s safe: ${whatHappensNext} as soon as OPay confirms it.`,
+  slowBody: (whatHappensNext: string) => `We never get payment confirmation yet — make we keep checking. Please don’t pay again. If money left your account, it’s safe: ${whatHappensNext} as soon as the payment is confirmed.`,
   successTitle: "Payment confirmed 🎉",
   failedTitle: "Payment no go through",
 } as const;
@@ -108,7 +108,7 @@ export function orderProgress(status: string) {
 
 /** What a timeline entry means to the student. Internal status notes stay operations-only. */
 const ORDER_EVENT_DESCRIPTIONS: Record<string, string> = {
-  PAYMENT_CONFIRMED: "Your OPay payment was verified.",
+  PAYMENT_CONFIRMED: "Your payment was verified.",
   FINDING_RUNNER: "Your order was offered to campus runners.",
   RUNNER_ASSIGNED: "A runner accepted your order.",
   SOURCING_PRODUCT: "Your runner started getting your items.",

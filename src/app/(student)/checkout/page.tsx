@@ -5,6 +5,8 @@ import { redirect } from "next/navigation";
 import { CheckoutClient } from "../../../components/checkout/CheckoutClient";
 import { CHECKOUT_DELIVERY_FEE } from "../../../lib/checkout-pricing";
 import { orderLocationsForCheckout } from "../../../lib/location-choice";
+import { checkoutProvider } from "../../../lib/payments/gateways";
+import { providerName } from "../../../lib/payments/provider-selection";
 
 /** A recent marketplace payment we haven't confirmed yet; warn before the student pays again. */
 function findUnconfirmedPayment(userId: string) {
@@ -62,6 +64,7 @@ export default async function CheckoutPage() {
   ]);
   const locations = orderLocationsForCheckout(savedLocations, lastOrder?.deliveryLocationId);
 
+  const payWith = providerName(checkoutProvider());
   const items = cart?.items ?? [];
   if (!items.length) redirect("/search");
   return (
@@ -71,17 +74,18 @@ export default async function CheckoutPage() {
         <div className="mt-4 max-w-2xl">
           <p className="pk-eyebrow">Secure checkout</p>
           <h1 className="pk-page-title mt-2">Checkout</h1>
-          <p className="pk-muted mt-2 text-sm leading-6">Choose where to deliver, check your items, then pay securely with OPay. You’ll see the full total, including delivery, before paying.</p>
+          <p className="pk-muted mt-2 text-sm leading-6">Choose where to deliver, check your items, then pay securely with {payWith}. You’ll see the full total, including delivery, before paying.</p>
         </div>
         {unconfirmedPayment?.transactionReference && (
           <section role="status" className="mt-5 max-w-2xl rounded-2xl border border-[#e8c238] bg-[#fff8df] p-4 text-sm leading-6">
             <p className="font-black">Hold on — you have a payment we’re still confirming (₦{unconfirmedPayment.amount.toLocaleString()}).</p>
-            <p className="mt-1 text-black/70">If you already paid on OPay, check it first so you don’t pay twice.</p>
+            <p className="mt-1 text-black/70">If you already paid, check it first so you don’t pay twice.</p>
             <Link href={`/checkout/payment-result?reference=${encodeURIComponent(unconfirmedPayment.transactionReference)}`} className="mt-2 inline-flex min-h-11 items-center font-bold underline underline-offset-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black">Check that payment →</Link>
           </section>
         )}
         <div className="mt-5 sm:mt-7">
           <CheckoutClient
+            providerName={payWith}
             items={items.map((item) => ({
               id: item.id,
               quantity: item.quantity,

@@ -1,11 +1,13 @@
 import "server-only";
 
-import { PaymentProvider, Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { db } from "../db";
 import { retrySerializable } from "../db-retry";
 import { writeAuditLog } from "../audit";
 import { notifyAdmins } from "../notifications";
-import { opayStatusDeps, checkoutCancellationDeps } from "./checkout-cancellation-store";
+import { checkoutCancellationDeps } from "./checkout-cancellation-store";
+import { verificationDepsFor } from "./gateways";
+import { SUPPORTED_PROVIDERS } from "./provider-selection";
 import { cancelUnpaidCheckout } from "./checkout-cancellation";
 import { verifyOpayPaymentDetailed, type DetailedVerification, type VerificationDeps } from "./opay-verification";
 import { describeCheck, validateReviewNote, VERIFY_LOCK_MS } from "./payment-review-policy";
@@ -24,8 +26,8 @@ type ActionResult = { status: number; body: Record<string, unknown> };
 
 function loadPayment(paymentId: string) {
   return db.payment.findFirst({
-    where: { id: paymentId, provider: PaymentProvider.OPAY },
-    select: { id: true, userId: true, status: true, amount: true, currency: true, orderId: true, printJobId: true, transactionReference: true, providerReference: true, providerCheckoutReference: true, paidAt: true },
+    where: { id: paymentId, provider: { in: [...SUPPORTED_PROVIDERS] } },
+    select: { id: true, provider: true, userId: true, status: true, amount: true, currency: true, orderId: true, printJobId: true, transactionReference: true, providerReference: true, providerCheckoutReference: true, paidAt: true },
   });
 }
 
@@ -40,7 +42,7 @@ async function ensureCase(paymentId: string) {
 
 /**
  * A payment held in review that never captured money (no provider transaction, no paid time, no
- * order) is moved to FAILED only because OPay's signed status record now verifies it failed or closed.
+ * order) is moved to FAILED only because the provider's verified status record now shows it failed or closed.
  * Attempts holding captured money (late or duplicate successes) never match and stay in review.
  */
 async function failVerifiedReviewPayment(reference: string, adminId: string) {
@@ -62,14 +64,14 @@ async function failVerifiedReviewPayment(reference: string, adminId: string) {
       resourceId: payment.id,
       previousState: { paymentStatus: "RECONCILIATION_REQUIRED" },
       newState: { paymentStatus: "FAILED" },
-      details: "OPay's signed status record verified this attempt as failed or closed; no money was captured for it.",
+      details: "The provider's verified status record shows this attempt failed or closed; no money was captured for it.",
     });
     return true;
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 }
 
 /** The trusted verification deps for an admin-triggered check. Identical to the status poll except for review holds. */
-export function adminVerificationDeps(adminId: string, base: VerificationDeps = opayStatusDeps): VerificationDeps {
+export function adminVerificationDeps(adminId: string, base: VerificationDeps): VerificationDeps {
   return {
     ...base,
     fail: async (reference) => (await base.fail(reference)) || (await failVerifiedReviewPayment(reference, adminId)),
@@ -80,7 +82,7 @@ export async function retryPaymentVerification(adminId: string, paymentId: strin
   const payment = await loadPayment(paymentId);
   if (!payment) return { status: 404, body: { error: "Payment not found." } };
   if (!payment.transactionReference || (payment.status !== "PENDING" && payment.status !== "RECONCILIATION_REQUIRED")) {
-    return { status: 409, body: { error: `This payment is ${payment.status.toLowerCase().replaceAll("_", " ")}, so there is nothing for OPay to confirm. Resolve it with a documented note instead.` } };
+    return { status: 409, body: { error: `This payment is ${payment.status.toLowerCase().replaceAll("_", " ")}, so there is nothing for the provider to confirm. Resolve it with a documented note instead.` } };
   }
   await ensureCase(payment.id);
 
@@ -96,7 +98,7 @@ export async function retryPaymentVerification(adminId: string, paymentId: strin
   try {
     result = await verifyOpayPaymentDetailed(
       { reference: payment.transactionReference, amount: payment.amount, currency: payment.currency, providerCheckoutReference: payment.providerCheckoutReference },
-      adminVerificationDeps(adminId, verification),
+      adminVerificationDeps(adminId, verification ?? verificationDepsFor(payment.provider)),
     );
   } catch (error) {
     result = { outcome: "NOT_APPLIED", providerStatus: null, errorName: error instanceof Error ? error.name : "UnknownError" };
@@ -121,12 +123,12 @@ export async function retryPaymentVerification(adminId: string, paymentId: strin
   return { status: 200, body: { outcome: result.outcome, detail, paymentStatus: after?.status ?? payment.status } };
 }
 
-export async function cancelLinkedUnpaid(adminId: string, paymentId: string, verification: VerificationDeps = opayStatusDeps): Promise<ActionResult> {
+export async function cancelLinkedUnpaid(adminId: string, paymentId: string, verification?: VerificationDeps): Promise<ActionResult> {
   const payment = await loadPayment(paymentId);
   if (!payment) return { status: 404, body: { error: "Payment not found." } };
   if (payment.orderId) return { status: 409, body: { error: "This payment is linked to a paid order, so there is no unpaid order to cancel. Use the order’s refund process if needed." } };
-  if (payment.status === "RECONCILIATION_REQUIRED") return { status: 409, body: { error: "This payment is under review. Retry verification first; cancelling is only possible once OPay confirms it wasn’t paid." } };
-  if (!payment.transactionReference) return { status: 409, body: { error: "This payment has no PackAM reference, so it can’t be checked with OPay." } };
+  if (payment.status === "RECONCILIATION_REQUIRED") return { status: 409, body: { error: "This payment is under review. Retry verification first; cancelling is only possible once the payment provider confirms it wasn’t paid." } };
+  if (!payment.transactionReference) return { status: 409, body: { error: "This payment has no PackAM reference, so it can’t be checked with the payment provider." } };
 
   const result = payment.printJobId
     ? await cancelUnpaidPrintJob(printCancellationDeps(payment.printJobId, { id: adminId, role: "ADMIN" }, verification))
@@ -134,11 +136,11 @@ export async function cancelLinkedUnpaid(adminId: string, paymentId: string, ver
   const what = payment.printJobId ? "print job" : "unpaid order";
   switch (result.kind) {
     case "CANCELLED":
-      return { status: 200, body: { cancelled: true, alreadyCancelled: result.alreadyCancelled, message: result.alreadyCancelled ? `This ${what} was already cancelled.` : `The ${what} is cancelled. The payment record is unchanged (OPay reported it as not completed).` } };
+      return { status: 200, body: { cancelled: true, alreadyCancelled: result.alreadyCancelled, message: result.alreadyCancelled ? `This ${what} was already cancelled.` : `The ${what} is cancelled. The payment record is unchanged (the provider reported it as not completed).` } };
     case "PAID":
-      return { status: 409, body: { error: `OPay confirms this payment succeeded, so the ${what} was not cancelled. Fulfilment continues normally.` } };
+      return { status: 409, body: { error: `The payment provider confirms this payment succeeded, so the ${what} was not cancelled. Fulfilment continues normally.` } };
     case "STILL_PENDING":
-      return { status: 409, body: { error: `OPay still reports this payment as pending, or couldn’t be reached. Cancelling now could discard a real payment, so nothing was changed. Retry verification later.` } };
+      return { status: 409, body: { error: `The payment provider still reports this payment as pending, or couldn’t be reached. Cancelling now could discard a real payment, so nothing was changed. Retry verification later.` } };
     case "UNDER_REVIEW":
       return { status: 409, body: { error: "The payment moved into review during the check. Retry verification before cancelling." } };
     case "SUPERSEDED":

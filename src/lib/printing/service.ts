@@ -483,7 +483,7 @@ export async function createPrintPaymentAttempt(
       });
       if (existing) {
         if (existing.printJobId !== printJobId) throw new Error("This payment request key was already used.");
-        if (existing.provider !== provider) throw new Error("This payment attempt uses a different provider.");
+        // An attempt keeps the provider it was created with, even if the active provider has changed since.
         return existing;
       }
 
@@ -624,6 +624,7 @@ export async function getStudentPrintPaymentWorkspace(userId: string, printJobId
         take: 1,
         select: {
           transactionReference: true,
+          provider: true,
           status: true,
           amount: true,
           currency: true,
@@ -646,6 +647,7 @@ export async function getStudentPrintPaymentWorkspace(userId: string, printJobId
     snapshot,
     payment: {
       reference: payment.transactionReference,
+      provider: payment.provider,
       status: payment.status,
       amount: payment.amount,
       currency: payment.currency,

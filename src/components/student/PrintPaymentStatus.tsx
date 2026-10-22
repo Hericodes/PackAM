@@ -6,6 +6,7 @@ import { usePaymentPolling } from "../payments/usePaymentPolling";
 import type { PrintCheckoutSnapshot } from "../../lib/printing/payment-snapshot";
 import { PAYMENT_COPY } from "../../lib/student-copy";
 import { printPaymentActions } from "../../lib/printing/print-cancellation";
+import { providerName } from "../../lib/payments/provider-selection";
 
 type PaymentState = "PENDING" | "SUCCESS" | "FAILED" | "RECONCILIATION_REQUIRED" | "CANCELLED" | "ERROR";
 
@@ -17,6 +18,8 @@ type Props = {
   jobStatus: string;
   cashierUrl: string | null;
   snapshot: PrintCheckoutSnapshot;
+  /** Provider of this job's latest payment attempt (OPAY or PAYSTACK). */
+  provider?: string | null;
 };
 
 const money = (amount: number) => `₦${amount.toLocaleString()}`;
@@ -28,7 +31,9 @@ export function PrintPaymentStatus({
   jobStatus,
   cashierUrl,
   snapshot,
+  provider = null,
 }: Props) {
+  const payWith = providerName(provider);
   const initialState: PaymentState = jobStatus === "CANCELLED"
     ? "CANCELLED"
     : initialStatus === "SUCCESS" || initialStatus === "FAILED" || initialStatus === "RECONCILIATION_REQUIRED"
@@ -47,7 +52,7 @@ export function PrintPaymentStatus({
     setChecking(true);
     try {
       const query = new URLSearchParams({ reference: paymentReference, printJobId });
-      const response = await fetch(`/api/payments/opay/status?${query.toString()}`, { cache: "no-store" });
+      const response = await fetch(`/api/payments/status?${query.toString()}`, { cache: "no-store" });
       const result: unknown = await response.json();
       if (!response.ok || !result || typeof result !== "object" || !("status" in result)) {
         throw new Error("Payment status is not available yet.");
@@ -106,7 +111,7 @@ export function PrintPaymentStatus({
   }
 
   // Backs off and stops after five minutes. Payments under review keep being re-checked, because the
-  // status route re-verifies them with OPay and can complete them; final payments are never polled.
+  // status route re-verifies them with the provider and can complete them; final payments are never polled.
   const finalOnLoad = initialState === "SUCCESS" || initialState === "FAILED" || initialState === "CANCELLED";
   const { timedOut, restart } = usePaymentPolling(useCallback(async () => !finalOnLoad && checkPayment(), [checkPayment, finalOnLoad]));
 
@@ -175,7 +180,7 @@ export function PrintPaymentStatus({
           <>
             <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-black/5 text-2xl font-black" aria-hidden="true">×</div>
             <h1 className="mt-4 text-2xl font-black">{statusMessage}</h1>
-            <p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-black/60">This print job won’t be printed. OPay didn’t complete the payment for it, so nothing was confirmed.</p>
+            <p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-black/60">This print job won’t be printed. {payWith} didn’t complete the payment for it, so nothing was confirmed.</p>
             <p className="mx-auto mt-2 max-w-sm text-xs leading-5 text-black/55">If money left your account anyway, contact support with this reference: <span className="break-all font-semibold">{paymentReference}</span></p>
           </>
         ) : state === "FAILED" ? (
@@ -199,7 +204,7 @@ export function PrintPaymentStatus({
 
         {initialStatus === "PENDING" && (state === "PENDING" || state === "ERROR") && checkoutUrl && (
           <a href={checkoutUrl} className="mt-5 inline-flex min-h-12 w-full items-center justify-center rounded-full bg-black px-5 text-sm font-black text-white transition hover:bg-black/85 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black sm:w-auto">
-            Return to OPay checkout
+            Return to {payWith} checkout
           </a>
         )}
         {initialStatus === "PENDING" && (state === "PENDING" || state === "ERROR") && !checkoutUrl && (
@@ -209,7 +214,7 @@ export function PrintPaymentStatus({
             disabled={startingCheckout}
             className="mt-5 inline-flex min-h-12 w-full items-center justify-center rounded-full bg-black px-5 text-sm font-black text-white transition hover:bg-black/85 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black disabled:opacity-50 sm:w-auto"
           >
-            {startingCheckout ? "Opening OPay…" : "Continue to OPay"}
+            {startingCheckout ? `Opening ${payWith}…` : `Continue to ${payWith}`}
           </button>
         )}
         {checkoutError && <p role="alert" className="mt-3 text-sm text-red-700">{checkoutError}</p>}
@@ -229,8 +234,8 @@ export function PrintPaymentStatus({
             <p id="print-cancel-confirm" className="text-sm font-black">Abeg, confirm say you want to cancel this print job.</p>
             <p className="mt-1 text-sm leading-6 text-black/70">
               {state === "FAILED"
-                ? "OPay didn’t complete this payment. Cancelling means this job won’t be printed — you can start a new one any time."
-                : "We’ll check with OPay first. If your payment has gone through, your print job stays and won’t be cancelled. If it’s still being confirmed, nothing changes yet."}
+                ? `${payWith} didn’t complete this payment. Cancelling means this job won’t be printed — you can start a new one any time.`
+                : `We’ll check with ${payWith} first. If your payment has gone through, your print job stays and won’t be cancelled. If it’s still being confirmed, nothing changes yet.`}
             </p>
             <div className="mt-4 flex flex-col gap-2 sm:flex-row">
               <button type="button" onClick={() => void cancelPrintJob()} disabled={cancelBusy} aria-busy={cancelBusy} className="inline-flex min-h-12 w-full items-center justify-center rounded-full bg-black px-5 text-sm font-black text-white transition hover:bg-black/85 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black disabled:cursor-wait disabled:opacity-60 sm:w-auto">

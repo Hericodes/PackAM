@@ -258,7 +258,8 @@ export function validatePrintPaymentFinalization(input: {
 }) {
   const { payment, job, verified } = input;
   if (
-    verified.provider !== "OPAY" ||
+    // Only providers with a verified integration; the attempt's own provider must match below.
+    (verified.provider !== "OPAY" && verified.provider !== "PAYSTACK") ||
     !verified.providerReference ||
     payment.provider !== verified.provider ||
     !payment.printJobId ||

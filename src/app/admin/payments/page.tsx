@@ -9,11 +9,12 @@ import { formatCampusTime } from "../../../lib/student-copy";
 import { StatusBadge } from "../../../components/ui/StatusBadge";
 import { PaymentReviewActions } from "../../../components/admin/PaymentReviewActions";
 import { PAYMENT_REVIEW_MIGRATION, isPaymentReviewTableMissing } from "../../../lib/db-errors";
+import { SUPPORTED_PROVIDERS, providerName } from "../../../lib/payments/provider-selection";
 
 const CANCEL_MARKER = "checkout.cancelled_by_student";
 
 const PAYMENT_FIELDS = {
-  id: true, status: true, amount: true, currency: true, transactionReference: true, providerReference: true, providerCheckoutReference: true, createdAt: true, paidAt: true, failedAt: true, updatedAt: true, orderId: true, printJobId: true,
+  id: true, provider: true, status: true, amount: true, currency: true, transactionReference: true, providerReference: true, providerCheckoutReference: true, createdAt: true, paidAt: true, failedAt: true, updatedAt: true, orderId: true, printJobId: true,
   user: { select: { email: true } },
   order: { select: { status: true } },
   printJob: { select: { status: true } },
@@ -28,7 +29,7 @@ async function loadReviewCandidates(staleBefore: Date) {
   const unresolved = [{ status: "RECONCILIATION_REQUIRED" as const }, orphanedSuccessfulMarketplacePaymentWhere, { status: "PENDING" as const, createdAt: { lte: staleBefore } }];
   try {
     const rows = await db.payment.findMany({
-      where: { provider: "OPAY", OR: [...unresolved, { reviewCase: { is: { status: "OPEN" } } }] },
+      where: { provider: { in: [...SUPPORTED_PROVIDERS] }, OR: [...unresolved, { reviewCase: { is: { status: "OPEN" } } }] },
       orderBy: { createdAt: "asc" },
       take: 100,
       select: { ...PAYMENT_FIELDS, reviewCase: { select: { status: true, lastCheckAt: true, lastCheckOutcome: true, lastCheckDetail: true, checkCount: true, closedAt: true, closeNote: true, escalatedAt: true } } },
@@ -37,7 +38,7 @@ async function loadReviewCandidates(staleBefore: Date) {
   } catch (error) {
     if (!isPaymentReviewTableMissing(error)) throw error;
     console.error(`ADMIN PAYMENTS: PaymentReviewCase table missing; apply migration ${PAYMENT_REVIEW_MIGRATION} (npx prisma migrate deploy). Showing payments without review cases.`);
-    const rows = await db.payment.findMany({ where: { provider: "OPAY", OR: unresolved }, orderBy: { createdAt: "asc" }, take: 100, select: PAYMENT_FIELDS });
+    const rows = await db.payment.findMany({ where: { provider: { in: [...SUPPORTED_PROVIDERS] }, OR: unresolved }, orderBy: { createdAt: "asc" }, take: 100, select: PAYMENT_FIELDS });
     return { rows: rows.map((row) => ({ ...row, reviewCase: null })), reviewCasesAvailable: false };
   }
 }
@@ -81,8 +82,9 @@ export default async function AdminPaymentsPage() {
 
       <dl className="mt-3 grid gap-x-6 gap-y-1.5 text-xs sm:grid-cols-2">
         <div><dt className="inline text-black/50">PackAM reference: </dt><dd className="inline break-all font-semibold">{payment.transactionReference ?? "—"}</dd></div>
-        <div><dt className="inline text-black/50">OPay order no.: </dt><dd className="inline break-all font-semibold">{payment.providerCheckoutReference ?? "not created"}</dd></div>
-        <div><dt className="inline text-black/50">OPay transaction: </dt><dd className="inline break-all font-semibold">{payment.providerReference ?? "none recorded"}</dd></div>
+        <div><dt className="inline text-black/50">Provider: </dt><dd className="inline font-semibold">{providerName(payment.provider)}</dd></div>
+        <div><dt className="inline text-black/50">Provider checkout ref: </dt><dd className="inline break-all font-semibold">{payment.providerCheckoutReference ?? "not created"}</dd></div>
+        <div><dt className="inline text-black/50">Provider transaction: </dt><dd className="inline break-all font-semibold">{payment.providerReference ?? "none recorded"}</dd></div>
         <div><dt className="inline text-black/50">Paid at (provider-confirmed): </dt><dd className="inline font-semibold">{payment.paidAt ? formatCampusTime(payment.paidAt) : "not confirmed"}</dd></div>
         <div className="sm:col-span-2"><dt className="inline text-black/50">For: </dt><dd className="inline font-semibold">
           {payment.orderId ? <><Link className="underline" href={`/admin/orders/${payment.orderId}`}>Order</Link> · {orderStatusDisplay(payment.order?.status ?? "").label}</>
@@ -96,7 +98,7 @@ export default async function AdminPaymentsPage() {
           <p><span className="font-black">Last admin check: </span>{outcome.label} · {formatCampusTime(reviewCase.lastCheckAt)} · {reviewCase.checkCount} {reviewCase.checkCount === 1 ? "check" : "checks"}</p>
           <p className="text-black/60">{outcome.meaning}{reviewCase.lastCheckDetail ? ` (${reviewCase.lastCheckDetail})` : ""}</p>
         </> : <p className="text-black/60">No admin verification yet. Last record change {formatCampusTime(payment.updatedAt)}.</p>}
-        {payment.status === "SUCCESS" && !payment.orderId && !payment.printJobId && <p className="mt-1 font-semibold text-[#c92d24]">Money was captured but no order exists. This needs manual reconciliation (fulfil or refund through OPay) and a documented note.</p>}
+        {payment.status === "SUCCESS" && !payment.orderId && !payment.printJobId && <p className="mt-1 font-semibold text-[#c92d24]">Money was captured but no order exists. This needs manual reconciliation (fulfil or refund through the payment provider) and a documented note.</p>}
         {reviewCase?.status === "CLOSED" && reviewCase.closeNote && <p className="mt-1"><span className="font-black">Closed{reviewCase.closedAt ? ` ${formatCampusTime(reviewCase.closedAt)}` : ""}: </span>{reviewCase.closeNote}</p>}
       </div>
 
@@ -107,7 +109,7 @@ export default async function AdminPaymentsPage() {
   return <main className="min-h-screen"><div className="packam-container py-8">
     <p className="text-xs font-black uppercase tracking-widest text-black/40">Daily ops</p>
     <h1 className="mt-1 text-3xl font-black">Payments &amp; refunds</h1>
-    <p className="mt-2 max-w-3xl text-sm text-black/60">Only OPay’s signed status record can mark a payment paid or failed. A timeout or error proves nothing, so those payments stay unresolved. Closing a review case is bookkeeping — it never says money was received, refunded or not received. A pending refund is not a completed provider refund.</p>
+    <p className="mt-2 max-w-3xl text-sm text-black/60">Only the payment provider’s verified status record (OPay or Paystack) can mark a payment paid or failed. A timeout or error proves nothing, so those payments stay unresolved. Closing a review case is bookkeeping — it never says money was received, refunded or not received. A pending refund is not a completed provider refund.</p>
 
     {!reviewCasesAvailable && <div role="alert" className="mt-5 rounded-2xl border border-[#c92d24]/25 bg-[#ffe9e7] p-4 text-sm text-[#7a1a14]">
       <p className="font-black">Payment review actions are unavailable: a database migration hasn’t been applied.</p>

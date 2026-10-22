@@ -262,6 +262,13 @@ test("a verified success for an already-paid print job is a duplicate, never a s
   })), /amount or currency/i);
 });
 
+test("a Paystack payment finalises a print job only when the attempt was created with Paystack", () => {
+  const paystack = validatePrintPaymentFinalization(finalizationFixture({ payment: { provider: "PAYSTACK" }, verified: { provider: "PAYSTACK" } }));
+  assert.equal(paystack.alreadyProcessed, false);
+  assert.throws(() => validatePrintPaymentFinalization(finalizationFixture({ payment: { provider: "OPAY" }, verified: { provider: "PAYSTACK" } })), /linked to this print job/i);
+  assert.throws(() => validatePrintPaymentFinalization(finalizationFixture({ payment: { provider: "FLUTTERWAVE" }, verified: { provider: "FLUTTERWAVE" } })), /linked to this print job/i);
+});
+
 test("a verified success arriving after the job was cancelled is never finalised into fulfilment", () => {
   for (const status of ["PENDING", "FAILED", "RECONCILIATION_REQUIRED"]) {
     const result = validatePrintPaymentFinalization(finalizationFixture({ payment: { status }, job: { status: "CANCELLED" } }));

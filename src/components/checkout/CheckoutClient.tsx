@@ -10,7 +10,7 @@ import { productImageDeliveryUrl } from "../../lib/cloudinary-url";
 import { productGlyph } from "../../lib/products/category-display";
 import { pickInitialLocation } from "../../lib/location-choice";
 
-/** The location chosen in this browser session, so a reload or a return from OPay keeps it. */
+/** The location chosen in this browser session, so a reload or a return from the payment page keeps it. */
 const LOCATION_MEMORY_KEY = "packam-checkout-location";
 function readRememberedLocation() { try { return window.sessionStorage.getItem(LOCATION_MEMORY_KEY); } catch { return null; } }
 function rememberLocation(id: string) { try { window.sessionStorage.setItem(LOCATION_MEMORY_KEY, id); } catch { /* storage unavailable: the default still works */ } }
@@ -25,11 +25,13 @@ type CheckoutClientProps = {
   items: CheckoutItem[];
   deliveryFee: number;
   locations: DeliveryLocation[];
+  /** Display name of the provider new checkouts use, e.g. "Paystack". */
+  providerName?: string;
 };
 
 const money = (amount: number) => `₦${amount.toLocaleString()}`;
 
-export function CheckoutClient({ items: initialItems, deliveryFee, locations }: CheckoutClientProps) {
+export function CheckoutClient({ items: initialItems, deliveryFee, locations, providerName = "our payment partner" }: CheckoutClientProps) {
   const { setSummary } = useCartExperience();
   const [items, setItems] = useState(initialItems);
   const [selectedLocation, setSelectedLocation] = useState<DeliveryLocation | null>(locations[0] ?? null);
@@ -54,7 +56,7 @@ export function CheckoutClient({ items: initialItems, deliveryFee, locations }: 
     return () => window.clearTimeout(timer);
   }, [locations]);
 
-  // If the browser restores this page from its back/forward cache after OPay, unfreeze the button.
+  // If the browser restores this page from its back/forward cache after payment, unfreeze the button.
   useEffect(() => {
     const restore = (event: PageTransitionEvent) => { if (event.persisted) setPaymentBusy(false); };
     window.addEventListener("pageshow", restore);
@@ -113,7 +115,7 @@ export function CheckoutClient({ items: initialItems, deliveryFee, locations }: 
         idempotencyKey = crypto.randomUUID();
         window.sessionStorage.setItem(storageKey, idempotencyKey);
       }
-      const response = await fetch("/api/payments/opay/create", {
+      const response = await fetch("/api/payments/create", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -136,7 +138,7 @@ export function CheckoutClient({ items: initialItems, deliveryFee, locations }: 
   const paymentButton = (
     <button type="button" onClick={handlePayment} disabled={!items.length || paymentBusy || busyItem !== null} aria-busy={paymentBusy} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-black px-5 text-sm font-black text-white transition hover:bg-[#262626] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black disabled:cursor-not-allowed disabled:opacity-40">
       {paymentBusy ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-r-transparent" aria-hidden="true" /> : <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#feb80a] text-black"><Icon name="arrowRight" className="h-3 w-3" strokeWidth={3} /></span>}
-      {paymentBusy ? "Opening OPay…" : `Pay ${money(total)}`}
+      {paymentBusy ? `Opening ${providerName}…` : `Pay ${money(total)}`}
     </button>
   );
 
@@ -231,7 +233,7 @@ export function CheckoutClient({ items: initialItems, deliveryFee, locations }: 
         {error && <p role="alert" className="rounded-xl bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{error}</p>}
         {message && <p role="status" className="rounded-xl bg-green-50 px-3 py-2 text-sm font-semibold text-green-800">{message}</p>}
         {paymentButton}
-        <p className="flex items-start gap-2 text-xs leading-5 text-black/55"><Icon name="check" className="mt-0.5 h-3.5 w-3.5 text-[#16803c]" strokeWidth={2.6} /> You’ll finish paying securely on OPay. The total above is what you’ll be charged.</p>
+        <p className="flex items-start gap-2 text-xs leading-5 text-black/55"><Icon name="check" className="mt-0.5 h-3.5 w-3.5 text-[#16803c]" strokeWidth={2.6} /> You’ll finish paying securely on {providerName}. The total above is what you’ll be charged.</p>
       </aside>
 
       <div className="fixed inset-x-0 bottom-0 z-40 border-t border-black/10 bg-[#fffdf7]/95 px-4 pb-[max(12px,env(safe-area-inset-bottom))] pt-3 backdrop-blur lg:hidden">
