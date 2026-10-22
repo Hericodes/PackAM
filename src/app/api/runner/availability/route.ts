@@ -1,6 +1,7 @@
 import { auth } from "../../../../auth";
 import { db } from "../../../../lib/db";
 import { setRunnerAvailability } from "../../../../lib/orders/runner-service";
+import { runnerDashboardStatus } from "../../../../lib/runners/runner-access";
 
 export async function PATCH(request: Request) {
   const session = await auth();
@@ -22,6 +23,8 @@ export async function GET() {
   if (!session?.user || !["RUNNER", "ADMIN"].includes(session.user.role)) return Response.json({ error: "Runner access required." }, { status: 403 });
   if (session.user.role === "ADMIN") return Response.json({ isAvailable: false, isVerified: true, adminView: true });
   const runner = await db.runnerProfile.findUnique({ where: { userId: session.user.id }, select: { isAvailable: true, isVerified: true } });
-  if (!runner) return Response.json({ error: "Runner profile not found." }, { status: 404 });
-  return Response.json(runner);
+  // A RUNNER account without a profile hasn't been set up by operations yet. That's a pending state, not
+  // an error: report it (nothing is created here) so the dashboard can explain instead of failing.
+  if (!runner) console.warn(JSON.stringify({ event: "runner_profile_missing", userIdTail: session.user.id.slice(-6) }));
+  return Response.json(runnerDashboardStatus(runner));
 }

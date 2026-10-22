@@ -41,6 +41,7 @@ function MissionCard({ card }: { card: Card }) {
 export function RunnerMissionBoard({ adminView = false }: { adminView?: boolean }) {
   const [available, setAvailable] = useState(false);
   const [verified, setVerified] = useState(true);
+  const [profileMissing, setProfileMissing] = useState(false);
   const [missions, setMissions] = useState<Mission[]>([]);
   const [printMissions, setPrintMissions] = useState<PrintMission[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -57,6 +58,7 @@ export function RunnerMissionBoard({ adminView = false }: { adminView?: boolean 
       if (!availability.ok) throw new Error(a.error || "Unable to load your runner status.");
       setAvailable(a.isAvailable);
       setVerified(a.isVerified !== false);
+      setProfileMissing(a.profileMissing === true);
       if (a.isVerified === false) {
         setMissions([]); setPrintMissions([]); setError("");
         return;
@@ -94,8 +96,10 @@ export function RunnerMissionBoard({ adminView = false }: { adminView?: boolean 
 
   if (loaded && !verified && !adminView) {
     return <section className="mt-6 rounded-2xl bg-white p-5">
-      <p className="font-black">Your runner account is awaiting verification</p>
-      <p className="mt-1 text-sm text-black/70">PackAM operations will verify you before missions can be offered. Check back soon 🫡</p>
+      <p className="font-black">{profileMissing ? "Your runner account is still being set up" : "Your runner account is awaiting verification"}</p>
+      <p className="mt-1 text-sm text-black/70">{profileMissing
+        ? "PackAM operations needs to finish setting up your runner profile before missions can be offered. Nothing for you to do — check back soon 🫡"
+        : "PackAM operations will verify you before missions can be offered. Check back soon 🫡"}</p>
     </section>;
   }
 
