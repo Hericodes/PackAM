@@ -91,13 +91,13 @@ export function CheckoutLocationStep({ lastLocation, confirmed, onConfirm, onCha
     return (
       <div role="group" aria-label="Choose how to set your delivery location" className="grid gap-2.5">
         {OPTIONS.map((option) => (
-          <button key={option.choice} type="button" onClick={() => choose(option.choice)} className="flex min-h-16 w-full items-center gap-3 rounded-2xl border border-black/10 bg-white p-4 text-left transition hover:border-black/30 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black">
-            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#fff4c7] text-[#875a00]"><Icon name={option.icon} className="h-5 w-5" /></span>
+          <button key={option.choice} type="button" onClick={() => choose(option.choice)} className="flex min-h-16 w-full items-center gap-2.5 rounded-2xl border border-black/10 bg-white p-3 text-left transition hover:border-black/30 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black min-[400px]:gap-3 min-[400px]:p-4">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#fff4c7] text-[#875a00] min-[400px]:h-11 min-[400px]:w-11"><Icon name={option.icon} className="h-5 w-5" /></span>
             <span className="min-w-0 flex-1">
               <span className="block font-black">{option.title}</span>
               <span className="mt-0.5 block text-sm leading-5 text-black/60">{option.choice === "last" && lastLocation ? `${lastLocation.label} · ${lastLocation.address}` : option.body}</span>
             </span>
-            <Icon name="chevronRight" className="h-5 w-5 text-black/40" />
+            <Icon name="chevronRight" className="h-4 w-4 shrink-0 text-black/40 min-[400px]:h-5 min-[400px]:w-5" />
           </button>
         ))}
       </div>

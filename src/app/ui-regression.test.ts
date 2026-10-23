@@ -29,3 +29,22 @@ test("admin data tables stack into labelled cards on phones: every cell has a la
   }
   assert.match(source("./admin/layout.tsx"), /className="pk-ops-main"/, "admin pages get phone-friendly wrapping and tap targets");
 });
+
+test("PackAM is always light: the page declares it, and nothing reacts to a dark device setting", async () => {
+  assert.match(source("./layout.tsx"), /colorScheme: "only light"/, "opts out of browser auto-dark modes too");
+  const css = source("./globals.css");
+  assert.match(css, /:root\s*\{[^}]*color-scheme:\s*only light/, "native controls, scrollbars and autofill stay light");
+  assert.doesNotMatch(css, /prefers-color-scheme:\s*dark/);
+  const { readdirSync } = await import("node:fs");
+  const files = (readdirSync(new URL("..", import.meta.url), { recursive: true }) as string[]).filter((file) => /\.tsx?$/.test(file) && !file.endsWith(".test.ts"));
+  for (const file of files) assert.doesNotMatch(source(`../${file.replaceAll("\\", "/")}`), /\bdark:[a-z[]/, `${file} has no dark-mode variants`);
+});
+
+test("every phone gets the same font and safe-area handling", () => {
+  const layout = source("./layout.tsx");
+  assert.match(layout, /viewportFit: "cover"/, "without it, env(safe-area-inset-*) is always 0 on iPhones");
+  assert.match(layout, /variable: "--font-packam"/);
+  const css = source("./globals.css");
+  assert.match(css, /font-family:\s*var\(--font-packam\),\s*Arial/, "one self-hosted font first, the old stack only as a fallback");
+  assert.match(css, /\.packam-container\s*\{[^}]*safe-area-inset-left/);
+});

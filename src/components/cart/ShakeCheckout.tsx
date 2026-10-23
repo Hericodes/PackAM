@@ -152,7 +152,7 @@ export function ShakeCheckout() {
   return (
     <aside
       aria-live="polite"
-      className="fixed bottom-20 right-4 z-40 max-w-[calc(100vw-2rem)] rounded-2xl border border-black/10 bg-[#fffdf7] p-4 shadow-lg sm:right-7"
+      className="fixed bottom-[calc(5rem+env(safe-area-inset-bottom,0px))] right-4 z-40 max-w-[calc(100vw-2rem)] rounded-2xl border border-black/10 bg-[#fffdf7] p-4 shadow-lg sm:right-7"
     >
       {showInformation ? (
         <>

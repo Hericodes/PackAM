@@ -1,6 +1,12 @@
 @import "tailwindcss";
 
 :root {
+  /*
+   * PackAM has one theme: light. Native controls, scrollbars and autofill stay light, and browsers that
+   * auto-darken pages (Chrome "Auto dark mode", some Android browsers) leave the site alone.
+   */
+  color-scheme: only light;
+
   /* ========================================
      PACKAM BRAND COLORS
      ======================================== */
@@ -149,6 +155,7 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family:
+    var(--font-packam),
     Arial,
     Helvetica,
     sans-serif;
@@ -193,6 +200,18 @@ a {
   color: inherit;
   text-decoration: none;
 }
+
+/* Browser autofill keeps the field white with black text instead of the browser's own tint. */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+textarea:-webkit-autofill,
+select:-webkit-autofill {
+  -webkit-text-fill-color: var(--packam-black);
+  caret-color: var(--packam-black);
+  box-shadow: 0 0 0 1000px var(--packam-white) inset;
+  transition: background-color 600000s 0s;
+}
 }
 
 /* ========================================
@@ -232,8 +251,15 @@ a {
 
 @layer components {
 .packam-container {
-  width: min(100% - 32px, 1200px);
+  /* 16px gutters, plus the notch area when a phone is turned sideways (zero in portrait). */
+  width: min(100% - 32px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px), 1200px);
   margin-inline: auto;
+}
+
+/* Side padding for full-width fixed bars, clear of a sideways phone's notch. */
+.pk-safe-x {
+  padding-left: max(1rem, env(safe-area-inset-left, 0px));
+  padding-right: max(1rem, env(safe-area-inset-right, 0px));
 }
 
 .packam-card {

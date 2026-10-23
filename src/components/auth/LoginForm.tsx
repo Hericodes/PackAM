@@ -40,7 +40,7 @@ export function LoginForm({ registered, callbackUrl }: { registered: boolean; ca
     "w-full rounded-2xl border border-black/15 bg-white px-4 py-3.5 text-base outline-none transition placeholder:text-black/60 focus-visible:border-black focus-visible:ring-2 focus-visible:ring-black/20";
 
   return <main className="pk-theme-auth min-h-screen px-4 py-8 sm:px-6 sm:py-10">
-    <div className="mx-auto flex min-h-[85vh] max-w-md flex-col justify-center">
+    <div className="mx-auto flex min-h-[85svh] max-w-md flex-col justify-center">
       <div className="mb-8">
         <Link href="/" className="inline-flex min-h-11 items-center text-2xl font-black tracking-tight focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-black">Pack<span className="text-[#875a00]">AM</span></Link>
         <h1 className="mt-6 text-3xl font-black tracking-tight sm:mt-8 sm:text-4xl">Welcome back.</h1>

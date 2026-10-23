@@ -63,7 +63,7 @@ export function StudentMobileMenu({ user, primary, secondary }: { user: MenuUser
               role="dialog"
               aria-modal="true"
               aria-label="Menu"
-              className="relative max-h-full overflow-y-auto rounded-b-[28px] border-b border-black/10 bg-[#fffdf7] px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-4 shadow-[0_18px_40px_rgba(8,8,8,0.18)]"
+              className="relative max-h-full overflow-y-auto rounded-b-[28px] border-b border-black/10 bg-[#fffdf7] pk-safe-x pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-4 shadow-[0_18px_40px_rgba(8,8,8,0.18)]"
             >
               {user && (
                 <div className="mb-4 flex items-center gap-3 rounded-2xl bg-gradient-to-br from-[#fff1bf] to-white p-3 ring-1 ring-[#feb80a]/30">

@@ -228,7 +228,7 @@ export function CheckoutClient({ items: initialItems, deliveryFee, lastLocation,
         <p className="flex items-start gap-2 text-xs leading-5 text-black/55"><Icon name="check" className="mt-0.5 h-3.5 w-3.5 text-[#16803c]" strokeWidth={2.6} /> You’ll finish paying securely on {providerName}. The total above is what you’ll be charged.</p>
       </aside>
 
-      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-black/10 bg-[#fffdf7]/95 px-4 pb-[max(12px,env(safe-area-inset-bottom))] pt-3 backdrop-blur lg:hidden">
+      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-black/10 bg-[#fffdf7]/95 pk-safe-x pb-[max(12px,env(safe-area-inset-bottom))] pt-3 backdrop-blur lg:hidden">
         <div className="mx-auto flex max-w-3xl items-center gap-4">
           <div className="min-w-0 shrink-0" aria-live="polite"><p className="text-xs font-bold text-black/60">Total</p><p className="text-lg font-black leading-6">{money(total)}</p></div>
           <div className="flex-1">{paymentButton}</div>

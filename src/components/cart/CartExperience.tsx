@@ -44,6 +44,8 @@ export function CartExperience({ children }: { children: React.ReactNode }) {
   return <CartContext.Provider value={value}>
     {children}
     {showCheckout && <>
+      {/* Room at the end of the page, so the floating button never covers the last products. */}
+      <div aria-hidden="true" className="h-[calc(5rem+env(safe-area-inset-bottom,0px))] sm:h-24" />
       <ShakeCheckout />
       <Link href="/checkout" aria-label={`Checkout, ${count} ${count === 1 ? "item" : "items"}, subtotal ₦${subtotal.toLocaleString()}`} className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] right-4 z-40 inline-flex min-h-12 items-center gap-2 rounded-full bg-black px-5 text-sm font-black text-white shadow-lg ring-1 ring-white/30 transition hover:bg-black/85 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black sm:bottom-7 sm:right-7 sm:px-6">
         <span aria-hidden="true">🛒</span><span>Checkout · ₦{subtotal.toLocaleString()}</span><span className="flex h-6 min-w-6 items-center justify-center rounded-full bg-[#feb80a] px-1.5 text-xs text-black">{count}</span>

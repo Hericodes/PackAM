@@ -30,7 +30,7 @@ function ServiceCard({ service }: { service: Service }) {
         <Icon name={service.icon} className="h-6 w-6" />
       </span>
       <div className="min-w-0 flex-1">
-        <h2 id={titleId} className="text-lg font-black tracking-[-0.01em] sm:text-xl">{service.title}</h2>
+        <h2 id={titleId} className="text-lg font-black leading-snug tracking-[-0.01em] sm:text-xl">{service.title}</h2>
         <p className={`mt-0.5 text-sm leading-6 sm:text-[0.9375rem] ${service.featured ? "text-black/75" : "text-black/60"}`}>{service.body}</p>
         {!service.href && (
           <p id={`${titleId}-status`} className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-[#fff4c7] px-2.5 py-1 text-[0.6875rem] font-black uppercase tracking-[0.1em] text-[#875a00]">
