@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { FAST_FIX, requestPosition, type GeoFailure } from "../../lib/geolocation";
+import { requestPositionWithFallback, type GeoFailure } from "../../lib/geolocation";
 import { gpsFailureMessage, type LocationChoice } from "../../lib/checkout-location-step";
 import type { Coordinates } from "../../lib/delivery-location";
 import { Icon, type IconName } from "../ui/Icon";
@@ -43,10 +43,7 @@ export function CheckoutLocationStep({ lastLocation, confirmed, onConfirm, onCha
   async function locate() {
     cancelGps.current?.();
     setGps({ status: "locating" });
-    const request = requestPosition(
-      { geolocation: typeof navigator !== "undefined" && "geolocation" in navigator ? navigator.geolocation : undefined, secureContext: typeof window !== "undefined" && window.isSecureContext },
-      FAST_FIX,
-    );
+    const request = requestPositionWithFallback({ geolocation: typeof navigator !== "undefined" && "geolocation" in navigator ? navigator.geolocation : undefined, secureContext: typeof window !== "undefined" && window.isSecureContext });
     cancelGps.current = request.cancel;
     const result = await request.result;
     if (cancelGps.current === request.cancel) cancelGps.current = null;

@@ -119,7 +119,7 @@ export default function RegisterPage() {
                 onChange={(event) =>
                   updateField("firstName", event.target.value)
                 }
-                placeholder="Olayimika"
+                placeholder="Enter your first name"
                 autoComplete="given-name"
                 required
                 className="w-full rounded-2xl border border-black/15 bg-white px-4 py-3.5 text-base outline-none transition placeholder:text-black/60 focus-visible:border-black focus-visible:ring-2 focus-visible:ring-black/20"
@@ -141,7 +141,7 @@ export default function RegisterPage() {
                 onChange={(event) =>
                   updateField("lastName", event.target.value)
                 }
-                placeholder="Ogunmona"
+                placeholder="Enter your last name"
                 autoComplete="family-name"
                 required
                 className="w-full rounded-2xl border border-black/15 bg-white px-4 py-3.5 text-base outline-none transition placeholder:text-black/60 focus-visible:border-black focus-visible:ring-2 focus-visible:ring-black/20"

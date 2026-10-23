@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 import { formatCoordinates, mapsLink, type Coordinates } from "../../lib/delivery-location";
-import { FAST_FIX, PRECISE_FIX, isCoarse, requestPosition, type GeoFailure } from "../../lib/geolocation";
+import { PRECISE_FIX, isCoarse, requestPosition, requestPositionWithFallback, type GeoFailure } from "../../lib/geolocation";
 import { CAMPUS_KIND_LABELS, LOCATION_LABEL_MAX, campusPlaceAddress, deriveLocationLabel, matchCampusPlaces } from "../../lib/location-choice";
 import { CAMPUS_PLACES, type CampusPlace } from "../../config/campus-places";
 import { Icon } from "../ui/Icon";
@@ -61,10 +61,8 @@ export function LocationForm({ onSaved, onCancel, places = CAMPUS_PLACES, allowG
   async function locate(precise: boolean) {
     cancelGps.current?.();
     setGps({ status: "locating", precise });
-    const request = requestPosition(
-      { geolocation: typeof navigator !== "undefined" && "geolocation" in navigator ? navigator.geolocation : undefined, secureContext: typeof window !== "undefined" && window.isSecureContext },
-      precise ? PRECISE_FIX : FAST_FIX,
-    );
+    const env = { geolocation: typeof navigator !== "undefined" && "geolocation" in navigator ? navigator.geolocation : undefined, secureContext: typeof window !== "undefined" && window.isSecureContext };
+    const request = precise ? requestPosition(env, PRECISE_FIX) : requestPositionWithFallback(env);
     cancelGps.current = request.cancel;
     const result = await request.result;
     if (cancelGps.current === request.cancel) cancelGps.current = null;

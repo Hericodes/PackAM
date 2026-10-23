@@ -62,6 +62,25 @@ export function requestPosition(
   return { result, cancel: () => settle({ ok: false, reason: "cancelled" }) };
 }
 
+/**
+ * The fast fix first; if it finds nothing (no Wi-Fi/cell position, or it timed out), one satellite-GPS
+ * attempt before giving up, since outdoors or with Wi-Fi scanning off GPS is often what works.
+ * A denial, a missing API or a cancel is final: the student is never asked twice.
+ */
+export function requestPositionWithFallback(
+  env: { geolocation: GeolocationLike | undefined; secureContext: boolean },
+  watchdogMs = GEO_WATCHDOG_MS,
+): { result: Promise<GeoResult>; cancel: () => void } {
+  let current = requestPosition(env, FAST_FIX, watchdogMs);
+  let cancelled = false;
+  const result = current.result.then((first) => {
+    if (first.ok || cancelled || (first.reason !== "unavailable" && first.reason !== "timeout")) return first;
+    current = requestPosition(env, PRECISE_FIX, watchdogMs);
+    return current.result;
+  });
+  return { result, cancel: () => { cancelled = true; current.cancel(); } };
+}
+
 export function isCoarse(accuracy: number | null) {
   return accuracy === null || accuracy > COARSE_ACCURACY_METRES;
 }

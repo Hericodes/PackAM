@@ -48,3 +48,11 @@ test("every phone gets the same font and safe-area handling", () => {
   assert.match(css, /font-family:\s*var\(--font-packam\),\s*Arial/, "one self-hosted font first, the old stack only as a fallback");
   assert.match(css, /\.packam-container\s*\{[^}]*safe-area-inset-left/);
 });
+
+test("signup name fields use neutral placeholders, never a real person's name", () => {
+  const page = source("./register/page.tsx");
+  assert.match(page, /placeholder="Enter your first name"/);
+  assert.match(page, /placeholder="Enter your last name"/);
+  assert.doesNotMatch(page, /Olayimika|Ogunmona/i);
+  assert.match(page, /firstName: "",\s*lastName: "",/, "fields still start empty: no prefill was added or removed");
+});

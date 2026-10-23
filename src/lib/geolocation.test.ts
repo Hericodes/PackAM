@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { FAST_FIX, PRECISE_FIX, isCoarse, requestPosition } from "./geolocation";
+import { FAST_FIX, PRECISE_FIX, isCoarse, requestPosition, requestPositionWithFallback } from "./geolocation";
 
 type Success = (position: { coords: { latitude: number; longitude: number; accuracy: number } }) => void;
 type Failure = (failure: { code: number }) => void;
@@ -71,4 +71,49 @@ test("coarse pins are flagged so a precise retry is offered", () => {
   assert.equal(isCoarse(30), false);
   assert.equal(isCoarse(450), true);
   assert.equal(isCoarse(null), true);
+});
+
+test("fallback: a fast Wi-Fi/cell fix is used as-is, with no second request", async () => {
+  const fake = fakeGeolocation((success) => success({ coords: { latitude: 6.81, longitude: 3.91, accuracy: 30 } }));
+  const result = await requestPositionWithFallback({ geolocation: fake.geolocation, secureContext: true }).result;
+  assert.equal(result.ok, true);
+  assert.deepEqual(fake.calls, [FAST_FIX]);
+});
+
+test("fallback: when the fast fix finds nothing or times out, satellite GPS gets one try", async () => {
+  for (const code of [2, 3]) {
+    let call = 0;
+    const fake = fakeGeolocation((success, failure) => (++call === 1 ? failure({ code }) : success({ coords: { latitude: 6.812345, longitude: 3.912345, accuracy: 8 } })));
+    const result = await requestPositionWithFallback({ geolocation: fake.geolocation, secureContext: true }).result;
+    assert.deepEqual(result, { ok: true, coordinates: { latitude: 6.812345, longitude: 3.912345 }, accuracy: 8 }, `code ${code}`);
+    assert.deepEqual(fake.calls, [FAST_FIX, PRECISE_FIX], `code ${code}`);
+  }
+});
+
+test("fallback: if GPS also fails, the real reason is reported so manual entry takes over", async () => {
+  const fake = fakeGeolocation((_success, failure) => failure({ code: 2 }));
+  assert.deepEqual(await requestPositionWithFallback({ geolocation: fake.geolocation, secureContext: true }).result, { ok: false, reason: "unavailable" });
+  assert.equal(fake.calls.length, 2, "two attempts, never more");
+});
+
+test("fallback: a denial or an unsupported browser is final, the student is never asked twice", async () => {
+  const denied = fakeGeolocation((_success, failure) => failure({ code: 1 }));
+  assert.deepEqual(await requestPositionWithFallback({ geolocation: denied.geolocation, secureContext: true }).result, { ok: false, reason: "denied" });
+  assert.equal(denied.calls.length, 1);
+  assert.deepEqual(await requestPositionWithFallback({ geolocation: undefined, secureContext: true }).result, { ok: false, reason: "unsupported" });
+});
+
+test("fallback: cancelling during either attempt stops everything", async () => {
+  const first = fakeGeolocation((success) => success({ coords: { latitude: 6.8, longitude: 3.9, accuracy: 5 } }), 40);
+  const a = requestPositionWithFallback({ geolocation: first.geolocation, secureContext: true });
+  a.cancel();
+  assert.deepEqual(await a.result, { ok: false, reason: "cancelled" });
+  assert.equal(first.calls.length, 1);
+
+  let call = 0;
+  const second = fakeGeolocation((success, failure) => (++call === 1 ? failure({ code: 3 }) : success({ coords: { latitude: 6.8, longitude: 3.9, accuracy: 5 } })), 20);
+  const b = requestPositionWithFallback({ geolocation: second.geolocation, secureContext: true });
+  await new Promise((resolve) => setTimeout(resolve, 30)); // first attempt has failed; GPS attempt in flight
+  b.cancel();
+  assert.deepEqual(await b.result, { ok: false, reason: "cancelled" });
 });
