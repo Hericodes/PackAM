@@ -13,6 +13,14 @@ type LocationFormProps = {
   onCancel: () => void;
   /** Campus suggestions; defaults to the operations-maintained list. */
   places?: CampusPlace[];
+  /** Show the optional "Use my current location" control (default true). Checkout's type-only option hides it. */
+  allowGps?: boolean;
+  /** A pin already captured from this phone (checkout's "current location" option). Shown read-only. */
+  pin?: { coordinates: Coordinates; accuracy: number | null };
+  title?: string;
+  intro?: string;
+  submitLabel?: string;
+  cancelLabel?: string;
 };
 
 type GpsState =
@@ -31,11 +39,11 @@ const GPS_MESSAGES: Record<Exclude<GeoFailure, "cancelled">, string> = {
 const LABEL_SUGGESTIONS = ["Hostel", "Faculty", "Main gate", "Library", "Lecture hall"];
 const DIRECTION_SUGGESTIONS = ["Meet me at the hostel gate", "Call me when you arrive", "I’m on the ground floor"];
 
-export function LocationForm({ onSaved, onCancel, places = CAMPUS_PLACES }: LocationFormProps) {
+export function LocationForm({ onSaved, onCancel, places = CAMPUS_PLACES, allowGps = true, pin, title = "New delivery location", intro, submitLabel = "Save and use this location", cancelLabel = "Cancel" }: LocationFormProps) {
   const [label, setLabel] = useState("");
   const [address, setAddress] = useState("");
   const [instructions, setInstructions] = useState("");
-  const [gps, setGps] = useState<GpsState>({ status: "idle" });
+  const [gps, setGps] = useState<GpsState>(pin ? { status: "captured", coordinates: pin.coordinates, accuracy: pin.accuracy } : { status: "idle" });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [addressError, setAddressError] = useState("");
@@ -113,8 +121,8 @@ export function LocationForm({ onSaved, onCancel, places = CAMPUS_PLACES }: Loca
   return (
     <form onSubmit={handleSubmit} noValidate aria-busy={loading} aria-labelledby="location-form-heading" className="space-y-5">
       <div>
-        <h3 id="location-form-heading" className="text-lg font-black">New delivery location</h3>
-        <p className="mt-1 text-sm leading-6 text-black/60">Type where you are on campus — that’s all your runner needs. A GPS pin is an optional extra.</p>
+        <h3 id="location-form-heading" className="text-lg font-black">{title}</h3>
+        <p className="mt-1 text-sm leading-6 text-black/60">{intro ?? (allowGps ? "Type where you are on campus — that’s all your runner needs. A GPS pin is an optional extra." : "Type where you are on campus — that’s all your runner needs.")}</p>
       </div>
 
       {error && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{error}</p>}
@@ -155,7 +163,16 @@ export function LocationForm({ onSaved, onCancel, places = CAMPUS_PLACES }: Loca
         {addressError && <p id="location-address-error" className="mt-1.5 text-sm font-semibold text-red-700">{addressError}</p>}
       </div>
 
-      {/* 2. Optional GPS pin */}
+      {/* 2. GPS pin: optional control, or the pin checkout already captured (read-only) */}
+      {!allowGps && gps.status === "captured" && (
+        <div className="rounded-2xl border border-black/10 bg-[#fffdf7] p-4">
+          <p className="flex items-center gap-2 text-sm font-black"><span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#16803c] text-white"><Icon name="check" className="h-3.5 w-3.5" strokeWidth={3} /></span> GPS pin from this phone</p>
+          <p className="mt-1 font-mono text-xs text-black/65">{formatCoordinates(gps.coordinates)}{gps.accuracy !== null && ` · ±${gps.accuracy} m`}</p>
+          {isCoarse(gps.accuracy) && <p className="mt-1 text-xs font-semibold text-[#a15c00]">This pin is approximate. Your written location below matters most.</p>}
+          <a href={mapsLink(gps.coordinates)} target="_blank" rel="noopener noreferrer" className="mt-1 inline-flex min-h-9 items-center gap-1 text-xs font-bold underline underline-offset-2">Check it’s right on a map <Icon name="arrowRight" className="h-3 w-3" /></a>
+        </div>
+      )}
+      {allowGps && <>
       <div className="rounded-2xl border border-black/10 bg-[#fffdf7] p-4">
         {gps.status === "captured" ? (
           <div className="flex flex-wrap items-start justify-between gap-3">
@@ -187,6 +204,8 @@ export function LocationForm({ onSaved, onCancel, places = CAMPUS_PLACES }: Loca
         )}
       </div>
 
+      </>}
+
       {/* 3. Optional short name */}
       <div>
         <label htmlFor="location-label" className="mb-1.5 block text-sm font-black">Name for this location <span className="font-medium text-black/50">(optional)</span></label>
@@ -208,8 +227,8 @@ export function LocationForm({ onSaved, onCancel, places = CAMPUS_PLACES }: Loca
       </div>
 
       <div className="flex flex-col-reverse gap-2.5 sm:flex-row">
-        <button type="button" onClick={onCancel} disabled={loading} className="pk-btn pk-btn-secondary pk-btn-lg sm:flex-1">Cancel</button>
-        <button type="submit" disabled={loading} className="pk-btn pk-btn-primary pk-btn-lg disabled:opacity-60 sm:flex-1">{loading ? "Saving…" : "Save and use this location"}</button>
+        <button type="button" onClick={onCancel} disabled={loading} className="pk-btn pk-btn-secondary pk-btn-lg sm:flex-1">{cancelLabel}</button>
+        <button type="submit" disabled={loading} className="pk-btn pk-btn-primary pk-btn-lg disabled:opacity-60 sm:flex-1">{loading ? "Saving…" : submitLabel}</button>
       </div>
     </form>
   );

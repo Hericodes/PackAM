@@ -4,7 +4,7 @@ import { db } from "../../../lib/db";
 import { redirect } from "next/navigation";
 import { CheckoutClient } from "../../../components/checkout/CheckoutClient";
 import { CHECKOUT_DELIVERY_FEE } from "../../../lib/checkout-pricing";
-import { orderLocationsForCheckout } from "../../../lib/location-choice";
+import { lastLocationFor } from "../../../lib/checkout-location-step";
 import { checkoutProvider } from "../../../lib/payments/gateways";
 import { providerName } from "../../../lib/payments/provider-selection";
 
@@ -62,7 +62,8 @@ export default async function CheckoutPage() {
     // Where the student's last order went: preselected, so a returning student usually just pays.
     db.order.findFirst({ where: { userId: session.user.id, deliveryLocationId: { not: null } }, orderBy: { createdAt: "desc" }, select: { deliveryLocationId: true } }),
   ]);
-  const locations = orderLocationsForCheckout(savedLocations, lastOrder?.deliveryLocationId);
+  // Only this student's own saved locations are ever loaded (queried by their user id above).
+  const lastLocation = lastLocationFor(savedLocations, lastOrder?.deliveryLocationId);
 
   const payWith = providerName(checkoutProvider());
   const items = cart?.items ?? [];
@@ -95,7 +96,7 @@ export default async function CheckoutPage() {
               },
             }))}
             deliveryFee={CHECKOUT_DELIVERY_FEE}
-            locations={locations}
+            lastLocation={lastLocation}
           />
         </div>
       </div>

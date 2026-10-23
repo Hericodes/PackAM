@@ -3,17 +3,13 @@
 import Image from "next/image";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { DeliveryLocation, LocationSelector, hasPin } from "./LocationSelector";
+import { DeliveryLocation, hasPin } from "./LocationSelector";
+import { CheckoutLocationStep } from "./CheckoutLocationStep";
 import { Icon } from "../ui/Icon";
 import { useCartExperience } from "../cart/CartExperience";
 import { productImageDeliveryUrl } from "../../lib/cloudinary-url";
 import { productGlyph } from "../../lib/products/category-display";
-import { pickInitialLocation } from "../../lib/location-choice";
 
-/** The location chosen in this browser session, so a reload or a return from the payment page keeps it. */
-const LOCATION_MEMORY_KEY = "packam-checkout-location";
-function readRememberedLocation() { try { return window.sessionStorage.getItem(LOCATION_MEMORY_KEY); } catch { return null; } }
-function rememberLocation(id: string) { try { window.sessionStorage.setItem(LOCATION_MEMORY_KEY, id); } catch { /* storage unavailable: the default still works */ } }
 
 type CheckoutItem = {
   id: string;
@@ -24,18 +20,20 @@ type CheckoutItem = {
 type CheckoutClientProps = {
   items: CheckoutItem[];
   deliveryFee: number;
-  locations: DeliveryLocation[];
+  /** The student's own most recent delivery location, offered as "Use my last location". */
+  lastLocation: DeliveryLocation | null;
   /** Display name of the provider new checkouts use, e.g. "Paystack". */
   providerName?: string;
 };
 
 const money = (amount: number) => `₦${amount.toLocaleString()}`;
 
-export function CheckoutClient({ items: initialItems, deliveryFee, locations, providerName = "our payment partner" }: CheckoutClientProps) {
+export function CheckoutClient({ items: initialItems, deliveryFee, lastLocation, providerName = "our payment partner" }: CheckoutClientProps) {
   const { setSummary } = useCartExperience();
   const [items, setItems] = useState(initialItems);
-  const [selectedLocation, setSelectedLocation] = useState<DeliveryLocation | null>(locations[0] ?? null);
-  const [deliveryInstructions, setDeliveryInstructions] = useState(locations[0]?.instructions ?? "");
+  // Nothing is preselected: every checkout starts with the three location options.
+  const [selectedLocation, setSelectedLocation] = useState<DeliveryLocation | null>(null);
+  const [deliveryInstructions, setDeliveryInstructions] = useState("");
   const [busyItem, setBusyItem] = useState<string | null>(null);
   const [paymentBusy, setPaymentBusy] = useState(false);
   const [error, setError] = useState("");
@@ -43,18 +41,6 @@ export function CheckoutClient({ items: initialItems, deliveryFee, locations, pr
   const subtotal = items.reduce((sum, item) => sum + item.product.customerPrice * item.quantity, 0);
   const currentDeliveryFee = items.length ? deliveryFee : 0;
   const total = subtotal + currentDeliveryFee;
-
-  // Restore this session's choice after hydration (the server can't see sessionStorage).
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      const remembered = pickInitialLocation(locations, readRememberedLocation());
-      if (remembered && remembered.id !== locations[0]?.id) {
-        setSelectedLocation(remembered);
-        setDeliveryInstructions(remembered.instructions ?? "");
-      }
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, [locations]);
 
   // If the browser restores this page from its back/forward cache after payment, unfreeze the button.
   useEffect(() => {
@@ -173,15 +159,21 @@ export function CheckoutClient({ items: initialItems, deliveryFee, locations, pr
               <p className="text-xs text-black/55">Where make your runner bring am?</p>
             </div>
           </div>
-          <LocationSelector framed={false} locations={locations} selectedLocation={selectedLocation} onSelect={(location) => { setSelectedLocation(location); setDeliveryInstructions(location.instructions ?? ""); setError(""); rememberLocation(location.id); }} />
-          <div className="mt-5">
+          <CheckoutLocationStep
+            lastLocation={lastLocation}
+            confirmed={selectedLocation}
+            onConfirm={(location) => { setSelectedLocation(location); setDeliveryInstructions(location.instructions ?? ""); setError(""); }}
+            onChange={() => setSelectedLocation(null)}
+            onContinue={() => { const items = document.getElementById("checkout-items"); items?.scrollIntoView({ behavior: "smooth", block: "start" }); items?.focus({ preventScroll: true }); }}
+          />
+          {selectedLocation && <div className="mt-5">
             <label htmlFor="checkout-delivery-instructions" className="block text-sm font-black">Instructions for this order <span className="font-medium text-black/50">(optional)</span></label>
             <textarea id="checkout-delivery-instructions" value={deliveryInstructions} onChange={(event) => setDeliveryInstructions(event.target.value.slice(0, 500))} maxLength={500} rows={2} placeholder="e.g. Call me when you reach the hostel gate" aria-describedby="checkout-delivery-instructions-count" className="mt-2 min-h-20 w-full rounded-xl border border-black/15 bg-white px-4 py-3 text-base outline-none transition placeholder:text-black/45 focus:border-black focus:shadow-[0_0_0_3px_rgba(254,184,10,0.45)]" />
             <p id="checkout-delivery-instructions-count" className="mt-1 text-right text-xs text-black/50">{deliveryInstructions.length}/500</p>
-          </div>
+          </div>}
         </section>
 
-        <section aria-labelledby="checkout-items-heading" className="pk-card p-4 sm:p-6">
+        <section id="checkout-items" tabIndex={-1} aria-labelledby="checkout-items-heading" className="pk-card scroll-mt-24 p-4 outline-none sm:p-6">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <span className="flex h-8 w-8 items-center justify-center rounded-full bg-black text-sm font-black text-[#feb80a]" aria-hidden="true">2</span>
