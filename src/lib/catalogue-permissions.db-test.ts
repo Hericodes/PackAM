@@ -24,7 +24,7 @@ type App = {
   db: Awaited<ReturnType<typeof testDb>>;
   products: typeof import("../app/api/products/route");
   product: typeof import("../app/api/products/[id]/route");
-  signing: typeof import("../app/api/sign-cloudinary-params/route");
+  signing: typeof import("../app/api/admin/product-images/route");
   productSources: typeof import("../app/api/admin/product-sources/route");
   categories: typeof import("../app/api/admin/categories/route");
   cart: typeof import("../app/api/cart/route");
@@ -39,7 +39,7 @@ before(async () => {
   const [products, product, signing, productSources, categories, cart, runnerOrders, payments] = await Promise.all([
     import("../app/api/products/route"),
     import("../app/api/products/[id]/route"),
-    import("../app/api/sign-cloudinary-params/route"),
+    import("../app/api/admin/product-images/route"),
     import("../app/api/admin/product-sources/route"),
     import("../app/api/admin/categories/route"),
     import("../app/api/cart/route"),
@@ -119,7 +119,7 @@ test("other catalogue-management routes are admin-only too", { skip }, async () 
   for (const user of [runner, student]) {
     signInAs(user);
     assert.equal((await callRoute(products.GET)).status, 403, "catalogue export");
-    assert.equal((await callRoute(signing.POST, { method: "POST", body: { paramsToSign: { timestamp: Math.floor(Date.now() / 1000), folder: "packam/products" } } })).status, 403, "image signing");
+    assert.equal((await callRoute(signing.POST, { method: "POST" })).status, 403, "product image upload credentials");
     assert.equal((await callRoute(productSources.POST, { method: "POST", body: { productId: item.id, vendorId: vendor.id, availability: "AVAILABLE", currentPrice: 0 } })).status, 403, "vendor sources");
     assert.equal((await callRoute(categories.POST, { method: "POST", body: { name: "Hacked" } })).status, 403, "categories");
   }

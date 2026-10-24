@@ -4,6 +4,7 @@ import { db } from "../../../../lib/db";
 import { writeAuditLog } from "../../../../lib/audit";
 import { consumeRateLimit } from "../../../../lib/rate-limit";
 import { isPackamProductImageUrl } from "../../../../lib/cloudinary-url";
+import { verifyProductImageForSave } from "../../../../lib/products/product-image-server";
 import { activationBlocker, canManageCatalogue, isValidCustomerPrice } from "../../../../lib/catalogue-permissions";
 import { deleteProductAsAdmin } from "../../../../lib/products/product-deletion";
 
@@ -146,6 +147,11 @@ export async function PATCH(
     }
 
     if (imageUrl !== undefined && typeof imageUrl === "string" && !isPackamProductImageUrl(imageUrl, process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME)) return NextResponse.json({ error: "Choose a PackAM product image." }, { status: 400 });
+    // Only a new photo is checked against image storage; keeping the current one (or removing it) needs no check.
+    if (typeof imageUrl === "string" && imageUrl.trim() && imageUrl.trim() !== existingProduct.imageUrl) {
+      const image = await verifyProductImageForSave(imageUrl.trim());
+      if (!image.ok) return NextResponse.json({ error: image.error }, { status: image.status });
+    }
 
     const product = await db.$transaction(async (tx) => {
     const before = await tx.product.findUnique({ where: { id }, select: { name: true, categoryId: true, customerPrice: true, status: true, updatedAt: true } });

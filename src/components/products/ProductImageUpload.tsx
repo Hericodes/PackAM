@@ -1,99 +1,138 @@
 "use client";
 
-import { CldUploadWidget } from "next-cloudinary";
 import Image from "next/image";
+import { useEffect, useRef, useState, type DragEvent } from "react";
+import { productImageDeliveryUrl } from "../../lib/cloudinary-url";
+import { PRODUCT_IMAGE_HINT, PRODUCT_IMAGE_MIME_TYPES, productImageFileProblem } from "../../lib/products/product-image";
+import { UPLOAD_ABORTED, browserUploadDeps, uploadProductImage } from "../../lib/products/product-image-upload";
+import { Icon } from "../ui/Icon";
 
 type ProductImageUploadProps = {
+  /** The stored image URL ("" for none). Changes only after an upload is confirmed, or on Remove. */
   value: string;
   onChange: (url: string) => void;
+  /** True while a file is uploading, so the form can wait before saving. */
+  onBusyChange?: (busy: boolean) => void;
+  disabled?: boolean;
 };
 
-export function ProductImageUpload({
-  value,
-  onChange,
-}: ProductImageUploadProps) {
+type Upload =
+  | { state: "idle" }
+  | { state: "uploading"; file: File; preview: string; progress: number | null }
+  | { state: "failed"; file: File; preview: string; error: string }
+  | { state: "rejected"; error: string };
+
+export function ProductImageUpload({ value, onChange, onBusyChange, disabled = false }: ProductImageUploadProps) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const abortRef = useRef<(() => void) | null>(null);
+  const [upload, setUpload] = useState<Upload>({ state: "idle" });
+  const [dragging, setDragging] = useState(false);
+  const uploading = upload.state === "uploading";
+
+  useEffect(() => { onBusyChange?.(uploading); }, [uploading, onBusyChange]);
+  // Stop an upload if the form goes away, and release local previews.
+  useEffect(() => () => abortRef.current?.(), []);
+  const preview = upload.state === "uploading" || upload.state === "failed" ? upload.preview : null;
+  useEffect(() => () => { if (preview) URL.revokeObjectURL(preview); }, [preview]);
+
+  async function start(file: File, existingPreview?: string) {
+    if (uploading) return; // one upload at a time
+    const problem = productImageFileProblem(file);
+    if (problem) {
+      setUpload({ state: "rejected", error: problem });
+      return;
+    }
+    const previewUrl = existingPreview ?? URL.createObjectURL(file);
+    setUpload({ state: "uploading", file, preview: previewUrl, progress: null });
+    try {
+      const url = await uploadProductImage(file, (progress) => setUpload((current) => (current.state === "uploading" ? { ...current, progress } : current)), (abort) => { abortRef.current = abort; }, browserUploadDeps);
+      abortRef.current = null;
+      onChange(url);
+      setUpload({ state: "idle" });
+    } catch (error) {
+      abortRef.current = null;
+      if (error instanceof Error && error.message === UPLOAD_ABORTED) {
+        // Cancelled: back to the previous photo (or none), nothing saved.
+        setUpload({ state: "idle" });
+        return;
+      }
+      setUpload({ state: "failed", file, preview: previewUrl, error: error instanceof Error ? error.message : "The upload failed." });
+    }
+  }
+
+  function pick(files: FileList | null) {
+    const file = files?.[0];
+    if (file) void start(file);
+    if (inputRef.current) inputRef.current.value = ""; // choosing the same file again still fires
+  }
+
+  function onDrop(event: DragEvent<HTMLDivElement>) {
+    event.preventDefault();
+    setDragging(false);
+    if (!disabled && !uploading) pick(event.dataTransfer.files);
+  }
+
+  const choose = () => inputRef.current?.click();
+  const shown = preview ?? (value ? productImageDeliveryUrl(value) : null);
+  const blocked = disabled || uploading;
+
   return (
     <div>
-      <CldUploadWidget
-        signatureEndpoint="/api/sign-cloudinary-params"
-        options={{
-          multiple: false,
-          maxFiles: 1,
-          resourceType: "image",
-          clientAllowedFormats: ["jpg", "jpeg", "png", "webp"],
-          maxFileSize: 5_000_000,
-          folder: "packam/products",
-        }}
-        onSuccess={(result) => {
-          if (
-            typeof result.info === "object" &&
-            result.info !== null &&
-            "secure_url" in result.info
-          ) {
-            const secureUrl = result.info.secure_url;
+      <input ref={inputRef} type="file" accept={PRODUCT_IMAGE_MIME_TYPES.join(",")} className="sr-only" tabIndex={-1} aria-hidden="true" onChange={(event) => pick(event.target.files)} disabled={blocked} />
 
-            if (typeof secureUrl === "string") {
-              onChange(secureUrl);
-            }
-          }
-        }}
+      <div
+        onDragOver={(event) => { event.preventDefault(); if (!blocked) setDragging(true); }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={onDrop}
+        className={`grid gap-4 rounded-3xl border-2 border-dashed p-3 transition sm:grid-cols-[minmax(0,220px)_1fr] sm:items-center sm:p-4 ${dragging ? "border-black bg-[#fff4c7]" : "border-black/15 bg-[#fbf9f3]"}`}
       >
-        {({ open }) => (
-          <button
-            type="button"
-            onClick={() => open()}
-            className="w-full overflow-hidden rounded-3xl border border-dashed border-black/15 bg-[#f7f5ee] text-left transition hover:border-black/30 hover:bg-[#f2efe6]"
-          >
-            {value ? (
-              <div>
-                <div className="relative aspect-square w-full overflow-hidden">
-                  <Image
-                    src={value}
-                    alt="Product preview"
-                    fill
-                    sizes="(min-width: 640px) 400px, 100vw"
-                    className="object-cover"
-                  />
-                </div>
+        {/* Square frame; the photo keeps its own proportions inside it (never stretched or cropped). */}
+        <div className="relative mx-auto aspect-square w-full max-w-[220px] overflow-hidden rounded-2xl border border-black/5 bg-white">
+          {shown ? (
+            <Image src={shown} alt="Product photo preview" fill sizes="220px" unoptimized={Boolean(preview)} className={`object-contain p-2 ${uploading ? "opacity-60" : ""}`} />
+          ) : (
+            <div className="flex h-full flex-col items-center justify-center gap-2 text-center text-black/45">
+              <Icon name="image" className="h-8 w-8" />
+              <span className="px-4 text-xs font-semibold">No photo yet</span>
+            </div>
+          )}
+          {uploading && (
+            <div className="absolute inset-x-3 bottom-3 overflow-hidden rounded-full bg-black/10" aria-hidden="true">
+              <div className="h-1.5 rounded-full bg-black transition-[width]" style={{ width: `${upload.progress ?? 8}%` }} />
+            </div>
+          )}
+        </div>
 
-                <div className="flex items-center justify-between px-5 py-4">
-                  <div>
-                    <p className="text-sm font-black">
-                      Product image uploaded
-                    </p>
-
-                    <p className="mt-1 text-xs text-black/40">
-                      Click to replace the image
-                    </p>
-                  </div>
-
-                  <span className="rounded-full bg-black px-4 py-2 text-xs font-black text-white">
-                    Change
-                  </span>
-                </div>
+        <div className="min-w-0 text-center sm:text-left" aria-live="polite">
+          {uploading ? (
+            <>
+              <p role="status" className="text-sm font-black">Uploading… {upload.progress !== null ? `${upload.progress}%` : ""}</p>
+              <p className="mt-1 text-xs text-black/55">Keep this page open. You can keep filling in the other fields.</p>
+              <button type="button" onClick={() => abortRef.current?.()} className="mt-3 inline-flex min-h-10 items-center rounded-full border border-black/15 bg-white px-4 text-xs font-black">Cancel upload</button>
+            </>
+          ) : upload.state === "failed" ? (
+            <>
+              <p role="alert" className="text-sm font-black text-[#c92d24]">Upload failed</p>
+              <p className="mt-1 text-xs leading-5 text-black/65">{upload.error} {value ? "The current photo is unchanged." : ""}</p>
+              <div className="mt-3 flex flex-wrap justify-center gap-2 sm:justify-start">
+                <button type="button" onClick={() => void start(upload.file, upload.preview)} disabled={disabled} className="pk-btn pk-btn-primary pk-btn-sm">Retry upload</button>
+                <button type="button" onClick={choose} disabled={disabled} className="pk-btn pk-btn-secondary pk-btn-sm">Choose another</button>
+                <button type="button" onClick={() => setUpload({ state: "idle" })} disabled={disabled} className="pk-btn pk-btn-ghost pk-btn-sm">{value ? "Keep current photo" : "Skip photo"}</button>
               </div>
-            ) : (
-              <div className="flex min-h-64 flex-col items-center justify-center px-6 py-10 text-center">
-                <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-[#feb80a] text-3xl">
-                  📷
-                </div>
-
-                <p className="mt-5 text-base font-black">
-                  Upload product image
-                </p>
-
-                <p className="mt-2 max-w-xs text-xs leading-5 text-black/40">
-                  JPG, PNG or WebP. Maximum 5MB.
-                </p>
-
-                <span className="mt-5 rounded-full bg-black px-5 py-2.5 text-xs font-black text-white">
-                  Choose Image
-                </span>
+            </>
+          ) : (
+            <>
+              <p className="text-sm font-black">{value ? "Photo ready" : "Drag a photo here"}</p>
+              <p className="mt-1 text-xs text-black/55">{value ? "Saved with the product when you save." : "or choose one from this device."} {PRODUCT_IMAGE_HINT}</p>
+              {upload.state === "rejected" && <p role="alert" className="mt-2 rounded-xl bg-[#ffe9e7] px-3 py-2 text-xs font-semibold text-[#a3241c]">{upload.error}</p>}
+              <div className="mt-3 flex flex-wrap justify-center gap-2 sm:justify-start">
+                <button type="button" onClick={choose} disabled={blocked} className="pk-btn pk-btn-primary pk-btn-sm">{value ? "Replace image" : "Choose image"}</button>
+                {value && <button type="button" onClick={() => { onChange(""); setUpload({ state: "idle" }); }} disabled={blocked} className="pk-btn pk-btn-secondary pk-btn-sm">Remove image</button>}
               </div>
-            )}
-          </button>
-        )}
-      </CldUploadWidget>
+            </>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

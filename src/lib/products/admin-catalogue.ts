@@ -14,15 +14,37 @@ export const ADMIN_PRODUCT_ORDER_BY: Prisma.ProductOrderByWithRelationInput[] = 
   { id: "asc" },
 ];
 
-export type AdminProductFilters = { q: string; categoryId: string; status: "" | "ACTIVE" | "INACTIVE"; page: number };
+/**
+ * PackAM keeps no stock counts. Stock is what runners last confirmed at the shops a product is sourced
+ * from (ProductSource.availability): in stock if any shop has it, out of stock if shops were checked and
+ * none has it, otherwise not checked yet.
+ */
+export type StockState = "IN_STOCK" | "OUT_OF_STOCK" | "UNCHECKED";
+export const STOCK_LABELS: Record<StockState, string> = { IN_STOCK: "In stock", OUT_OF_STOCK: "Out of stock", UNCHECKED: "Stock not checked" };
+
+export function stockState(sourceAvailability: Array<"AVAILABLE" | "UNAVAILABLE" | "UNKNOWN">): StockState {
+  if (sourceAvailability.includes("AVAILABLE")) return "IN_STOCK";
+  if (sourceAvailability.includes("UNAVAILABLE")) return "OUT_OF_STOCK";
+  return "UNCHECKED";
+}
+
+function stockWhere(stock: StockState): Prisma.ProductWhereInput {
+  if (stock === "IN_STOCK") return { sources: { some: { availability: "AVAILABLE" } } };
+  if (stock === "OUT_OF_STOCK") return { AND: [{ sources: { some: { availability: "UNAVAILABLE" } } }, { sources: { none: { availability: "AVAILABLE" } } }] };
+  return { sources: { none: { availability: { in: ["AVAILABLE", "UNAVAILABLE"] } } } };
+}
+
+export type AdminProductFilters = { q: string; categoryId: string; status: "" | "ACTIVE" | "INACTIVE"; stock: "" | StockState; page: number };
 
 export function parseAdminProductFilters(params: Record<string, string | string[] | undefined>): AdminProductFilters {
   const one = (value: string | string[] | undefined) => (Array.isArray(value) ? value[0] : value) ?? "";
   const status = one(params.status);
+  const stock = one(params.stock);
   return {
     q: one(params.q).trim().slice(0, 100),
     categoryId: one(params.category).trim().slice(0, 100),
     status: status === "ACTIVE" || status === "INACTIVE" ? status : "",
+    stock: stock === "IN_STOCK" || stock === "OUT_OF_STOCK" || stock === "UNCHECKED" ? stock : "",
     page: Math.max(1, Math.floor(Number(one(params.page))) || 1),
   };
 }
@@ -32,6 +54,7 @@ export function adminProductWhere(filters: AdminProductFilters): Prisma.ProductW
     ...(filters.q ? { name: { contains: filters.q, mode: "insensitive" as const } } : {}),
     ...(filters.categoryId ? { categoryId: filters.categoryId } : {}),
     ...(filters.status ? { status: filters.status } : {}),
+    ...(filters.stock ? stockWhere(filters.stock) : {}),
   };
 }
 
@@ -41,6 +64,7 @@ export function adminProductsHref(filters: Partial<AdminProductFilters>) {
   if (filters.q) query.set("q", filters.q);
   if (filters.categoryId) query.set("category", filters.categoryId);
   if (filters.status) query.set("status", filters.status);
+  if (filters.stock) query.set("stock", filters.stock);
   if (filters.page && filters.page > 1) query.set("page", String(filters.page));
   return `/admin/products${query.size ? `?${query}` : ""}`;
 }

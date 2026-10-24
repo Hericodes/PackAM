@@ -1,8 +1,21 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import Link from "next/link";
+import { FormEvent, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ProductImageUpload } from "./ProductImageUpload";
+import {
+  PRODUCT_DESCRIPTION_MAX,
+  formatNaira,
+  newProductRequestId,
+  nextDraftAfterCreate,
+  parseNairaInput,
+  productDraftPayload,
+  validateProductDraft,
+  type ProductDraft,
+  type ProductDraftErrors,
+  type ProductDraftField,
+} from "../../lib/products/product-form";
 
 type Category = {
   id: string;
@@ -22,312 +35,209 @@ type ProductFormProps = {
   };
 };
 
-export function ProductForm({
-  categories,
-  initialData,
-}: ProductFormProps) {
+type Saved = { id: string; name: string; price: number | null; category: string; created: boolean };
+
+const FIELD_ORDER: ProductDraftField[] = ["name", "categoryId", "price", "description"];
+const FIELD_IDS: Record<ProductDraftField, string> = { name: "name", categoryId: "category", price: "price", description: "description" };
+
+const labelClass = "mb-2 block text-sm font-black";
+const errorClass = "mt-1.5 text-xs font-semibold text-[#c92d24]";
+
+export function ProductForm({ categories, initialData }: ProductFormProps) {
   const router = useRouter();
-
-  const [name, setName] = useState(initialData?.name ?? "");
-
-  const [description, setDescription] = useState(
-    initialData?.description ?? "",
-  );
-
-  const [imageUrl, setImageUrl] = useState(
-    initialData?.imageUrl ?? "",
-  );
-
-  const [categoryId, setCategoryId] = useState(
-    initialData?.categoryId ?? "",
-  );
-
-  // ₦0 means the price hasn't been set yet, so the field starts empty rather than showing 0.
-  const [customerPrice, setCustomerPrice] = useState(
-    initialData && initialData.customerPrice >= 1 ? initialData.customerPrice.toString() : "",
-  );
-
-  const [status, setStatus] = useState<"ACTIVE" | "INACTIVE">(
-    initialData?.status ?? "ACTIVE",
-  );
-
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-
   const isEditing = Boolean(initialData?.id);
 
-  async function handleSubmit(
-    event: FormEvent<HTMLFormElement>,
-  ) {
+  const [draft, setDraft] = useState<ProductDraft>({
+    name: initialData?.name ?? "",
+    categoryId: initialData?.categoryId ?? "",
+    // ₦0 means the price hasn't been set yet, so the field starts empty rather than showing 0.
+    price: initialData && initialData.customerPrice >= 1 ? initialData.customerPrice.toString() : "",
+    description: initialData?.description ?? "",
+    status: initialData?.status ?? "ACTIVE",
+    imageUrl: initialData?.imageUrl ?? "",
+  });
+  const [errors, setErrors] = useState<ProductDraftErrors>({});
+  const [serverError, setServerError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [imageBusy, setImageBusy] = useState(false);
+  const [saved, setSaved] = useState<Saved | null>(null);
+  // Remounts the uploader for "Add another", so no upload state carries over.
+  const [formKey, setFormKey] = useState(0);
+  const submitting = useRef(false);
+  // One id per create attempt: retrying after a network error reuses it, so the server never makes two.
+  const requestId = useRef<string | null>(null);
+
+  function update<K extends keyof ProductDraft>(field: K, value: ProductDraft[K]) {
+    setDraft((current) => ({ ...current, [field]: value }));
+    if (field in errors) setErrors((current) => ({ ...current, [field]: undefined }));
+  }
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (submitting.current || imageBusy) return;
+    setServerError("");
 
-    setError("");
-
-    if (!name.trim()) {
-      setError("Please enter a product name.");
+    const found = validateProductDraft(draft, isEditing);
+    setErrors(found);
+    const first = FIELD_ORDER.find((field) => found[field]);
+    if (first) {
+      if (first === "description") (document.getElementById("more-options") as HTMLDetailsElement | null)?.setAttribute("open", "");
+      document.getElementById(FIELD_IDS[first])?.focus();
       return;
     }
 
-    if (!categoryId) {
-      setError("Please select a category.");
-      return;
-    }
-
-    const priceText = customerPrice.trim();
-    const price = priceText ? Number(priceText) : null;
-
-    if (price !== null && (!Number.isSafeInteger(price) || price < 1)) {
-      setError("Please enter a whole-naira price of at least ₦1.");
-      return;
-    }
-
-    // A product can be saved (name, photo, category) before its price is known, but only while inactive.
-    if (price === null && (status === "ACTIVE" || !isEditing)) {
-      setError(status === "ACTIVE" ? "Set a customer price of at least ₦1 before making this product active." : "Please enter a whole-naira price.");
-      return;
-    }
-
+    submitting.current = true;
+    setSaving(true);
+    if (!isEditing && !requestId.current) requestId.current = newProductRequestId();
     try {
-      setLoading(true);
-
-      const response = await fetch(
-        initialData
-          ? `/api/products/${initialData.id}`
-          : "/api/products",
-        {
-          method: isEditing ? "PATCH" : "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            name: name.trim(),
-            description: description.trim(),
-            imageUrl,
-            categoryId,
-            ...(price !== null ? { customerPrice: price } : {}),
-            status,
-          }),
-        },
-      );
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(
-          data.error || "Something went wrong.",
-        );
-      }
-
-      router.push(
-        "/admin/products",
-      );
-
+      const response = await fetch(isEditing ? `/api/products/${initialData!.id}` : "/api/products", {
+        method: isEditing ? "PATCH" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...productDraftPayload(draft), ...(isEditing ? {} : { requestId: requestId.current }) }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(typeof data.error === "string" ? data.error : "The product couldn’t be saved. Your details are still here — try again.");
+      const price = parseNairaInput(draft.price);
+      setSaved({
+        id: data.id,
+        name: data.name ?? draft.name.trim(),
+        price: typeof price === "number" ? price : null,
+        category: categories.find((category) => category.id === draft.categoryId)?.name ?? "",
+        created: !isEditing,
+      });
+      requestId.current = null;
       router.refresh();
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Something went wrong.",
-      );
+    } catch (error) {
+      setServerError(error instanceof TypeError ? "No connection to PackAM. Check your internet and save again — nothing will be added twice." : error instanceof Error ? error.message : "The product couldn’t be saved.");
     } finally {
-      setLoading(false);
+      submitting.current = false;
+      setSaving(false);
     }
   }
 
+  function addAnother() {
+    setDraft((current) => nextDraftAfterCreate(current));
+    setErrors({});
+    setServerError("");
+    setSaved(null);
+    setFormKey((key) => key + 1);
+    requestAnimationFrame(() => document.getElementById("name")?.focus());
+  }
+
+  if (saved) {
+    return (
+      <div role="status" className="space-y-5">
+        <div className="flex items-start gap-3 rounded-2xl border border-[#16803c]/20 bg-[#e9f8ee] p-4">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#16803c] text-lg font-black text-white" aria-hidden="true">✓</span>
+          <div className="min-w-0">
+            <p className="font-black">{saved.created ? "Product added" : "Changes saved"}</p>
+            <p className="mt-0.5 wrap-break-word text-sm text-black/70">
+              {saved.name}
+              {saved.price !== null && ` · ${formatNaira(saved.price)}`}
+              {saved.category && ` · ${saved.category}`}
+            </p>
+            <p className="mt-1 text-xs text-black/55">{draft.status === "ACTIVE" ? "Students can see it in the marketplace now." : "It’s hidden from students until you make it visible."}</p>
+          </div>
+        </div>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          {saved.created
+            ? <button type="button" onClick={addAnother} className="pk-btn pk-btn-primary pk-btn-lg">+ Add another product</button>
+            : <button type="button" onClick={() => setSaved(null)} className="pk-btn pk-btn-secondary pk-btn-lg">Keep editing</button>}
+          <Link href="/admin/products" className={`pk-btn pk-btn-lg ${saved.created ? "pk-btn-secondary" : "pk-btn-primary"}`}>Back to products</Link>
+          {saved.created && saved.id && <Link href={`/admin/products/${saved.id}/edit`} className="pk-btn pk-btn-ghost pk-btn-lg">Edit this product</Link>}
+        </div>
+        {saved.created && <p className="text-xs text-black/50">Adding another keeps the category ({saved.category}) and clears the rest.</p>}
+      </div>
+    );
+  }
+
+  const busy = saving || imageBusy;
+  const fieldProps = (field: ProductDraftField) => ({
+    "aria-invalid": errors[field] ? true : undefined,
+    "aria-describedby": errors[field] ? `${FIELD_IDS[field]}-error` : undefined,
+  });
+
   return (
-    <form
-      onSubmit={handleSubmit}
-      className="space-y-6"
-    >
-      {/* ERROR */}
-      {error && (
-        <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
-          {error}
+    <form key={formKey} onSubmit={handleSubmit} noValidate className="space-y-6">
+      {serverError && (
+        <div role="alert" className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+          {serverError}
         </div>
       )}
 
-      {/* PRODUCT NAME */}
       <div>
-        <label
-          htmlFor="name"
-          className="mb-2 block text-sm font-black"
-        >
-          Product name
-        </label>
-
-        <input
-          id="name"
-          type="text"
-          value={name}
-          onChange={(event) =>
-            setName(event.target.value)
-          }
-          placeholder="e.g. A4 Project File"
-          className="packam-input"
-          disabled={loading}
-        />
+        <label htmlFor="name" className={labelClass}>Product name</label>
+        <input id="name" type="text" value={draft.name} onChange={(event) => update("name", event.target.value)} placeholder="e.g. A4 Project File" maxLength={120} autoComplete="off" className="pk-input" disabled={saving} {...fieldProps("name")} />
+        {errors.name && <p id="name-error" className={errorClass}>{errors.name}</p>}
       </div>
 
-      {/* CATEGORY */}
-      <div>
-        <label
-          htmlFor="category"
-          className="mb-2 block text-sm font-black"
-        >
-          Category
-        </label>
+      <div className="grid gap-5 sm:grid-cols-2">
+        <div>
+          <label htmlFor="category" className={labelClass}>Category</label>
+          <select id="category" value={draft.categoryId} onChange={(event) => update("categoryId", event.target.value)} className="pk-input" disabled={saving} {...fieldProps("categoryId")}>
+            <option value="">Choose a category</option>
+            {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
+          </select>
+          {errors.categoryId && <p id="category-error" className={errorClass}>{errors.categoryId}</p>}
+        </div>
 
-        <select
-          id="category"
-          value={categoryId}
-          onChange={(event) =>
-            setCategoryId(event.target.value)
-          }
-          className="packam-input"
-          disabled={loading}
-        >
-          <option value="">
-            Select a category
-          </option>
-
-          {categories.map((category) => (
-            <option
-              key={category.id}
-              value={category.id}
-            >
-              {category.name}
-            </option>
-          ))}
-        </select>
+        <div>
+          <label htmlFor="price" className={labelClass}>Selling price</label>
+          <div className="relative">
+            <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 font-black text-black/55" aria-hidden="true">₦</span>
+            <input id="price" type="text" inputMode="numeric" value={draft.price} onChange={(event) => update("price", event.target.value)} placeholder={isEditing ? "Not set yet" : "e.g. 1500"} autoComplete="off" className="pk-input pl-9" disabled={saving} {...fieldProps("price")} />
+          </div>
+          {errors.price
+            ? <p id="price-error" className={errorClass}>{errors.price}</p>
+            : <p className="mt-1.5 text-xs text-black/50">What the student pays, in whole naira. Delivery is added at checkout.</p>}
+        </div>
       </div>
 
-      {/* PRICE */}
       <div>
-        <label
-          htmlFor="price"
-          className="mb-2 block text-sm font-black"
-        >
-          Customer price (₦)
-        </label>
-
-        <input
-          id="price"
-          type="number"
-          min="1"
-          step="1"
-          value={customerPrice}
-          onChange={(event) =>
-            setCustomerPrice(event.target.value)
-          }
-          placeholder={isEditing ? "Not set yet" : "e.g. 1500"}
-          className="packam-input"
-          disabled={loading}
-        />
-
-        <p className="mt-2 text-xs text-black/40">
-          This is the price the student will see and pay.
-          {isEditing && " Leave it empty until the real price is confirmed — the product stays inactive until it has one."}
-        </p>
+        <p className={labelClass} id="photo-label">Product photo <span className="font-medium text-black/45">Optional</span></p>
+        <div role="group" aria-labelledby="photo-label">
+          <ProductImageUpload value={draft.imageUrl} onChange={(url) => update("imageUrl", url)} onBusyChange={setImageBusy} disabled={saving} />
+        </div>
+        <p className="mt-2 text-xs text-black/50">A clear photo of the actual product. Without one, students see a clean illustration for its category.</p>
       </div>
 
-      {/* DESCRIPTION */}
-      <div>
-        <label
-          htmlFor="description"
-          className="mb-2 block text-sm font-black"
-        >
-          Description
-          <span className="ml-2 font-medium text-black/40">
-            Optional
-          </span>
-        </label>
+      <details id="more-options" className="group rounded-2xl border border-black/10 bg-white" open={Boolean(isEditing && (initialData?.description || initialData?.status === "INACTIVE")) || undefined}>
+        <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-3 px-4 text-sm font-black [&::-webkit-details-marker]:hidden">
+          <span>More options <span className="font-medium text-black/45">Description, visibility</span></span>
+          <span aria-hidden="true" className="text-black/45 transition group-open:rotate-180">▾</span>
+        </summary>
+        <div className="space-y-5 border-t border-black/5 p-4">
+          <div>
+            <label htmlFor="description" className={labelClass}>Description <span className="font-medium text-black/45">Optional</span></label>
+            <textarea id="description" value={draft.description} onChange={(event) => update("description", event.target.value)} placeholder="Size, brand, colour, pack size — anything a student should know." rows={3} className="pk-input resize-y py-3" disabled={saving} {...fieldProps("description")} />
+            {errors.description
+              ? <p id="description-error" className={errorClass}>{errors.description}</p>
+              : <p className="mt-1.5 text-right text-xs text-black/40">{draft.description.trim().length}/{PRODUCT_DESCRIPTION_MAX}</p>}
+          </div>
 
-        <textarea
-          id="description"
-          value={description}
-          onChange={(event) =>
-            setDescription(event.target.value)
-          }
-          placeholder="Briefly describe the product..."
-          rows={4}
-          className="packam-input resize-none"
-          disabled={loading}
-        />
-      </div>
+          <fieldset>
+            <legend className={labelClass}>Visibility</legend>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {([["ACTIVE", "Visible to students", "Listed in the marketplace."], ["INACTIVE", "Hidden", "Saved, but students can’t see or buy it."]] as const).map(([value, title, body]) => (
+                <label key={value} className={`flex min-h-14 cursor-pointer items-start gap-3 rounded-xl border p-3 ${draft.status === value ? "border-black bg-[#fffdf7]" : "border-black/10"}`}>
+                  <input type="radio" name="status" value={value} checked={draft.status === value} onChange={() => update("status", value)} className="mt-1 accent-black" disabled={saving} />
+                  <span><span className="block text-sm font-black">{title}</span><span className="block text-xs text-black/55">{body}</span></span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
 
-      {/* PRODUCT IMAGE */}
-      <div>
-        <label className="mb-3 block text-sm font-black">
-          Product image
-        </label>
+          <p className="rounded-xl bg-[#f7f5ee] px-3 py-2 text-xs leading-5 text-black/60">
+            <span className="font-black text-black/75">Stock:</span> PackAM doesn’t keep stock counts. Runners confirm whether a shop has it when they buy it, and the product list shows that as in stock or out of stock.
+          </p>
+        </div>
+      </details>
 
-        <ProductImageUpload
-          value={imageUrl}
-          onChange={setImageUrl}
-        />
-
-        <p className="mt-2 text-xs text-black/40">
-          Add a clear image of the actual product students
-          will receive.
-        </p>
-      </div>
-
-      {/* STATUS */}
-      <div>
-        <label
-          htmlFor="status"
-          className="mb-2 block text-sm font-black"
-        >
-          Product status
-        </label>
-
-        <select
-          id="status"
-          value={status}
-          onChange={(event) =>
-            setStatus(
-              event.target.value as
-                | "ACTIVE"
-                | "INACTIVE",
-            )
-          }
-          className="packam-input"
-          disabled={loading}
-        >
-          <option value="ACTIVE">
-            Active — visible to students
-          </option>
-
-          <option value="INACTIVE">
-            Inactive — hidden from students
-          </option>
-        </select>
-      </div>
-
-      {/* ACTIONS */}
       <div className="flex flex-col gap-3 border-t border-black/5 pt-6 sm:flex-row">
-        <button
-          type="submit"
-          disabled={loading}
-          className="rounded-full bg-black px-7 py-3.5 text-sm font-black text-white transition hover:bg-black/85 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {loading
-            ? isEditing
-              ? "Saving..."
-              : "Adding..."
-            : isEditing
-              ? "Save Changes"
-              : "Add Product"}
+        <button type="submit" disabled={busy} aria-busy={saving} className="pk-btn pk-btn-primary pk-btn-lg">
+          {saving ? (isEditing ? "Saving…" : "Adding…") : imageBusy ? "Waiting for the photo…" : isEditing ? "Save changes" : "Add product"}
         </button>
-
-        <button
-          type="button"
-          onClick={() => router.back()}
-          disabled={loading}
-          className="rounded-full border border-black/10 bg-white px-7 py-3.5 text-sm font-black transition hover:border-black/20 disabled:opacity-50"
-        >
-          Cancel
-        </button>
+        <Link href="/admin/products" aria-disabled={saving} className={`pk-btn pk-btn-secondary pk-btn-lg ${saving ? "pointer-events-none opacity-50" : ""}`}>Cancel</Link>
       </div>
     </form>
   );

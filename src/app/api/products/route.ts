@@ -1,9 +1,12 @@
 import { NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { auth } from "../../../auth";
 import { db } from "../../../lib/db";
 import { writeAuditLog } from "../../../lib/audit";
 import { consumeRateLimit } from "../../../lib/rate-limit";
 import { isPackamProductImageUrl } from "../../../lib/cloudinary-url";
+import { isProductRequestId } from "../../../lib/products/product-form";
+import { verifyProductImageForSave } from "../../../lib/products/product-image-server";
 import { canManageCatalogue, isValidCustomerPrice } from "../../../lib/catalogue-permissions";
 
 // Only admins manage the catalogue. Runners report shop prices through order sourcing instead.
@@ -34,6 +37,7 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  let attemptId: string | undefined;
   try {
     const session = await auth();
 
@@ -55,7 +59,19 @@ export async function POST(request: Request) {
       categoryId,
       customerPrice,
       status = "ACTIVE",
+      requestId,
     } = body;
+
+    // One id per "Add product" attempt, chosen by the form. A retried request (double tap, flaky network)
+    // finds the product it already created instead of creating a second one.
+    if (requestId !== undefined && !isProductRequestId(requestId)) {
+      return NextResponse.json({ error: "Invalid request. Reload the page and try again." }, { status: 400 });
+    }
+    attemptId = requestId;
+    if (requestId) {
+      const already = await db.product.findUnique({ where: { id: requestId }, include: { category: true } });
+      if (already) return NextResponse.json({ ...already, replayed: true }, { status: 200 });
+    }
 
     if (
       typeof name !== "string" ||
@@ -89,12 +105,17 @@ export async function POST(request: Request) {
     }
 
     if (typeof imageUrl === "string" && !isPackamProductImageUrl(imageUrl, process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME)) return NextResponse.json({ error: "Choose a PackAM product image." }, { status: 400 });
+    if (typeof imageUrl === "string" && imageUrl.trim()) {
+      const image = await verifyProductImageForSave(imageUrl.trim());
+      if (!image.ok) return NextResponse.json({ error: image.error }, { status: image.status });
+    }
 
     const slug = await createUniqueSlug(name);
 
     const product = await db.$transaction(async (tx) => {
     const created = await tx.product.create({
       data: {
+        ...(requestId ? { id: requestId } : {}),
         name: name.trim(),
         slug,
         description:
@@ -120,12 +141,24 @@ export async function POST(request: Request) {
 
     return NextResponse.json(product, { status: 201 });
   } catch (error) {
+    // Two copies of the same request raced: the other one created the product, so return it.
+    const retried = await replayedProduct(error, attemptId);
+    if (retried) return NextResponse.json({ ...retried, replayed: true }, { status: 200 });
     console.error("CREATE PRODUCT ERROR:", (error instanceof Error ? error.name : "Unknown error"));
 
     return NextResponse.json(
       { error: "Something went wrong while creating the product." },
       { status: 500 },
     );
+  }
+}
+
+async function replayedProduct(error: unknown, requestId: string | undefined) {
+  if (!requestId || !(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") return null;
+  try {
+    return await db.product.findUnique({ where: { id: requestId }, include: { category: true } });
+  } catch {
+    return null;
   }
 }
 
