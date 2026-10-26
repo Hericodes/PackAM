@@ -68,6 +68,8 @@ export function LiveSearch({
         if (controller.signal.aborted) return; // a newer filter won; never show stale results
         shown.current = wanted;
         setResults(page);
+        // The address always describes what is on screen, including after the search box is cleared.
+        window.history.replaceState(null, "", marketplaceHref(wanted.query, wanted.category));
       } catch (e) {
         if (!controller.signal.aborted) setError({ message: e instanceof Error ? e.message : SEARCH_ERROR, retry: "page" });
       } finally {
