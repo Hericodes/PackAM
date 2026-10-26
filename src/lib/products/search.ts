@@ -2,6 +2,9 @@ import "server-only";
 
 import { db } from "../db";
 import { isDedicatedWorkflowCategory, studentCatalogueProductWhere } from "./catalogue";
+import { MARKETPLACE_PAGE_SIZE, MAX_RANKED_RESULTS, marketplacePage, rankProducts, searchTerms, type MarketplacePage } from "./marketplace";
+
+export { searchTerms };
 
 export type ProductSearchResult = {
   id: string;
@@ -11,48 +14,48 @@ export type ProductSearchResult = {
   category: { name: string };
 };
 
-export function searchTerms(query: string) {
-  return [...new Set(query.toLocaleLowerCase().split(/\s+/).filter((term) => term.length >= 2))].slice(0, 8);
-}
+const select = { id: true, name: true, customerPrice: true, imageUrl: true, category: { select: { name: true } } } as const;
 
 /**
- * The single product search used by both the /search page and /api/search, so server-rendered
- * results and live results always agree. A category with no query lists that category.
+ * The single marketplace query used by both the /search page and /api/search, so server-rendered and
+ * live results always agree. Only products students may see are ever returned (studentCatalogueProductWhere).
+ *
+ * - No search and no category ("All"): every visible product, newest first.
+ * - A category: that category's visible products, A–Z.
+ * - A search (optionally within a category): best matches first.
+ * Each is paged, so nothing beyond the first page is ever out of reach.
  */
-export async function searchProducts(input: { query: string; category: string }): Promise<ProductSearchResult[]> {
+export async function searchProducts(input: { query: string; category: string; page?: number }): Promise<MarketplacePage<ProductSearchResult>> {
   const query = input.query.trim().slice(0, 100);
   const category = input.category.trim().slice(0, 100);
+  const page = Math.max(1, Math.floor(input.page ?? 1) || 1);
   const terms = searchTerms(query);
-  if (!terms.length && !category) return [];
   // Printing is browsed through its own workflow, never as catalogue items.
-  if (isDedicatedWorkflowCategory(category)) return [];
+  if (isDedicatedWorkflowCategory(category)) return marketplacePage([], 0, page);
 
-  const products = await db.product.findMany({
-    where: {
-      ...studentCatalogueProductWhere,
-      category: { ...studentCatalogueProductWhere.category, ...(category ? { slug: category } : {}) },
-      ...(terms.length ? { OR: terms.flatMap((term) => [
-        { name: { contains: term, mode: "insensitive" as const } },
-        { description: { contains: term, mode: "insensitive" as const } },
-        { category: { name: { contains: term, mode: "insensitive" as const } } },
-      ]) } : {}),
-    },
-    select: { id: true, name: true, description: true, customerPrice: true, imageUrl: true, category: { select: { name: true } } },
-    orderBy: terms.length ? { createdAt: "desc" } : { name: "asc" },
-    take: terms.length ? 80 : 48,
-  });
+  const where = {
+    ...studentCatalogueProductWhere,
+    category: { ...studentCatalogueProductWhere.category, ...(category ? { slug: category } : {}) },
+    ...(terms.length ? { OR: terms.flatMap((term) => [
+      { name: { contains: term, mode: "insensitive" as const } },
+      { description: { contains: term, mode: "insensitive" as const } },
+      { category: { name: { contains: term, mode: "insensitive" as const } } },
+    ]) } : {}),
+  };
 
-  const normalized = query.toLocaleLowerCase();
-  const scored = products.map((product) => {
-    const name = product.name.toLocaleLowerCase();
-    const description = (product.description ?? "").toLocaleLowerCase();
-    const categoryName = product.category.name.toLocaleLowerCase();
-    const score = !terms.length ? 0 : (name === normalized ? 100 : name.startsWith(normalized) ? 70 : name.includes(normalized) ? 55 : 0)
-      + terms.reduce((total, term) => total + (name.includes(term) ? 12 : 0) + (description.includes(term) ? 5 : 0) + (categoryName.includes(term) ? 4 : 0), 0);
-    return { product, score };
-  });
-  return scored
-    .sort((a, b) => b.score - a.score || a.product.name.localeCompare(b.product.name))
-    .slice(0, 24)
-    .map(({ product }) => ({ id: product.id, name: product.name, customerPrice: product.customerPrice, imageUrl: product.imageUrl, category: product.category }));
+  if (!terms.length) {
+    // Browsing: the database pages it. A stable tie-breaker means no product repeats or goes missing across pages.
+    const orderBy = category ? [{ name: "asc" as const }, { id: "asc" as const }] : [{ createdAt: "desc" as const }, { id: "asc" as const }];
+    const [total, products] = await Promise.all([
+      db.product.count({ where }),
+      db.product.findMany({ where, select, orderBy, skip: (page - 1) * MARKETPLACE_PAGE_SIZE, take: MARKETPLACE_PAGE_SIZE }),
+    ]);
+    return marketplacePage(products, total, page);
+  }
+
+  // Searching: rank the matches, then page the ranked list.
+  const matches = await db.product.findMany({ where, select: { ...select, description: true }, orderBy: [{ createdAt: "desc" }, { id: "asc" }], take: MAX_RANKED_RESULTS });
+  const ranked = rankProducts(matches, query, terms).map(({ id, name, customerPrice, imageUrl, category: productCategory }) => ({ id, name, customerPrice, imageUrl, category: productCategory }));
+  const start = (page - 1) * MARKETPLACE_PAGE_SIZE;
+  return marketplacePage(ranked.slice(start, start + MARKETPLACE_PAGE_SIZE), ranked.length, page);
 }

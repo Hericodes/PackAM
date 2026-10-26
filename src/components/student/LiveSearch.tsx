@@ -4,6 +4,7 @@ import Link from "next/link";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { ProductCard } from "./ProductCard";
 import { categoryDisplay } from "../../lib/products/category-display";
+import { appendPage, marketplaceHref, type MarketplacePage } from "../../lib/products/marketplace";
 
 type Category = { name: string; slug: string };
 
@@ -15,199 +16,188 @@ type Item = {
   category: { name: string };
 };
 
+const SEARCH_ERROR = "Search no dey work right now. Try again in a moment.";
+
+async function fetchPage(query: string, category: string, page: number, signal: AbortSignal): Promise<MarketplacePage<Item>> {
+  const params = new URLSearchParams();
+  if (query.trim()) params.set("q", query.trim());
+  if (category) params.set("category", category);
+  if (page > 1) params.set("page", String(page));
+  const response = await fetch(`/api/search${params.size ? `?${params}` : ""}`, { signal });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !Array.isArray(data.products)) throw new Error(typeof data.error === "string" ? data.error : SEARCH_ERROR);
+  return data as MarketplacePage<Item>;
+}
+
 export function LiveSearch({
   query: initialQuery,
   category: initialCategory,
   categories,
-  initialProducts,
+  initialPage,
 }: {
   query: string;
   category: string;
   categories: Category[];
-  initialProducts: Item[];
+  initialPage: MarketplacePage<Item>;
 }) {
   const [query, setQuery] = useState(initialQuery);
   const [category, setCategory] = useState(initialCategory);
-  const [products, setProducts] = useState(initialProducts);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [results, setResults] = useState(initialPage);
+  const [loading, setLoading] = useState<"replace" | "more" | null>(null);
+  const [error, setError] = useState<{ message: string; retry: "page" | "more" } | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  const moreRequest = useRef<AbortController | null>(null);
 
-  const selectedCategory = categories.find(
-    (item) => item.slug === category,
-  );
+  const selectedCategory = categories.find((item) => item.slug === category);
+  const products = results.products;
 
-  // The server already rendered results for the initial query and category; don't refetch them.
-  const rendered = useRef({ query: initialQuery, category: initialCategory });
+  // What the grid currently shows. The server rendered the first page for the initial search and category.
+  const shown = useRef({ query: initialQuery.trim(), category: initialCategory, attempt: 0 });
 
+  // Any change of search, category ("All" included) or a retry loads page 1 again.
   useEffect(() => {
-    if (!query.trim() && !category) return;
-    if (query === rendered.current.query && category === rendered.current.category) return;
-
+    const wanted = { query: query.trim(), category, attempt };
+    if (wanted.query === shown.current.query && wanted.category === shown.current.category && wanted.attempt === shown.current.attempt) return;
+    moreRequest.current?.abort();
     const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      setLoading("replace");
+      setError(null);
+      try {
+        const page = await fetchPage(wanted.query, wanted.category, 1, controller.signal);
+        if (controller.signal.aborted) return; // a newer filter won; never show stale results
+        shown.current = wanted;
+        setResults(page);
+      } catch (e) {
+        if (!controller.signal.aborted) setError({ message: e instanceof Error ? e.message : SEARCH_ERROR, retry: "page" });
+      } finally {
+        if (!controller.signal.aborted) setLoading(null);
+      }
+    }, wanted.query !== shown.current.query && wanted.query ? 250 : 0);
+    return () => { window.clearTimeout(timer); controller.abort(); };
+  }, [query, category, attempt]);
 
-    const timer = window.setTimeout(
-      async () => {
-        setLoading(true);
-        setError("");
-
-        try {
-          const params = new URLSearchParams();
-
-          if (query.trim()) params.set("q", query);
-          if (category) params.set("category", category);
-
-          const response = await fetch(`/api/search?${params}`, {
-            signal: controller.signal,
-          });
-
-          const data = await response.json();
-
-          if (!response.ok) {
-            throw new Error(
-              data.error || "Search no dey work right now. Try again in a moment.",
-            );
-          }
-
-          setProducts(data.products);
-        } catch (e) {
-          if (!controller.signal.aborted) {
-            setError(
-              e instanceof Error
-                ? e.message
-                : "Search no dey work right now. Try again in a moment.",
-            );
-          }
-        } finally {
-          if (!controller.signal.aborted) {
-            setLoading(false);
-          }
-        }
-      },
-      query.trim() ? 250 : 0,
-    );
-
-    return () => {
-      window.clearTimeout(timer);
-      controller.abort();
-    };
-  }, [query, category]);
-
-  function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-
-    const params = new URLSearchParams();
-
-    if (query.trim()) params.set("q", query.trim());
-    if (category) params.set("category", category);
-
-    syncUrl(params);
+  async function loadMore() {
+    if (loading || !results.hasMore) return;
+    const controller = new AbortController();
+    moreRequest.current = controller;
+    setLoading("more");
+    setError(null);
+    try {
+      const next = await fetchPage(shown.current.query, shown.current.category, results.page + 1, controller.signal);
+      if (controller.signal.aborted) return;
+      setResults((current) => ({ ...next, products: appendPage(current.products, next.products) }));
+    } catch (e) {
+      if (!controller.signal.aborted) setError({ message: e instanceof Error ? e.message : SEARCH_ERROR, retry: "more" });
+    } finally {
+      if (!controller.signal.aborted) setLoading(null);
+    }
   }
 
   // Keep the URL shareable without a server round-trip or remounting this component.
-  function syncUrl(params: URLSearchParams) {
-    window.history.replaceState(null, "", `/search${params.size ? `?${params}` : ""}`);
+  function syncUrl(nextQuery: string, nextCategory: string) {
+    window.history.replaceState(null, "", marketplaceHref(nextQuery, nextCategory));
+  }
+
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    syncUrl(query, category);
   }
 
   function setFilter(value: string) {
     setCategory(value);
-
-    const params = new URLSearchParams();
-
-    if (query.trim()) params.set("q", query.trim());
-    if (value) params.set("category", value);
-
-    syncUrl(params);
+    syncUrl(query, value);
   }
 
-  const requestUrl = `/product-requests${
-    query.trim() ? `?name=${encodeURIComponent(query.trim())}` : ""
-  }`;
+  const searching = Boolean(query.trim());
+  const replacing = loading === "replace";
+  const requestUrl = `/product-requests${searching ? `?name=${encodeURIComponent(query.trim())}` : ""}`;
+  const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
 
   return (
     <>
-      <form action="/search" role="search" onSubmit={submit} className="mt-5 flex gap-2 sm:mt-6">
+      <form action="/search" role="search" onSubmit={submit} className="mt-4 flex gap-2 sm:mt-6">
         <label htmlFor="search-input" className="sr-only">Search products</label>
         <input
           id="search-input"
           name="q"
           type="search"
           value={query}
-          onChange={(event) => {
-            const value = event.target.value;
-            setQuery(value);
-            if (!value.trim() && !category) {
-              setProducts([]);
-              setLoading(false);
-              setError("");
-            }
-          }}
+          onChange={(event) => setQuery(event.target.value)}
           placeholder="Search food, stationery, chargers…"
           aria-controls="search-results"
-          className="pk-input min-w-0 flex-1"
+          className="pk-input min-h-11 min-w-0 flex-1 sm:min-h-12"
         />
-        <button type="submit" className="pk-btn pk-btn-primary pk-btn-lg shrink-0">Search</button>
+        <button type="submit" className="pk-btn pk-btn-primary shrink-0 px-4 sm:min-h-[52px] sm:px-6 sm:text-[0.9375rem]">Search</button>
       </form>
 
-      <div role="group" aria-label="Filter by category" className="-mx-4 mt-4 flex gap-2 overflow-x-auto px-4 pb-2 sm:mx-0 sm:flex-wrap sm:px-0">
-        <button type="button" onClick={() => setFilter("")} aria-pressed={!category} className="pk-chip">All</button>
+      <div role="group" aria-label="Filter by category" className="-mx-4 mt-3 flex gap-1.5 overflow-x-auto px-4 pb-1.5 [scrollbar-width:none] sm:mx-0 sm:mt-4 sm:flex-wrap sm:gap-2 sm:px-0 sm:pb-2 [&::-webkit-scrollbar]:hidden">
+        <button type="button" onClick={() => setFilter("")} aria-pressed={!category} className="pk-chip min-h-9 shrink-0 px-3.5 text-[0.8125rem] sm:min-h-10 sm:px-4 sm:text-sm">All</button>
         {categories.map((item) => (
-          <button key={item.slug} type="button" onClick={() => setFilter(item.slug)} aria-pressed={category === item.slug} className="pk-chip">
+          <button key={item.slug} type="button" onClick={() => setFilter(item.slug)} aria-pressed={category === item.slug} className="pk-chip min-h-9 shrink-0 px-3 text-[0.8125rem] sm:min-h-10 sm:px-4 sm:text-sm">
             <span aria-hidden="true">{categoryDisplay(item.slug).icon}</span>
             {item.name}
           </button>
         ))}
-        <Link href="/printing" className="pk-chip border-dashed">
+        <Link href="/printing" className="pk-chip min-h-9 shrink-0 border-dashed px-3 text-[0.8125rem] sm:min-h-10 sm:px-4 sm:text-sm">
           <span aria-hidden="true">🖨️</span>
           Printing <span aria-hidden="true">→</span>
         </Link>
       </div>
 
-      <div className="mt-4 flex min-h-6 items-center justify-between gap-3">
+      <div className="mt-3 flex min-h-6 items-center justify-between gap-3 sm:mt-4">
         <p className="text-sm font-semibold text-black/70" aria-live="polite">
-          {query.trim()
-            ? `${products.length} ${products.length === 1 ? "result" : "results"} for “${query.trim()}”`
-            : selectedCategory
-              ? `${products.length} ${products.length === 1 ? "item" : "items"} in ${selectedCategory.name}`
-              : products.length
-                ? "Newest on PackAM"
-                : ""}
+          {replacing
+            ? ""
+            : searching
+              ? `${plural(results.total, "result", "results")} for “${query.trim()}”`
+              : selectedCategory
+                ? `${plural(results.total, "item", "items")} in ${selectedCategory.name}`
+                : results.total
+                  ? `Newest on PackAM · ${plural(results.total, "item", "items")}`
+                  : ""}
         </p>
-        {loading && <span role="status" className="text-xs font-semibold text-black/60">Searching…</span>}
+        {replacing && <span role="status" className="text-xs font-semibold text-black/60">Loading…</span>}
       </div>
 
       {error && (
         <div role="alert" className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-800">
-          <span>{error}</span>
-          <button type="button" onClick={() => setFilter(category)} className="pk-btn pk-btn-secondary pk-btn-sm">Try again</button>
+          <span>{error.message}</span>
+          <button type="button" onClick={() => (error.retry === "more" ? void loadMore() : setAttempt((n) => n + 1))} className="pk-btn pk-btn-secondary pk-btn-sm">Try again</button>
         </div>
       )}
 
       {products.length > 0 && (
-        <div id="search-results" aria-busy={loading} className={`pk-product-grid mt-4 transition-opacity ${loading ? "opacity-60" : ""}`}>
+        <div id="search-results" aria-busy={replacing} className={`pk-product-grid mt-3 transition-opacity sm:mt-4 ${replacing ? "opacity-60" : ""}`}>
           {products.map((item) => (
             <ProductCard key={item.id} id={item.id} name={item.name} price={item.customerPrice} image={item.imageUrl} category={item.category.name} />
           ))}
         </div>
       )}
 
-      {!products.length && !loading && !error && (query.trim() || category) && (
-        <div className="pk-empty mt-5">
-          <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#fff4c7] text-2xl" aria-hidden="true">{selectedCategory ? categoryDisplay(selectedCategory.slug).icon : "🔎"}</span>
-          <h2 className="mt-4 text-lg font-black">{query.trim() ? "We no see am" : `No ${selectedCategory?.name.toLowerCase() ?? "products"} listed yet`}</h2>
-          <p className="pk-muted mt-1 max-w-md text-sm leading-6">
-            {query.trim()
-              ? `We no see “${query.trim()}” on the shelf yet. Request am — we go check campus shops for you.`
-              : "This shelf still dey empty. Tell us wetin you need and we go check around campus."}
-          </p>
-          <div className="mt-5 flex flex-wrap justify-center gap-2">
-            <Link href={requestUrl} className="pk-btn pk-btn-primary">Request {query.trim() ? "this item" : "an item"}</Link>
-            {category && <button type="button" onClick={() => setFilter("")} className="pk-btn pk-btn-secondary">Browse everything</button>}
-          </div>
+      {products.length > 0 && (results.hasMore || loading === "more") && (
+        <div className="mt-5 flex flex-col items-center gap-2 sm:mt-6">
+          <button type="button" onClick={() => void loadMore()} disabled={loading !== null} aria-busy={loading === "more"} className="pk-btn pk-btn-secondary w-full sm:w-auto sm:px-8">
+            {loading === "more" ? "Loading…" : "Show more"}
+          </button>
+          <p className="text-xs text-black/50">Showing {products.length} of {results.total}</p>
         </div>
       )}
 
-      {!products.length && !loading && !error && !query.trim() && !category && (
-        <p className="pk-muted mt-5 text-sm">Start typing, or pick a category above. Food, chargers, notebooks — e dey here.</p>
+      {!products.length && !loading && !error && (
+        <div className="pk-empty mt-4 px-4 py-8 sm:mt-5 sm:px-5 sm:py-10">
+          <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#fff4c7] text-2xl sm:h-14 sm:w-14" aria-hidden="true">{selectedCategory ? categoryDisplay(selectedCategory.slug).icon : "🔎"}</span>
+          <h2 className="mt-3 text-lg font-black sm:mt-4">{searching ? "We no see am" : selectedCategory ? `No ${selectedCategory.name.toLowerCase()} listed yet` : "The shelf dey empty for now"}</h2>
+          <p className="pk-muted mt-1 max-w-md text-sm leading-6">
+            {searching
+              ? `We no see “${query.trim()}” on the shelf yet. Request am — we go check campus shops for you.`
+              : "Tell us wetin you need and we go check around campus."}
+          </p>
+          <div className="mt-4 flex flex-wrap justify-center gap-2 sm:mt-5">
+            <Link href={requestUrl} className="pk-btn pk-btn-primary">Request {searching ? "this item" : "an item"}</Link>
+            {(category || searching) && <button type="button" onClick={() => { setQuery(""); setCategory(""); syncUrl("", ""); }} className="pk-btn pk-btn-secondary">Browse everything</button>}
+          </div>
+        </div>
       )}
     </>
   );

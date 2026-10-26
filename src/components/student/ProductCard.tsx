@@ -12,7 +12,7 @@ type ProductCardProps = { id: string; name: string; price: number; image?: strin
 export function ProductCard({ id, name, price, image, category }: ProductCardProps) {
   const href = `/products/${id}`;
   return (
-    <article className="group flex h-full flex-col overflow-hidden rounded-[22px] border border-black/[0.07] bg-white shadow-[0_1px_2px_rgba(8,8,8,0.04)] transition duration-200 hover:border-black/[0.12] hover:shadow-[0_14px_30px_-18px_rgba(135,90,0,0.45)] focus-within:border-black/20 motion-safe:hover:-translate-y-0.5">
+    <article className="group flex h-full flex-col overflow-hidden rounded-[18px] border sm:rounded-[22px] border-black/[0.07] bg-white shadow-[0_1px_2px_rgba(8,8,8,0.04)] transition duration-200 hover:border-black/[0.12] hover:shadow-[0_14px_30px_-18px_rgba(135,90,0,0.45)] focus-within:border-black/20 motion-safe:hover:-translate-y-0.5">
       <div className="relative">
         <Link href={href} tabIndex={-1} aria-hidden="true" className="block">
           <ProductVisual
@@ -23,19 +23,19 @@ export function ProductCard({ id, name, price, image, category }: ProductCardPro
             className="aspect-4/3 transition-transform duration-300 motion-safe:group-hover:scale-[1.02]"
           />
         </Link>
-        <div className="absolute right-2.5 top-2.5">
+        <div className="absolute right-2 top-2 sm:right-2.5 sm:top-2.5">
           <SaveProductButton productId={id} productName={name} />
         </div>
       </div>
 
-      <div className="flex flex-1 flex-col border-t border-black/[0.05] p-3 sm:p-4">
+      <div className="flex flex-1 flex-col border-t border-black/[0.05] p-2.5 sm:p-4">
         {category && (
-          <p className="flex items-center gap-1.5 text-[0.6875rem] font-bold uppercase tracking-[0.03em] text-black/55 sm:tracking-[0.08em]">
+          <p className="flex items-center gap-1.5 text-[0.625rem] font-bold uppercase tracking-[0.03em] text-black/55 sm:text-[0.6875rem] sm:tracking-[0.08em]">
             <span className="h-1.5 w-1.5 rounded-full bg-[#feb80a]" aria-hidden="true" />
             <span className="truncate">{category}</span>
           </p>
         )}
-        <h3 className="mt-1.5 text-[0.9375rem] font-extrabold leading-5 text-black sm:text-base sm:leading-5">
+        <h3 className="mt-1 text-sm font-extrabold leading-[1.125rem] text-black sm:mt-1.5 sm:text-base sm:leading-5">
           <Link
             href={href}
             title={name}
@@ -45,12 +45,12 @@ export function ProductCard({ id, name, price, image, category }: ProductCardPro
           </Link>
         </h3>
         {/* Price and action share the card's bottom edge, so they align across a row whatever the name length. */}
-        <div className="mt-auto pt-2.5">
+        <div className="mt-auto pt-2 sm:pt-2.5">
           <p className="flex items-baseline gap-0.5 font-black tracking-tight text-black">
-            <span className="text-sm">₦</span>
-            <span className="text-xl leading-none sm:text-[1.375rem]">{price.toLocaleString()}</span>
+            <span className="text-[0.8125rem] sm:text-sm">₦</span>
+            <span className="text-lg leading-none sm:text-[1.375rem]">{price.toLocaleString()}</span>
           </p>
-          <div className="pt-3">
+          <div className="pt-2.5 sm:pt-3">
             <AddToCart productId={id} compact />
           </div>
         </div>
@@ -62,13 +62,13 @@ export function ProductCard({ id, name, price, image, category }: ProductCardPro
 /** Placeholder with the card's real proportions, so the grid does not jump when products arrive. */
 export function ProductCardSkeleton() {
   return (
-    <div className="flex h-full flex-col overflow-hidden rounded-[22px] border border-black/[0.07] bg-white" aria-hidden="true">
+    <div className="flex h-full flex-col overflow-hidden rounded-[18px] border border-black/[0.07] bg-white sm:rounded-[22px]" aria-hidden="true">
       <div className="pk-skeleton aspect-4/3 rounded-none" />
-      <div className="flex flex-1 flex-col gap-2 border-t border-black/[0.05] p-3 sm:p-4">
+      <div className="flex flex-1 flex-col gap-2 border-t border-black/[0.05] p-2.5 sm:p-4">
         <div className="pk-skeleton h-3 w-2/5" />
         <div className="pk-skeleton h-4 w-4/5" />
         <div className="mt-auto pt-2.5"><div className="pk-skeleton h-5 w-1/3" /></div>
-        <div className="pk-skeleton mt-1.5 h-11 w-full rounded-full" />
+        <div className="pk-skeleton mt-1.5 h-10 w-full rounded-full sm:h-11" />
       </div>
     </div>
   );

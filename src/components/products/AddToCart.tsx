@@ -51,7 +51,7 @@ export function AddToCart({ productId, compact = false }: AddToCartProps) {
         onClick={handleAddToCart}
         disabled={loading}
         aria-busy={loading}
-        className={`group/cart flex min-h-11 w-full items-center justify-center gap-1.5 whitespace-nowrap rounded-full px-2 text-xs font-black min-[400px]:gap-2 min-[400px]:px-3 min-[400px]:text-[0.8125rem] transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black disabled:cursor-wait disabled:opacity-70 ${
+        className={`group/cart flex min-h-10 w-full sm:min-h-11 items-center justify-center gap-1.5 whitespace-nowrap rounded-full px-2 text-xs font-black min-[400px]:gap-2 min-[400px]:px-3 min-[400px]:text-[0.8125rem] transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black disabled:cursor-wait disabled:opacity-70 ${
           added ? "bg-[#feb80a] text-black hover:bg-[#e5a500]" : "bg-black text-white hover:bg-[#262626]"
         }`}
       >

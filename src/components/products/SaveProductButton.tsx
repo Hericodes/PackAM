@@ -24,11 +24,11 @@ export function SaveProductButton({ productId, productName, variant = "icon" }: 
       aria-pressed={saved}
       aria-label={label}
       title={label}
-      className={`flex h-11 w-11 items-center justify-center rounded-full border shadow-[0_4px_12px_-6px_rgba(8,8,8,0.35)] backdrop-blur-sm transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black disabled:opacity-60 ${
+      className={`flex h-10 w-10 items-center sm:h-11 sm:w-11 justify-center rounded-full border shadow-[0_4px_12px_-6px_rgba(8,8,8,0.35)] backdrop-blur-sm transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black disabled:opacity-60 ${
         saved ? "border-black bg-black text-[#feb80a]" : "border-white/80 bg-white/90 text-black/80 hover:border-black/20 hover:text-black"
       }`}
     >
-      <Icon name="heart" filled={saved} className="h-5 w-5" strokeWidth={2} />
+      <Icon name="heart" filled={saved} className="h-[18px] w-[18px] sm:h-5 sm:w-5" strokeWidth={2} />
     </button>
   );
 }
