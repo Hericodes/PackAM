@@ -43,7 +43,7 @@ export default async function AdminProductsPage({ searchParams }: { searchParams
     db.category.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
   ]);
   const pages = Math.max(1, Math.ceil(total / pageSize));
-  const filtered = Boolean(filters.q || filters.categoryId || filters.status || filters.stock);
+  const filtered = Boolean(filters.q || filters.categoryId || filters.status || filters.stock || filters.photo);
   const firstInactiveIndex = products.findIndex((product) => product.status === "INACTIVE");
 
   return (
@@ -57,6 +57,7 @@ export default async function AdminProductsPage({ searchParams }: { searchParams
           </div>
           <div className="flex flex-wrap gap-2">
             <Link href="/admin/categories" className="inline-flex min-h-11 items-center rounded-full border border-black/10 bg-white px-5 text-sm font-bold">Manage categories</Link>
+            <Link href="/admin/products/import" className="inline-flex min-h-11 items-center rounded-full border border-black/10 bg-white px-5 text-sm font-bold">Bulk import products</Link>
             <Link href="/admin/products/new" className="inline-flex min-h-11 items-center rounded-full bg-black px-6 text-sm font-black text-white transition hover:bg-black/85">+ Add product</Link>
           </div>
         </div>
@@ -67,7 +68,7 @@ export default async function AdminProductsPage({ searchParams }: { searchParams
           {filtered && <div className="rounded-full bg-[#fff4c7] px-4 py-2"><dt className="inline font-semibold text-black/60">Matching filters </dt><dd className="inline font-black">{total}</dd></div>}
         </dl>
 
-        <form action="/admin/products" role="search" className="mt-4 grid gap-2 rounded-2xl bg-white p-3 sm:grid-cols-2 lg:grid-cols-[1fr_190px_160px_170px_auto]">
+        <form action="/admin/products" role="search" className="mt-4 grid gap-2 rounded-2xl bg-white p-3 sm:grid-cols-2 lg:grid-cols-[1fr_180px_150px_160px_150px_auto]">
           <label className="sr-only" htmlFor="product-search">Search products by name</label>
           <input id="product-search" name="q" type="search" defaultValue={filters.q} placeholder="Search by product name" className="pk-input min-h-11" />
           <label className="sr-only" htmlFor="product-category">Category</label>
@@ -87,6 +88,11 @@ export default async function AdminProductsPage({ searchParams }: { searchParams
             <option value="IN_STOCK">In stock</option>
             <option value="OUT_OF_STOCK">Out of stock</option>
             <option value="UNCHECKED">Stock not checked</option>
+          </select>
+          <label className="sr-only" htmlFor="product-photo">Photo</label>
+          <select id="product-photo" name="photo" defaultValue={filters.photo} className="pk-input min-h-11">
+            <option value="">Any photo</option>
+            <option value="missing">Needs a photo</option>
           </select>
           <div className="flex gap-2">
             <button type="submit" className="pk-btn pk-btn-primary flex-1 sm:flex-none">Apply</button>

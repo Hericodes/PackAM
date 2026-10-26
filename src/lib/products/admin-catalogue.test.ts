@@ -16,13 +16,13 @@ test("active products sort before inactive ones in the database, then most recen
 });
 
 test("filters are parsed defensively and never drop the active-first ordering", () => {
-  assert.deepEqual(parseAdminProductFilters({}), { q: "", categoryId: "", status: "", stock: "", page: 1 });
-  assert.deepEqual(parseAdminProductFilters({ q: "  indomie ", category: "cat-1", status: "INACTIVE", page: "3" }), { q: "indomie", categoryId: "cat-1", status: "INACTIVE", stock: "", page: 3 });
+  assert.deepEqual(parseAdminProductFilters({}), { q: "", categoryId: "", status: "", stock: "", photo: "", page: 1 });
+  assert.deepEqual(parseAdminProductFilters({ q: "  indomie ", category: "cat-1", status: "INACTIVE", page: "3" }), { q: "indomie", categoryId: "cat-1", status: "INACTIVE", stock: "", photo: "", page: 3 });
   assert.equal(parseAdminProductFilters({ status: "DELETED" }).status, "", "unknown statuses are ignored");
   for (const page of ["0", "-4", "abc", "2.7"]) assert.ok(parseAdminProductFilters({ page }).page >= 1, page);
   assert.equal(parseAdminProductFilters({ q: "x".repeat(500) }).q.length, 100);
-  assert.deepEqual(adminProductWhere({ q: "pen", categoryId: "c", status: "ACTIVE", stock: "", page: 1 }), { name: { contains: "pen", mode: "insensitive" }, categoryId: "c", status: "ACTIVE" });
-  assert.deepEqual(adminProductWhere({ q: "", categoryId: "", status: "", stock: "", page: 1 }), {});
+  assert.deepEqual(adminProductWhere({ q: "pen", categoryId: "c", status: "ACTIVE", stock: "", photo: "", page: 1 }), { name: { contains: "pen", mode: "insensitive" }, categoryId: "c", status: "ACTIVE" });
+  assert.deepEqual(adminProductWhere({ q: "", categoryId: "", status: "", stock: "", photo: "", page: 1 }), {});
 });
 
 test("pagination links keep search and filters", () => {
@@ -47,7 +47,15 @@ test("stock comes from what runners confirmed at shops; PackAM keeps no counts",
   assert.equal(stockState([]), "UNCHECKED", "no shop linked yet");
   assert.equal(parseAdminProductFilters({ stock: "OUT_OF_STOCK" }).stock, "OUT_OF_STOCK");
   assert.equal(parseAdminProductFilters({ stock: "LOTS" }).stock, "", "unknown values are ignored");
-  assert.deepEqual(adminProductWhere({ q: "", categoryId: "", status: "", stock: "IN_STOCK", page: 1 }), { sources: { some: { availability: "AVAILABLE" } } });
-  assert.deepEqual(adminProductWhere({ q: "", categoryId: "", status: "", stock: "OUT_OF_STOCK", page: 1 }), { AND: [{ sources: { some: { availability: "UNAVAILABLE" } } }, { sources: { none: { availability: "AVAILABLE" } } }] });
+  assert.deepEqual(adminProductWhere({ q: "", categoryId: "", status: "", stock: "IN_STOCK", photo: "", page: 1 }), { sources: { some: { availability: "AVAILABLE" } } });
+  assert.deepEqual(adminProductWhere({ q: "", categoryId: "", status: "", stock: "OUT_OF_STOCK", photo: "", page: 1 }), { AND: [{ sources: { some: { availability: "UNAVAILABLE" } } }, { sources: { none: { availability: "AVAILABLE" } } }] });
   assert.equal(adminProductsHref({ stock: "UNCHECKED", page: 2 }), "/admin/products?stock=UNCHECKED&page=2");
+});
+
+test("the 'needs a photo' filter finds products with no image, so imported products are easy to finish", async () => {
+  const { adminProductWhere, adminProductsHref, parseAdminProductFilters } = await import("./admin-catalogue");
+  assert.equal(parseAdminProductFilters({ photo: "missing" }).photo, "missing");
+  assert.equal(parseAdminProductFilters({ photo: "yes" }).photo, "");
+  assert.deepEqual(adminProductWhere({ q: "", categoryId: "", status: "", stock: "", photo: "missing", page: 1 }), { OR: [{ imageUrl: null }, { imageUrl: "" }] });
+  assert.equal(adminProductsHref({ photo: "missing" }), "/admin/products?photo=missing");
 });

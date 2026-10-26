@@ -69,7 +69,7 @@ test("active products come before inactive ones on every page, with and without 
     await db.product.update({ where: { id: product.id }, data: { status: "INACTIVE" } });
   }
   const pageSize = 2;
-  const filters = { q: "Sort item", categoryId, status: "" as const, stock: "" as const, page: 1 };
+  const filters = { q: "Sort item", categoryId, status: "" as const, stock: "" as const, photo: "" as const, page: 1 };
   const statuses: string[] = [];
   for (let page = 1; page <= 4; page += 1) {
     const rows = await db.product.findMany({ where: catalogue.adminProductWhere({ ...filters, page }), orderBy: catalogue.ADMIN_PRODUCT_ORDER_BY, skip: (page - 1) * pageSize, take: pageSize, select: { id: true, status: true } });

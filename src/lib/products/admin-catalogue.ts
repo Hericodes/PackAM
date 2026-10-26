@@ -34,7 +34,7 @@ function stockWhere(stock: StockState): Prisma.ProductWhereInput {
   return { sources: { none: { availability: { in: ["AVAILABLE", "UNAVAILABLE"] } } } };
 }
 
-export type AdminProductFilters = { q: string; categoryId: string; status: "" | "ACTIVE" | "INACTIVE"; stock: "" | StockState; page: number };
+export type AdminProductFilters = { q: string; categoryId: string; status: "" | "ACTIVE" | "INACTIVE"; stock: "" | StockState; photo: "" | "missing"; page: number };
 
 export function parseAdminProductFilters(params: Record<string, string | string[] | undefined>): AdminProductFilters {
   const one = (value: string | string[] | undefined) => (Array.isArray(value) ? value[0] : value) ?? "";
@@ -45,6 +45,7 @@ export function parseAdminProductFilters(params: Record<string, string | string[
     categoryId: one(params.category).trim().slice(0, 100),
     status: status === "ACTIVE" || status === "INACTIVE" ? status : "",
     stock: stock === "IN_STOCK" || stock === "OUT_OF_STOCK" || stock === "UNCHECKED" ? stock : "",
+    photo: one(params.photo) === "missing" ? "missing" : "",
     page: Math.max(1, Math.floor(Number(one(params.page))) || 1),
   };
 }
@@ -55,6 +56,7 @@ export function adminProductWhere(filters: AdminProductFilters): Prisma.ProductW
     ...(filters.categoryId ? { categoryId: filters.categoryId } : {}),
     ...(filters.status ? { status: filters.status } : {}),
     ...(filters.stock ? stockWhere(filters.stock) : {}),
+    ...(filters.photo === "missing" ? { OR: [{ imageUrl: null }, { imageUrl: "" }] } : {}),
   };
 }
 
@@ -65,6 +67,7 @@ export function adminProductsHref(filters: Partial<AdminProductFilters>) {
   if (filters.categoryId) query.set("category", filters.categoryId);
   if (filters.status) query.set("status", filters.status);
   if (filters.stock) query.set("stock", filters.stock);
+  if (filters.photo) query.set("photo", filters.photo);
   if (filters.page && filters.page > 1) query.set("page", String(filters.page));
   return `/admin/products${query.size ? `?${query}` : ""}`;
 }
