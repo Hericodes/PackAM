@@ -19,7 +19,7 @@ export type AcademicProductSpec = {
 
 export const ACADEMIC_PRODUCTS: readonly AcademicProductSpec[] = [
   { name: "Blue Ballpoint Pen", slug: "blue-ballpoint-pen" },
-  { name: "8-in-1 Lecture Notebook", slug: "8-in-1-lecture-notebook" },
+  { name: "8-in-1 Lecture Notebook", slug: "8-in-1-lecture-notebook", aliasSlugs: ["8-in-1-notebook"] },
   { name: "Single-Subject Exercise Book", slug: "single-subject-exercise-book", aliasSlugs: ["exercise-book"] },
   { name: "Project File", slug: "project-file" },
   { name: "A4 Paper", slug: "a4-paper" },
