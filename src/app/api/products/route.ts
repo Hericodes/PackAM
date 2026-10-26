@@ -7,6 +7,7 @@ import { consumeRateLimit } from "../../../lib/rate-limit";
 import { isPackamProductImageUrl } from "../../../lib/cloudinary-url";
 import { isProductRequestId } from "../../../lib/products/product-form";
 import { verifyProductImageForSave } from "../../../lib/products/product-image-server";
+import { PRODUCT_WRITE_LIMITS, PRODUCT_WRITE_WINDOW_MS, productLimitMessage, productWriteLimitKey } from "../../../lib/products/write-limits";
 import { canManageCatalogue, isValidCustomerPrice } from "../../../lib/catalogue-permissions";
 
 // Only admins manage the catalogue. Runners report shop prices through order sourcing instead.
@@ -47,8 +48,8 @@ export async function POST(request: Request) {
         { status: 403 },
       );
     }
-    const rate = await consumeRateLimit(`product-write:${session.user.id}`, 30, 60 * 60 * 1000);
-    if (!rate.allowed) return NextResponse.json({ error: "Product changes are temporarily rate limited." }, { status: 429, headers: { "Retry-After": String(rate.retryAfterSeconds) } });
+    const rate = await consumeRateLimit(productWriteLimitKey("edit", session.user.id), PRODUCT_WRITE_LIMITS.edit.limit, PRODUCT_WRITE_WINDOW_MS);
+    if (!rate.allowed) return NextResponse.json({ error: productLimitMessage("edit", rate.retryAfterSeconds), retryAfterSeconds: rate.retryAfterSeconds }, { status: 429, headers: { "Retry-After": String(rate.retryAfterSeconds) } });
 
     const body = await request.json();
 

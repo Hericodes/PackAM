@@ -24,6 +24,8 @@ export function ProductRowActions({ product, deleteBlockedReason, activationBloc
   const [error, setError] = useState("");
   const [confirming, setConfirming] = useState(false);
   const cancelRef = useRef<HTMLButtonElement>(null);
+  // Set synchronously, so a second click in the same instant can't send a second request before React re-renders.
+  const inFlight = useRef(false);
   const titleId = `delete-product-${product.id}`;
 
   useEffect(() => {
@@ -35,7 +37,8 @@ export function ProductRowActions({ product, deleteBlockedReason, activationBloc
   }, [confirming, busy]);
 
   async function toggleStatus() {
-    if (busy) return;
+    if (busy || inFlight.current) return;
+    inFlight.current = true;
     setBusy("status"); setError("");
     try {
       const response = await fetch(`/api/products/${encodeURIComponent(product.id)}`, {
@@ -47,14 +50,16 @@ export function ProductRowActions({ product, deleteBlockedReason, activationBloc
       if (!response.ok) throw new Error(typeof data.error === "string" ? data.error : "The status couldn’t be changed.");
       router.refresh();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "The status couldn’t be changed.");
+      setError(cause instanceof TypeError ? "No connection to PackAM. Nothing was changed — check your internet and try again." : cause instanceof Error ? cause.message : "The status couldn’t be changed.");
     } finally {
+      inFlight.current = false;
       setBusy(null);
     }
   }
 
   async function deleteProduct() {
-    if (busy) return; // one request at a time, however many clicks
+    if (busy || inFlight.current) return; // one request at a time, however many clicks
+    inFlight.current = true;
     setBusy("delete"); setError("");
     try {
       const response = await fetch(`/api/products/${encodeURIComponent(product.id)}`, { method: "DELETE" });
@@ -66,6 +71,7 @@ export function ProductRowActions({ product, deleteBlockedReason, activationBloc
       setError(cause instanceof Error ? cause.message : "The product couldn’t be deleted.");
       setConfirming(false);
     } finally {
+      inFlight.current = false;
       setBusy(null);
     }
   }

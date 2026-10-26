@@ -7,6 +7,7 @@ import { isPackamProductImageUrl } from "../../../../lib/cloudinary-url";
 import { verifyProductImageForSave } from "../../../../lib/products/product-image-server";
 import { activationBlocker, canManageCatalogue, isValidCustomerPrice } from "../../../../lib/catalogue-permissions";
 import { deleteProductAsAdmin } from "../../../../lib/products/product-deletion";
+import { PRODUCT_WRITE_LIMITS, PRODUCT_WRITE_WINDOW_MS, isVisibilityOnlyChange, productLimitMessage, productWriteLimitKey } from "../../../../lib/products/write-limits";
 
 // Only admins manage the catalogue. Runners report shop prices through order sourcing instead.
 const canManageProducts = canManageCatalogue;
@@ -74,11 +75,12 @@ export async function PATCH(
         { status: 403 },
       );
     }
-    const rate = await consumeRateLimit(`product-write:${session.user.id}`, 30, 60 * 60 * 1000);
-    if (!rate.allowed) return NextResponse.json({ error: "Product changes are temporarily rate limited." }, { status: 429, headers: { "Retry-After": String(rate.retryAfterSeconds) } });
-
     const { id } = await context.params;
     const body = await request.json();
+    // Activate / Deactivate (status only) has its own budget, so a big batch of them can't block edits.
+    const kind = isVisibilityOnlyChange(body) ? "visibility" : "edit";
+    const rate = await consumeRateLimit(productWriteLimitKey(kind, session.user.id), PRODUCT_WRITE_LIMITS[kind].limit, PRODUCT_WRITE_WINDOW_MS);
+    if (!rate.allowed) return NextResponse.json({ error: productLimitMessage(kind, rate.retryAfterSeconds), retryAfterSeconds: rate.retryAfterSeconds }, { status: 429, headers: { "Retry-After": String(rate.retryAfterSeconds) } });
 
     const existingProduct = await db.product.findUnique({
       where: {
@@ -231,8 +233,8 @@ export async function DELETE(
     if (!session?.user || !canManageProducts(session.user.role)) {
       return NextResponse.json({ error: "Only PackAM admins can delete products." }, { status: 403 });
     }
-    const rate = await consumeRateLimit(`product-write:${session.user.id}`, 30, 60 * 60 * 1000);
-    if (!rate.allowed) return NextResponse.json({ error: "Product changes are temporarily rate limited." }, { status: 429, headers: { "Retry-After": String(rate.retryAfterSeconds) } });
+    const rate = await consumeRateLimit(productWriteLimitKey("edit", session.user.id), PRODUCT_WRITE_LIMITS.edit.limit, PRODUCT_WRITE_WINDOW_MS);
+    if (!rate.allowed) return NextResponse.json({ error: productLimitMessage("edit", rate.retryAfterSeconds), retryAfterSeconds: rate.retryAfterSeconds }, { status: 429, headers: { "Retry-After": String(rate.retryAfterSeconds) } });
 
     const { id } = await context.params;
     if (!id || id.length > 100) return NextResponse.json({ error: "Product not found." }, { status: 404 });

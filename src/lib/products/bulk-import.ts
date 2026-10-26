@@ -21,7 +21,7 @@ export const IMPORT_COLUMNS: ReadonlyArray<{ key: ColumnKey; required: boolean; 
   { key: "category", required: true, aliases: ["category name"], help: "Required. An existing category name exactly as in Admin → Categories (e.g. Academic Materials)." },
   { key: "price", required: true, aliases: ["price (ngn)", "price (₦)", "selling price", "customer price"], help: "Required. Whole naira, at least 1. 1500, 1,500 and ₦1,500 all work." },
   { key: "description", required: false, aliases: [], help: `Optional. Up to ${PRODUCT_DESCRIPTION_MAX} characters. Wrap it in quotes if it contains commas.` },
-  { key: "visibility", required: false, aliases: ["status"], help: "Optional. hidden (the default) or visible. Hidden products can be checked, given photos and made visible later." },
+  { key: "visibility", required: false, aliases: ["status"], help: "Optional. hidden (the default) or visible. Use visible for products that are ready to sell, so you don’t have to activate them one by one afterwards." },
 ];
 
 /** Columns we recognise but deliberately don't import. */
