@@ -55,7 +55,7 @@ export function StudentMobileMenu({ user, primary, secondary }: { user: MenuUser
 
       {isOpen &&
         createPortal(
-          <div className="fixed inset-x-0 bottom-0 top-16 z-40 md:hidden">
+          <div className="fixed inset-x-0 bottom-0 top-14 z-40 sm:top-16 md:hidden">
             <button type="button" aria-label="Close menu" tabIndex={-1} onClick={close} className="absolute inset-0 h-full w-full cursor-default bg-black/25 backdrop-blur-[2px]" />
             <div
               ref={panelRef}

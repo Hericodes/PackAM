@@ -20,7 +20,7 @@ export function ProductCard({ id, name, price, image, category }: ProductCardPro
             imageUrl={image}
             category={category}
             sizes="(min-width: 1024px) 25vw, (min-width: 768px) 33vw, 50vw"
-            className="aspect-4/3 transition-transform duration-300 motion-safe:group-hover:scale-[1.02]"
+            className="aspect-[3/2] transition-transform sm:aspect-4/3 duration-300 motion-safe:group-hover:scale-[1.02]"
           />
         </Link>
         <div className="absolute right-2 top-2 sm:right-2.5 sm:top-2.5">
@@ -44,13 +44,14 @@ export function ProductCard({ id, name, price, image, category }: ProductCardPro
             {name}
           </Link>
         </h3>
-        {/* Price and action share the card's bottom edge, so they align across a row whatever the name length. */}
-        <div className="mt-auto pt-2 sm:pt-2.5">
-          <p className="flex items-baseline gap-0.5 font-black tracking-tight text-black">
+        {/* Price and action share the card's bottom edge, so they align across a row whatever the name length.
+            Phones: side by side. From sm up: price above a full-width button. */}
+        <div className="mt-auto flex items-center justify-between gap-1.5 pt-2 sm:block sm:pt-2.5">
+          <p className="flex min-w-0 items-baseline gap-0.5 whitespace-nowrap font-black tracking-tight text-black">
             <span className="text-[0.8125rem] sm:text-sm">₦</span>
             <span className="text-lg leading-none sm:text-[1.375rem]">{price.toLocaleString()}</span>
           </p>
-          <div className="pt-2.5 sm:pt-3">
+          <div className="shrink-0 sm:pt-3">
             <AddToCart productId={id} compact />
           </div>
         </div>
@@ -63,12 +64,11 @@ export function ProductCard({ id, name, price, image, category }: ProductCardPro
 export function ProductCardSkeleton() {
   return (
     <div className="flex h-full flex-col overflow-hidden rounded-[18px] border border-black/[0.07] bg-white sm:rounded-[22px]" aria-hidden="true">
-      <div className="pk-skeleton aspect-4/3 rounded-none" />
+      <div className="pk-skeleton aspect-[3/2] rounded-none sm:aspect-4/3" />
       <div className="flex flex-1 flex-col gap-2 border-t border-black/[0.05] p-2.5 sm:p-4">
         <div className="pk-skeleton h-3 w-2/5" />
         <div className="pk-skeleton h-4 w-4/5" />
-        <div className="mt-auto pt-2.5"><div className="pk-skeleton h-5 w-1/3" /></div>
-        <div className="pk-skeleton mt-1.5 h-10 w-full rounded-full sm:h-11" />
+        <div className="mt-auto flex items-center justify-between pt-2 sm:block sm:pt-2.5"><div className="pk-skeleton h-5 w-1/3" /><div className="pk-skeleton h-10 w-10 rounded-full sm:mt-3 sm:h-11 sm:w-full" /></div>
       </div>
     </div>
   );

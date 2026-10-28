@@ -19,9 +19,9 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
   return (
     <main className="min-h-screen">
       <StudentNavbar />
-      <div className="packam-container pb-8 pt-4 sm:py-10">
+      <div className="packam-container pb-8 pt-3 sm:py-10">
         <p className="pk-eyebrow">Campus marketplace</p>
-        <h1 className="pk-page-title mt-2">{category === "" && !query ? "Wetin you need today?" : "Search PackAM"}</h1>
+        <h1 className="pk-page-title mt-1 max-sm:text-[1.625rem] sm:mt-2">{category === "" && !query ? "Wetin you need today?" : "Search PackAM"}</h1>
         <LiveSearch key={`${query}:${category}`} query={query} category={category} categories={categories} initialPage={firstPage} />
       </div>
     </main>

@@ -37,14 +37,14 @@ export function SavedProducts() {
 
   if (!ready || state === "loading") {
     return (
-      <div className="pk-product-grid mt-6" aria-busy="true" aria-label="Loading saved items">
+      <div className="pk-product-grid mt-4 sm:mt-6" aria-busy="true" aria-label="Loading saved items">
         {[0, 1, 2, 3].map((n) => <ProductCardSkeleton key={n} />)}
       </div>
     );
   }
   if (state === "error") {
     return (
-      <div role="alert" className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-800">
+      <div role="alert" className="mt-4 flex flex-wrap sm:mt-6 items-center justify-between gap-3 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-800">
         <span>Saved items couldn’t load.</span>
         <button type="button" onClick={() => void load()} className="pk-btn pk-btn-secondary pk-btn-sm">Try again</button>
       </div>
@@ -54,7 +54,7 @@ export function SavedProducts() {
   const unavailable = ids.length - products.length;
   if (!products.length) {
     return (
-      <div className="pk-empty mt-6">
+      <div className="pk-empty mt-4 sm:mt-6">
         <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#fff4c7] text-2xl" aria-hidden="true">♡</span>
         <h2 className="mt-4 text-lg font-black">{ids.length ? "Your saved items aren’t available right now" : "Nothing saved yet"}</h2>
         <p className="pk-muted mt-1 max-w-sm text-sm leading-6">Tap the heart on anything wey catch your eye, and e go dey here for next time.</p>
@@ -65,7 +65,7 @@ export function SavedProducts() {
   return (
     <>
       {unavailable > 0 && <p className="pk-muted mt-5 text-sm">{unavailable} saved item{unavailable === 1 ? " is" : "s are"} no longer available and hidden.</p>}
-      <div className="pk-product-grid mt-6">
+      <div className="pk-product-grid mt-4 sm:mt-6">
         {products.map((product) => (
           <ProductCard key={product.id} id={product.id} name={product.name} price={product.customerPrice} image={product.imageUrl} category={product.category.name} />
         ))}

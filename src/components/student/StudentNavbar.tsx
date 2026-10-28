@@ -29,13 +29,13 @@ export async function StudentNavbar() {
 
   return (
     <header className="sticky top-0 z-50 border-b border-black/[0.06] bg-[#fffdf7]/85 shadow-[0_1px_0_rgba(255,255,255,0.6)_inset,0_6px_24px_-18px_rgba(135,90,0,0.35)] backdrop-blur-md">
-      <div className="packam-container flex h-16 items-center justify-between gap-2 sm:gap-4 md:h-[72px]">
+      <div className="packam-container flex h-14 items-center justify-between gap-2 sm:h-16 sm:gap-4 md:h-[72px]">
         <Link
           href="/"
           aria-label="PackAM home"
           className="shrink-0 rounded-lg transition-transform hover:scale-[1.02] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-black"
         >
-          <PackAMLogo width={76} priority className="md:w-[84px]" />
+          <PackAMLogo width={76} priority className="max-sm:w-[68px] md:w-[84px]" />
         </Link>
 
         <StudentNavLinks items={primary} />

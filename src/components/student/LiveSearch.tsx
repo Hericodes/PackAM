@@ -118,7 +118,7 @@ export function LiveSearch({
 
   return (
     <>
-      <form action="/search" role="search" onSubmit={submit} className="mt-4 flex gap-2 sm:mt-6">
+      <form action="/search" role="search" onSubmit={submit} className="mt-3 flex gap-2 sm:mt-6">
         <label htmlFor="search-input" className="sr-only">Search products</label>
         <input
           id="search-input"
@@ -133,7 +133,7 @@ export function LiveSearch({
         <button type="submit" className="pk-btn pk-btn-primary shrink-0 px-4 sm:min-h-[52px] sm:px-6 sm:text-[0.9375rem]">Search</button>
       </form>
 
-      <div role="group" aria-label="Filter by category" className="-mx-4 mt-3 flex gap-1.5 overflow-x-auto px-4 pb-1.5 [scrollbar-width:none] sm:mx-0 sm:mt-4 sm:flex-wrap sm:gap-2 sm:px-0 sm:pb-2 [&::-webkit-scrollbar]:hidden">
+      <div role="group" aria-label="Filter by category" className="-mx-4 mt-2.5 flex gap-1.5 overflow-x-auto px-4 pb-1 [scrollbar-width:none] sm:mx-0 sm:mt-4 sm:flex-wrap sm:gap-2 sm:px-0 sm:pb-2 [&::-webkit-scrollbar]:hidden">
         <button type="button" onClick={() => setFilter("")} aria-pressed={!category} className="pk-chip min-h-9 shrink-0 px-3.5 text-[0.8125rem] sm:min-h-10 sm:px-4 sm:text-sm">All</button>
         {categories.map((item) => (
           <button key={item.slug} type="button" onClick={() => setFilter(item.slug)} aria-pressed={category === item.slug} className="pk-chip min-h-9 shrink-0 px-3 text-[0.8125rem] sm:min-h-10 sm:px-4 sm:text-sm">
@@ -147,8 +147,8 @@ export function LiveSearch({
         </Link>
       </div>
 
-      <div className="mt-3 flex min-h-6 items-center justify-between gap-3 sm:mt-4">
-        <p className="text-sm font-semibold text-black/70" aria-live="polite">
+      <div className="mt-2 flex min-h-5 items-center justify-between gap-3 sm:mt-4 sm:min-h-6">
+        <p className="text-[0.8125rem] font-semibold text-black/70 sm:text-sm" aria-live="polite">
           {replacing
             ? ""
             : searching
@@ -170,7 +170,7 @@ export function LiveSearch({
       )}
 
       {products.length > 0 && (
-        <div id="search-results" aria-busy={replacing} className={`pk-product-grid mt-3 transition-opacity sm:mt-4 ${replacing ? "opacity-60" : ""}`}>
+        <div id="search-results" aria-busy={replacing} className={`pk-product-grid mt-2 transition-opacity sm:mt-4 ${replacing ? "opacity-60" : ""}`}>
           {products.map((item) => (
             <ProductCard key={item.id} id={item.id} name={item.name} price={item.customerPrice} image={item.imageUrl} category={item.category.name} />
           ))}

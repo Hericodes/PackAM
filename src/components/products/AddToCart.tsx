@@ -45,28 +45,29 @@ export function AddToCart({ productId, compact = false }: AddToCartProps) {
   }
 
   if (compact) {
-    return <div>
+    // Phones: a 40px round button beside the price (label for screen readers only). From sm up: the full-width labelled button.
+    return <div className="flex flex-col items-end sm:block">
       <button
         type="button"
         onClick={handleAddToCart}
         disabled={loading}
         aria-busy={loading}
-        className={`group/cart flex min-h-10 w-full sm:min-h-11 items-center justify-center gap-1.5 whitespace-nowrap rounded-full px-2 text-xs font-black min-[400px]:gap-2 min-[400px]:px-3 min-[400px]:text-[0.8125rem] transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black disabled:cursor-wait disabled:opacity-70 ${
+        className={`group/cart flex h-10 w-10 shrink-0 items-center justify-center whitespace-nowrap rounded-full text-[0.8125rem] font-black sm:h-auto sm:min-h-11 sm:w-full sm:gap-2 sm:px-3 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black disabled:cursor-wait disabled:opacity-70 ${
           added ? "bg-[#feb80a] text-black hover:bg-[#e5a500]" : "bg-black text-white hover:bg-[#262626]"
         }`}
       >
         {loading ? (
           <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-r-transparent" aria-hidden="true" />
         ) : added ? (
-          <Icon name="check" className="h-4 w-4" strokeWidth={2.6} />
+          <Icon name="check" className="h-5 w-5 sm:h-4 sm:w-4" strokeWidth={2.6} />
         ) : (
-          <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#feb80a] text-black transition-transform group-hover/cart:scale-110">
-            <Icon name="plus" className="h-3.5 w-3.5" strokeWidth={3} />
+          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#feb80a] text-black transition-transform group-hover/cart:scale-110 sm:h-5 sm:w-5">
+            <Icon name="plus" className="h-4 w-4 sm:h-3.5 sm:w-3.5" strokeWidth={3} />
           </span>
         )}
-        <span>{loading ? "Adding…" : added ? "Add another" : "Add to cart"}</span>
+        <span className="sr-only sm:not-sr-only">{loading ? "Adding…" : added ? "Add another" : "Add to cart"}</span>
       </button>
-      {error && <p role="alert" className="mt-2 text-xs font-semibold leading-4 text-red-700">{error}</p>}
+      {error && <p role="alert" className="mt-2 max-w-36 text-right text-xs font-semibold leading-4 text-red-700 sm:max-w-none sm:text-left">{error}</p>}
       <span role="status" className="sr-only">{added ? "Added to cart" : ""}</span>
     </div>;
   }
