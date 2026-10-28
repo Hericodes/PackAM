@@ -1,4 +1,5 @@
 import { searchProducts } from "../../../lib/products/search";
+import { isSchemaBehindCode, schemaBehindCodeResponse } from "../../../lib/db-errors";
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
@@ -10,6 +11,7 @@ export async function GET(request: Request) {
     });
     return Response.json(result, { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) {
+    if (isSchemaBehindCode(error)) return schemaBehindCodeResponse(error, "GET /api/search");
     console.error("PRODUCT SEARCH ERROR:", error instanceof Error ? error.name : "Unknown error");
     return Response.json({ error: "Search is temporarily unavailable." }, { status: 500 });
   }

@@ -3,6 +3,7 @@ import { db } from "../../../lib/db";
 import { studentCatalogueProductWhere } from "../../../lib/products/catalogue";
 import { priceCart } from "../../../lib/cart-pricing";
 import { addToCart, cartConflictResponse } from "../../../lib/cart-add";
+import { isSchemaBehindCode, schemaBehindCodeResponse } from "../../../lib/db-errors";
 
 async function getStudentCart(userId: string) {
   return db.cart.findUnique({
@@ -57,6 +58,7 @@ export async function GET() {
       summary: await getCartSummary(session.user.id),
     });
   } catch (error) {
+    if (isSchemaBehindCode(error)) return schemaBehindCodeResponse(error, "GET /api/cart");
     console.error("GET CART ERROR:", (error instanceof Error ? error.name : "Unknown error"));
 
     return Response.json(
@@ -121,6 +123,7 @@ export async function POST(request: Request) {
 
     return Response.json({ message: "Product added to cart.", summary: await getCartSummary(session.user.id) });
   } catch (error) {
+    if (isSchemaBehindCode(error)) return schemaBehindCodeResponse(error, "POST /api/cart");
     console.error("ADD TO CART ERROR:", (error instanceof Error ? error.name : "Unknown error"));
 
     return Response.json(
@@ -205,6 +208,7 @@ export async function PATCH(request: Request) {
 
     return Response.json({ message: "Cart updated.", summary: await getCartSummary(session.user.id) });
   } catch (error) {
+    if (isSchemaBehindCode(error)) return schemaBehindCodeResponse(error, "PATCH /api/cart");
     console.error("UPDATE CART ERROR:", (error instanceof Error ? error.name : "Unknown error"));
 
     return Response.json(
@@ -278,6 +282,7 @@ export async function DELETE(request: Request) {
 
     return Response.json({ message: "Item removed from cart.", summary: await getCartSummary(session.user.id) });
   } catch (error) {
+    if (isSchemaBehindCode(error)) return schemaBehindCodeResponse(error, "DELETE /api/cart");
     console.error("REMOVE CART ITEM ERROR:", (error instanceof Error ? error.name : "Unknown error"));
 
     return Response.json(

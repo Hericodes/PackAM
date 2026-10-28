@@ -19,7 +19,10 @@ export function CartExperience({ children }: { children: React.ReactNode }) {
   const refresh = useCallback(async () => {
     try {
       const response = await fetch("/api/cart", { cache: "no-store" });
-      if (!response.ok) { setIsStudent(false); setCount(0); setSubtotal(0); return; }
+      // Signed out or not a student: no cart. A server error (e.g. 503 while PackAM updates) says nothing
+      // about the cart, so the last known count stays rather than showing an empty cart.
+      if (response.status === 401 || response.status === 403) { setIsStudent(false); setCount(0); setSubtotal(0); return; }
+      if (!response.ok) return;
       const data = await response.json();
       setIsStudent(true);
       setCount(data.summary?.count ?? (data.cart?.items ?? []).reduce((sum: number, item: { quantity: number }) => sum + item.quantity, 0));

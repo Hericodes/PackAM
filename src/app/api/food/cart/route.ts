@@ -4,6 +4,7 @@ import { addToCart, cartConflictResponse } from "../../../../lib/cart-add";
 import { priceCart } from "../../../../lib/cart-pricing";
 import { priceLine, type LineRequest, type MenuItem } from "../../../../lib/food/plate";
 import { listedShopWhere } from "../../../../lib/food/shops";
+import { isSchemaBehindCode, schemaBehindCodeResponse } from "../../../../lib/db-errors";
 
 /**
  * Adds a ready-made meal or a built plate to the student's cart. The browser sends only ids and
@@ -43,6 +44,7 @@ export async function POST(request: Request) {
     const cart = await priceCart(db, session.user.id);
     return Response.json({ added: { name: priced.line.name, unitPrice: priced.line.unitPrice, quantity: priced.line.quantity }, cleared: result.cleared, summary: { count: cart.count, subtotal: cart.subtotal } });
   } catch (error) {
+    if (isSchemaBehindCode(error)) return schemaBehindCodeResponse(error, "POST /api/food/cart");
     console.error("FOOD CART ERROR:", error instanceof Error ? error.name : "Unknown error");
     return Response.json({ error: "We couldn’t add that to your cart. Please try again." }, { status: 500 });
   }

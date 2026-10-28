@@ -35,3 +35,33 @@ test("the marketplace page no longer shows the delivery-fee message", () => {
   assert.doesNotMatch(page, /Prices include everything/);
   assert.doesNotMatch(page, /added once per order/);
 });
+
+test("schema behind code: missing columns or tables from any query are recognised, other errors are not", async () => {
+  const { isSchemaBehindCode, missingSchemaElement, schemaBehindCodeResponse } = await import("./db-errors");
+  // The exact shape seen when the Food code ran on a database without its migration.
+  const missingColumn = { code: "P2022", message: "Invalid `db.cart.findUnique()` invocation:\n\nThe column `CartItem.configKey` does not exist in the current database.", meta: { modelName: "Cart", driverAdapterError: { cause: { kind: "ColumnNotFound" } } } };
+  const missingTable = { code: "P2021", message: "The table `public.CartItemExtra` does not exist in the current database." };
+  assert.equal(isSchemaBehindCode(missingColumn), true);
+  assert.equal(isSchemaBehindCode(missingTable), true);
+  assert.equal(isSchemaBehindCode({ message: "error: column \"shopId\" does not exist (42703)" }), true);
+  assert.equal(missingSchemaElement(missingColumn), "CartItem.configKey");
+  assert.equal(missingSchemaElement(missingTable), "public.CartItemExtra");
+  for (const other of [null, "boom", { code: "P2002", message: "Unique constraint failed" }, { code: "P1001", message: "Can't reach database server" }, new Error("timeout")]) {
+    assert.equal(isSchemaBehindCode(other), false, String((other as { code?: string })?.code ?? other));
+  }
+
+  const logged: unknown[] = [];
+  const original = console.error;
+  console.error = (...args: unknown[]) => { logged.push(args.join(" ")); };
+  try {
+    const response = schemaBehindCodeResponse(missingColumn, "GET /api/cart");
+    assert.equal(response.status, 503);
+    assert.equal(response.headers.get("Retry-After"), "120");
+    const body = await response.json();
+    assert.deepEqual(body, { error: "PackAM is being updated. Your cart is safe — please try again in a few minutes.", code: "SERVICE_UPDATING" });
+    assert.doesNotMatch(JSON.stringify(body), /configKey|Prisma|column|database/i, "nothing about the database reaches the browser");
+    assert.match(String(logged[0]), /GET \/api\/cart.*missing CartItem\.configKey.*prisma migrate deploy/, "the server log names the missing column and the fix");
+  } finally {
+    console.error = original;
+  }
+});
