@@ -108,7 +108,9 @@ export async function reportSourcing(userId: string, orderId: string, input: Sou
       select: { id: true, productId: true, productName: true, unitPrice: true, quantity: true },
     });
     if (!item) throw new Error("Order item not found.");
-    const vendor = await tx.vendor.findFirst({ where: { id: input.vendorId, status: "ACTIVE" }, select: { id: true, name: true } });
+    // A food order is bought from the shop the student ordered from, never another one.
+    if (order.shopId && input.vendorId !== order.shopId) throw new Error(`This food order must be bought from ${order.shop?.name ?? "the shop the student chose"}.`);
+    const vendor = await tx.vendor.findFirst({ where: order.shopId ? { id: input.vendorId } : { id: input.vendorId, status: "ACTIVE" }, select: { id: true, name: true } });
     if (!vendor) throw new Error("Choose an active shop.");
 
     const productSource = await tx.productSource.upsert({
@@ -328,7 +330,7 @@ async function getAssignedOrder(tx: Prisma.TransactionClient, userId: string, or
   if (!assignment) throw new Error("This order is not assigned to you.");
   const order = await tx.order.findFirst({
     where: { id: orderId, assignedRunnerId: runner.id },
-    select: { id: true, userId: true, status: true },
+    select: { id: true, userId: true, status: true, shopId: true, shop: { select: { name: true } } },
   });
   if (!order) throw new Error("Assigned order not found.");
   return { runner, assignment, order };

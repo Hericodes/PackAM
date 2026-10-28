@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { DeliveryLocation, hasPin } from "./LocationSelector";
 import { CheckoutLocationStep } from "./CheckoutLocationStep";
 import { Icon } from "../ui/Icon";
@@ -14,8 +15,18 @@ import { productGlyph } from "../../lib/products/category-display";
 type CheckoutItem = {
   id: string;
   quantity: number;
-  product: { id: string; name: string; imageUrl: string | null; customerPrice: number; category: string };
+  name: string;
+  imageUrl: string | null;
+  category: string;
+  /** Server price for one unit (a plate: base + soup + extras). */
+  unitPrice: number;
+  /** A built plate's contents, e.g. "Amala + Ewedu + Meat ×2". */
+  plate: string | null;
+  /** Why this line can't be paid for right now. */
+  problem: string | null;
 };
+
+type Revised = { subtotal: number; deliveryFee: number; total: number; reviewedTotal: number; lines: Array<{ cartItemId: string; name: string; quantity: number; unitPrice: number; total: number }> };
 
 type CheckoutClientProps = {
   items: CheckoutItem[];
@@ -24,12 +35,19 @@ type CheckoutClientProps = {
   lastLocation: DeliveryLocation | null;
   /** Display name of the provider new checkouts use, e.g. "Paystack". */
   providerName?: string;
+  /** Food orders: the shop everything comes from. */
+  shopName?: string | null;
+  /** What stops this cart being paid for, from the server. */
+  problems?: string[];
 };
 
 const money = (amount: number) => `₦${amount.toLocaleString()}`;
 
-export function CheckoutClient({ items: initialItems, deliveryFee, lastLocation, providerName = "our payment partner" }: CheckoutClientProps) {
+export function CheckoutClient({ items: initialItems, deliveryFee, lastLocation, providerName = "our payment partner", shopName = null, problems = [] }: CheckoutClientProps) {
+  const router = useRouter();
   const { setSummary } = useCartExperience();
+  // The server's revised breakdown when prices changed; payment waits for the student to confirm it.
+  const [revised, setRevised] = useState<Revised | null>(null);
   const [items, setItems] = useState(initialItems);
   // Nothing is preselected: every checkout starts with the three location options.
   const [selectedLocation, setSelectedLocation] = useState<DeliveryLocation | null>(null);
@@ -38,9 +56,16 @@ export function CheckoutClient({ items: initialItems, deliveryFee, lastLocation,
   const [paymentBusy, setPaymentBusy] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
-  const subtotal = items.reduce((sum, item) => sum + item.product.customerPrice * item.quantity, 0);
+  const subtotal = items.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
   const currentDeliveryFee = items.length ? deliveryFee : 0;
   const total = subtotal + currentDeliveryFee;
+
+  // A refresh (after a price change or an unavailable item) brings new server prices: show them.
+  const [syncedItems, setSyncedItems] = useState(initialItems);
+  if (syncedItems !== initialItems) {
+    setSyncedItems(initialItems);
+    setItems(initialItems);
+  }
 
   // If the browser restores this page from its back/forward cache after payment, unfreeze the button.
   useEffect(() => {
@@ -78,7 +103,7 @@ export function CheckoutClient({ items: initialItems, deliveryFee, lastLocation,
     }
   }
 
-  async function handlePayment() {
+  async function handlePayment(confirmedTotal?: number) {
     setError("");
     setMessage("");
     if (!items.length) return;
@@ -95,7 +120,7 @@ export function CheckoutClient({ items: initialItems, deliveryFee, lastLocation,
     try {
       // The key covers the exact cart, so a changed cart can never reuse an attempt for an older amount.
       const cartFingerprint = items.map((item) => `${item.id}x${item.quantity}`).sort().join(",");
-      const storageKey = `packam-payment-attempt:${selectedLocation.id}:${deliveryInstructions.trim()}:${cartFingerprint}:${total}`;
+      const storageKey = `packam-payment-attempt:${selectedLocation.id}:${deliveryInstructions.trim()}:${cartFingerprint}:${confirmedTotal ?? total}`;
       let idempotencyKey = window.sessionStorage.getItem(storageKey);
       if (!idempotencyKey) {
         idempotencyKey = crypto.randomUUID();
@@ -107,9 +132,20 @@ export function CheckoutClient({ items: initialItems, deliveryFee, lastLocation,
           "Content-Type": "application/json",
           "Idempotency-Key": idempotencyKey,
         },
-        body: JSON.stringify({ deliveryLocationId: selectedLocation.id, deliveryInstructions }),
+        // The total the student is looking at. The server compares it with its own and never charges a different one silently.
+        body: JSON.stringify({ deliveryLocationId: selectedLocation.id, deliveryInstructions, reviewedTotal: confirmedTotal ?? total }),
       });
       const data = await response.json();
+      if (response.status === 409 && data.code === "PRICE_CHANGED" && data.revised) {
+        window.sessionStorage.removeItem(storageKey);
+        setRevised(data.revised as Revised);
+        setPaymentBusy(false);
+        return;
+      }
+      if (response.status === 409 && data.code === "CART_NOT_PAYABLE") {
+        window.sessionStorage.removeItem(storageKey);
+        router.refresh();
+      }
       if (!response.ok || typeof data.cashierUrl !== "string") {
         throw new Error(data.error || "We couldn’t start your payment. Please try again.");
       }
@@ -122,7 +158,7 @@ export function CheckoutClient({ items: initialItems, deliveryFee, lastLocation,
   }
 
   const paymentButton = (
-    <button type="button" onClick={handlePayment} disabled={!items.length || paymentBusy || busyItem !== null} aria-busy={paymentBusy} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-black px-5 text-sm font-black text-white transition hover:bg-[#262626] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black disabled:cursor-not-allowed disabled:opacity-40">
+    <button type="button" onClick={() => void handlePayment()} disabled={!items.length || paymentBusy || busyItem !== null || problems.length > 0 || revised !== null} aria-busy={paymentBusy} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-black px-5 text-sm font-black text-white transition hover:bg-[#262626] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black disabled:cursor-not-allowed disabled:opacity-40">
       {paymentBusy ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-r-transparent" aria-hidden="true" /> : <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#feb80a] text-black"><Icon name="arrowRight" className="h-3 w-3" strokeWidth={3} /></span>}
       {paymentBusy ? `Opening ${providerName}…` : `Pay ${money(total)}`}
     </button>
@@ -177,10 +213,20 @@ export function CheckoutClient({ items: initialItems, deliveryFee, lastLocation,
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <span className="flex h-8 w-8 items-center justify-center rounded-full bg-black text-sm font-black text-[#feb80a]" aria-hidden="true">2</span>
-              <h2 id="checkout-items-heading" className="text-lg font-black">Your items</h2>
+              <div>
+                <h2 id="checkout-items-heading" className="text-lg font-black">{shopName ? "Your food" : "Your items"}</h2>
+                {shopName && <p className="text-xs text-black/55">From {shopName}</p>}
+              </div>
             </div>
             <p className="text-xs font-semibold text-black/55">{items.length} {items.length === 1 ? "product" : "products"}</p>
           </div>
+          {problems.length > 0 && (
+            <div role="alert" className="mt-3 rounded-2xl border border-[#c92d24]/20 bg-[#ffe9e7] p-3.5 text-sm text-[#a3241c]">
+              <p className="font-black">This order can’t be paid for yet</p>
+              <ul className="mt-1 list-disc space-y-0.5 pl-5">{problems.map((problem) => <li key={problem}>{problem}</li>)}</ul>
+              <p className="mt-1.5 text-xs text-black/60">Remove the items marked below{shopName ? `, or come back when ${shopName} is open` : ""}. Nothing has been charged.</p>
+            </div>
+          )}
           {items.length === 0 ? (
             <div className="mt-4 rounded-2xl bg-[#fff8df] p-5 text-sm text-black/70">
               You never pick anything o 😂 Your cart dey do fasting. <Link className="font-black text-black underline" href="/search">Find something</Link>
@@ -190,21 +236,22 @@ export function CheckoutClient({ items: initialItems, deliveryFee, lastLocation,
               {items.map((item) => (
                 <article key={item.id} className="flex min-w-0 gap-3 py-4 first:pt-3 last:pb-1 sm:gap-4">
                   <div className="pk-media pk-media-cream relative h-16 w-16 shrink-0 overflow-hidden rounded-xl sm:h-[72px] sm:w-[72px]">
-                    {item.product.imageUrl ? <Image src={productImageDeliveryUrl(item.product.imageUrl)} alt="" fill sizes="72px" className="object-cover" /> : <div className="flex h-full items-center justify-center text-2xl" aria-hidden="true">{productGlyph(item.product.name, item.product.category)}</div>}
+                    {item.imageUrl ? <Image src={productImageDeliveryUrl(item.imageUrl)} alt="" fill sizes="72px" className="object-cover" /> : <div className="flex h-full items-center justify-center text-2xl" aria-hidden="true">{shopName ? "🍲" : productGlyph(item.name, item.category)}</div>}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="break-words text-sm font-black sm:text-base">{item.product.name}</p>
-                    <p className="mt-0.5 text-sm text-black/55">{money(item.product.customerPrice)} each</p>
+                    <p className="break-words text-sm font-black sm:text-base">{item.plate ? "Plate" : item.name}</p>
+                    {item.plate && <p className="mt-0.5 break-words text-sm leading-5 text-black/70">{item.plate}</p>}
+                    {item.problem ? <p className="mt-0.5 text-sm font-semibold text-[#c92d24]">{item.problem}</p> : <p className="mt-0.5 text-sm text-black/55">{money(item.unitPrice)} each</p>}
                     <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
-                      <div className="flex h-11 items-center rounded-full border border-black/10 bg-white" role="group" aria-label={`${item.product.name} quantity`}>
-                        <button type="button" onClick={() => changeItem(item.id, item.quantity - 1)} disabled={busyItem !== null} aria-label={`Decrease ${item.product.name} quantity`} className="h-11 w-11 rounded-l-full text-lg font-black transition hover:bg-black/5 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-black disabled:opacity-40">−</button>
+                      <div className="flex h-11 items-center rounded-full border border-black/10 bg-white" role="group" aria-label={`${item.name} quantity`}>
+                        <button type="button" onClick={() => changeItem(item.id, item.quantity - 1)} disabled={busyItem !== null} aria-label={`Decrease ${item.name} quantity`} className="h-11 w-11 rounded-l-full text-lg font-black transition hover:bg-black/5 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-black disabled:opacity-40">−</button>
                         <span className="w-7 text-center text-sm font-black" aria-live="polite">{item.quantity}</span>
-                        <button type="button" onClick={() => changeItem(item.id, item.quantity + 1)} disabled={busyItem !== null || item.quantity >= 99} aria-label={`Increase ${item.product.name} quantity`} className="h-11 w-11 rounded-r-full text-lg font-black transition hover:bg-black/5 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-black disabled:opacity-40">+</button>
+                        <button type="button" onClick={() => changeItem(item.id, item.quantity + 1)} disabled={busyItem !== null || item.quantity >= 99} aria-label={`Increase ${item.name} quantity`} className="h-11 w-11 rounded-r-full text-lg font-black transition hover:bg-black/5 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-black disabled:opacity-40">+</button>
                       </div>
                       <button type="button" onClick={() => changeItem(item.id, 0)} disabled={busyItem !== null} className="min-h-11 px-1 text-sm font-bold text-black/65 underline underline-offset-4 transition hover:text-red-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black disabled:opacity-40">Remove</button>
                     </div>
                   </div>
-                  <p className="shrink-0 pt-0.5 text-right text-base font-black">{money(item.product.customerPrice * item.quantity)}</p>
+                  <p className="shrink-0 pt-0.5 text-right text-base font-black">{money(item.unitPrice * item.quantity)}</p>
                 </article>
               ))}
             </div>
@@ -236,6 +283,26 @@ export function CheckoutClient({ items: initialItems, deliveryFee, lastLocation,
         {error && <p role="alert" className="mx-auto mt-2 max-w-3xl text-sm font-semibold text-red-700">{error}</p>}
         {message && <p role="status" className="mx-auto mt-2 max-w-3xl text-sm font-semibold text-green-800">{message}</p>}
       </div>
+
+      {revised && (
+        <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/40 p-3 sm:items-center">
+          <div role="alertdialog" aria-modal="true" aria-labelledby="revised-title" className="max-h-[90svh] w-full max-w-md overflow-y-auto rounded-3xl bg-white p-5 shadow-xl">
+            <h2 id="revised-title" className="text-lg font-black">Prices changed</h2>
+            <p className="mt-1 text-sm text-black/65">Something changed since you looked: your total is now <strong>{money(revised.total)}</strong>, not {money(revised.reviewedTotal)}. Nothing has been charged.</p>
+            <dl className="mt-3 space-y-1.5 text-sm">
+              {revised.lines.map((line) => (
+                <div key={line.cartItemId} className="flex justify-between gap-3"><dt className="min-w-0 truncate">{line.name} × {line.quantity}</dt><dd className="shrink-0 font-bold">{money(line.total)}</dd></div>
+              ))}
+              <div className="flex justify-between border-t border-black/10 pt-2"><dt className="text-black/60">Delivery</dt><dd className="font-bold">{money(revised.deliveryFee)}</dd></div>
+              <div className="flex items-baseline justify-between"><dt className="font-black">New total</dt><dd className="text-xl font-black">{money(revised.total)}</dd></div>
+            </dl>
+            <div className="mt-4 grid gap-2">
+              <button type="button" onClick={() => { const confirmed = revised.total; const prices = new Map(revised.lines.map((line) => [line.cartItemId, line.unitPrice])); setItems((current) => current.map((item) => ({ ...item, unitPrice: prices.get(item.id) ?? item.unitPrice }))); setRevised(null); void handlePayment(confirmed); }} className="pk-btn pk-btn-primary pk-btn-lg">Pay the new total · {money(revised.total)}</button>
+              <button type="button" onClick={() => { const prices = new Map(revised.lines.map((line) => [line.cartItemId, line.unitPrice])); setItems((current) => current.map((item) => ({ ...item, unitPrice: prices.get(item.id) ?? item.unitPrice }))); setRevised(null); router.refresh(); }} className="pk-btn pk-btn-secondary">Review my order</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

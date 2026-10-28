@@ -95,7 +95,7 @@ test("failed payment: Cancel Order removes only the captured items, once, even w
 
   signInAs(student);
   const failed = await callRoute(app.status.GET, { path: `/api/payments/opay/status?reference=${attempt.transactionReference}` });
-  assert.deepEqual(failed.json, { status: "FAILED", cancelled: false });
+  assert.deepEqual(failed.json, { status: "FAILED", cancelled: false, provider: "OPAY" });
 
   const results = await Promise.all([1, 2, 3].map(() => cancelAs(student, attempt.transactionReference!)));
   for (const result of results) assert.equal(result.status, 200, JSON.stringify(result.json));
@@ -110,7 +110,7 @@ test("failed payment: Cancel Order removes only the captured items, once, even w
 
   signInAs(student);
   const after = await callRoute(app.status.GET, { path: `/api/payments/opay/status?reference=${attempt.transactionReference}` });
-  assert.deepEqual(after.json, { status: "FAILED", cancelled: true });
+  assert.deepEqual(after.json, { status: "FAILED", cancelled: true, provider: "OPAY" });
 });
 
 test("late provider success after cancellation never creates an order and alerts operations", { skip }, async () => {

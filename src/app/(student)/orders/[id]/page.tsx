@@ -6,6 +6,13 @@ import { PriceDecision } from "../../../../components/orders/PriceDecision";
 import { ReorderButton } from "../../../../components/orders/ReorderButton";
 import { PrintTrackingRefresher } from "../../../../components/student/PrintTrackingRefresher";
 import { Icon } from "../../../../components/ui/Icon";
+import { describeDetails, parseLineDetails } from "../../../../lib/food/plate";
+
+/** A food plate's frozen contents ("Amala + Ewedu + Meat ×2"), or null for anything else. */
+function plateOf(details: unknown) {
+  const parsed = parseLineDetails(details);
+  return parsed?.kind === "PLATE" ? describeDetails(parsed) : null;
+}
 import { formatCampusTime, isFinalOrderStatus, orderEventDescription, orderNextStep, orderProgress, orderStatusLabel, orderStatusMessage, orderTimeline, shortReference } from "../../../../lib/student-copy";
 
 export default async function OrderDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -27,6 +34,7 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
       },
       statusHistory: { orderBy: { createdAt: "asc" } },
       assignedRunner: { include: { user: { select: { firstName: true } } } },
+      shop: { select: { name: true } },
     },
   });
   if (!order) notFound();
@@ -87,6 +95,7 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
                     <p className="min-w-0 break-words text-sm font-bold leading-5">{item.productName} <span className="pk-muted font-semibold">× {item.quantity}</span></p>
                     <strong className="shrink-0 whitespace-nowrap text-sm">₦{item.totalPrice.toLocaleString()}</strong>
                   </div>
+                  {plateOf(item.details) && <p className="mt-1 text-sm leading-5 text-black/65">{plateOf(item.details)}</p>}
                   {item.sourcing.map((source) => <div key={source.id} className="mt-3 rounded-xl border border-[#f0dfaa] bg-[#fff8df] p-3 text-sm leading-5">
                     {source.status === "PRICE_PENDING"
                       ? <><p className="font-bold">Price changed at {source.orderSource.vendor.name} 👀</p><p className="mt-1 text-sm leading-5 text-black/75">{item.productName} costs ₦{source.actualUnitPrice?.toLocaleString()} each there; you paid ₦{source.catalogueUnitPrice.toLocaleString()} each. Your runner is waiting for your choice.</p><PriceDecision orderId={order.id} sourcingId={source.id} orderTotal={order.total} /></>
@@ -145,9 +154,17 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
               <p className="pk-muted mt-2 text-xs">Order reference: <strong className="text-black">{shortReference(order.id)}</strong></p>
             </section>
 
-            <section className="pk-card p-5">
-              <ReorderButton items={order.items.map((item) => ({ productId: item.productId, name: item.productName, quantity: item.quantity }))} />
-            </section>
+            {/* Food is reordered from its shop's menu, where every choice and price is checked again. */}
+            {order.shopId ? (
+              <section className="pk-card p-5">
+                <p className="text-sm font-bold">From {order.shop?.name ?? "a food shop"}</p>
+                <Link href={`/food/${order.shopId}`} className="pk-btn pk-btn-secondary mt-3 w-full">Order from this shop again</Link>
+              </section>
+            ) : (
+              <section className="pk-card p-5">
+                <ReorderButton items={order.items.map((item) => ({ productId: item.productId, name: item.productName, quantity: item.quantity }))} />
+              </section>
+            )}
           </aside>
         </div>
       </div>

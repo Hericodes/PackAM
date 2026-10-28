@@ -126,6 +126,12 @@ export async function createTestCatalogue(products: Array<{ name: string; price:
   return { categoryId: category.id, categorySlug: category.slug, products: rows };
 }
 
+/** Registers rows a test created through the real API, so cleanup removes them like fixture rows. */
+export function trackForCleanup(rows: { products?: string[]; vendors?: string[] }) {
+  created.products.push(...(rows.products ?? []));
+  created.vendors.push(...(rows.vendors ?? []));
+}
+
 export async function createTestVendor(name = "Test shop") {
   const db = await testDb();
   const vendor = await db.vendor.create({ data: { name: `${name} ${runTag}` }, select: { id: true } });
@@ -191,6 +197,8 @@ async function deleteCreatedRows(db: Db) {
   // Take our runners off duty first so no new offers can land on them mid-cleanup.
   await db.runnerProfile.updateMany({ where: { userId: users }, data: { isAvailable: false, isVerified: false } });
   await db.notification.deleteMany({ where: { userId: users } });
+  // Review cases reference payments (added with admin payment review), so they go first.
+  await db.paymentReviewCase.deleteMany({ where: { payment: { userId: users } } });
   await db.payment.deleteMany({ where: { userId: users } });
   await db.printJob.deleteMany({ where: { userId: users } });
   await db.incident.deleteMany({ where: { order: { userId: users } } });

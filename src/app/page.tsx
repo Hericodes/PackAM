@@ -14,6 +14,7 @@ type Service = {
 
 const SERVICES: Service[] = [
   { id: "order", icon: "shop", title: "Order Stuff", body: "Food, drinks, essentials and more.", href: "/search", featured: true },
+  { id: "food", icon: "food", title: "Food", body: "Order from campus food shops.", href: "/food" },
   { id: "printing", icon: "printer", title: "Printing", body: "Print documents without the stress.", href: "/printing" },
 ];
 

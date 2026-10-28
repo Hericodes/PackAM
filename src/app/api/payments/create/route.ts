@@ -3,6 +3,7 @@ import { db } from "../../../../lib/db";
 import { createPaymentAttempt } from "../../../../lib/payments/payment-lifecycle";
 import { checkoutProvider, createHostedCheckout } from "../../../../lib/payments/gateways";
 import { consumeRateLimit } from "../../../../lib/rate-limit";
+import { CartNotPayableError, PriceChangedError } from "../../../../lib/payments/payment-errors";
 
 /**
  * Starts (or resumes) payment for the student's current cart. New attempts use the active provider
@@ -27,9 +28,14 @@ export async function POST(request: Request) {
   if (deliveryInstructions !== undefined && (typeof deliveryInstructions !== "string" || deliveryInstructions.length > 500)) {
     return Response.json({ error: "Delivery instructions must be 500 characters or fewer." }, { status: 400 });
   }
+  // The total the student last reviewed. Only compared with the server's own total, never charged.
+  const reviewedTotal = body && typeof body === "object" && "reviewedTotal" in body ? (body as { reviewedTotal?: unknown }).reviewedTotal : undefined;
+  if (typeof reviewedTotal !== "number" || !Number.isSafeInteger(reviewedTotal) || reviewedTotal < 0) {
+    return Response.json({ error: "Refresh checkout to see your total, then pay." }, { status: 400 });
+  }
 
   try {
-    const attempt = await createPaymentAttempt(checkoutProvider(), deliveryLocationId, idempotencyKey, typeof deliveryInstructions === "string" ? deliveryInstructions.trim() || null : undefined);
+    const attempt = await createPaymentAttempt(checkoutProvider(), deliveryLocationId, idempotencyKey, typeof deliveryInstructions === "string" ? deliveryInstructions.trim() || null : undefined, reviewedTotal);
     if (attempt.status === "SUCCESS" || attempt.status === "FAILED") {
       return Response.json({ error: "Start a new payment attempt from checkout." }, { status: 409 });
     }
@@ -73,6 +79,12 @@ export async function POST(request: Request) {
     }
     return Response.json({ cashierUrl: checkout.checkoutUrl, provider: attempt.provider });
   } catch (error) {
+    if (error instanceof PriceChangedError) {
+      return Response.json({ error: "Prices changed since you reviewed your order. Check the new total before paying.", code: "PRICE_CHANGED", revised: error.revised }, { status: 409 });
+    }
+    if (error instanceof CartNotPayableError) {
+      return Response.json({ error: `${error.problems[0]} Update your cart, then try again.`, code: "CART_NOT_PAYABLE", problems: error.problems }, { status: 409 });
+    }
     console.error("PAYMENT CREATE ERROR:", error instanceof Error ? error.name : "Unknown error");
     const message = error instanceof Error && /cart is empty|delivery location|no longer available|invalid quantity|not active/i.test(error.message)
       ? error.message

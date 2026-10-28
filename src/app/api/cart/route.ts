@@ -1,6 +1,8 @@
 import { auth } from "../../../auth";
 import { db } from "../../../lib/db";
 import { studentCatalogueProductWhere } from "../../../lib/products/catalogue";
+import { priceCart } from "../../../lib/cart-pricing";
+import { addToCart, cartConflictResponse } from "../../../lib/cart-add";
 
 async function getStudentCart(userId: string) {
   return db.cart.findUnique({
@@ -24,19 +26,10 @@ async function getStudentCart(userId: string) {
   });
 }
 
-function summarizeCart(cart: { items: { quantity: number; product: { customerPrice: number } }[] } | null) {
-  return (cart?.items ?? []).reduce((summary, item) => ({
-    count: summary.count + item.quantity,
-    subtotal: summary.subtotal + item.quantity * item.product.customerPrice,
-  }), { count: 0, subtotal: 0 });
-}
-
+/** Count and subtotal priced on the server (plates include their soup and extras). */
 async function getCartSummary(userId: string) {
-  const cart = await db.cart.findUnique({
-    where: { userId },
-    select: { items: { select: { quantity: true, product: { select: { customerPrice: true } } } } },
-  });
-  return summarizeCart(cart);
+  const priced = await priceCart(db, userId);
+  return { count: priced.count, subtotal: priced.subtotal };
 }
 
 export async function GET() {
@@ -61,7 +54,7 @@ export async function GET() {
 
     return Response.json({
       cart,
-      summary: summarizeCart(cart),
+      summary: await getCartSummary(session.user.id),
     });
   } catch (error) {
     console.error("GET CART ERROR:", (error instanceof Error ? error.name : "Unknown error"));
@@ -122,52 +115,9 @@ export async function POST(request: Request) {
       );
     }
 
-    const cart = await db.cart.upsert({
-      where: {
-        userId: session.user.id,
-      },
-      create: {
-        userId: session.user.id,
-      },
-      update: {},
-    });
-
-    const existingItem = await db.cartItem.findUnique({
-      where: {
-        cartId_productId: {
-          cartId: cart.id,
-          productId,
-        },
-      },
-    });
-
-    if (existingItem) {
-      const newQuantity = existingItem.quantity + quantity;
-
-      if (newQuantity > 99) {
-        return Response.json(
-          { error: "You can add a maximum of 99 units of one product." },
-          { status: 400 },
-        );
-      }
-
-      await db.cartItem.update({
-        where: {
-          id: existingItem.id,
-        },
-        data: {
-          quantity: newQuantity,
-        },
-      });
-    } else {
-      await db.cartItem.create({
-        data: {
-          cartId: cart.id,
-          productId,
-          quantity,
-        },
-      });
-    }
+    // Food and Order Stuff are separate checkouts. The cart is cleared only when the student chose to.
+    const result = await addToCart(session.user.id, { shop: null, productId, configKey: "", extras: [], quantity }, body?.clearCart === true);
+    if (!result.ok) return "conflict" in result ? cartConflictResponse(result.conflict) : Response.json({ error: result.error }, { status: 400 });
 
     return Response.json({ message: "Product added to cart.", summary: await getCartSummary(session.user.id) });
   } catch (error) {

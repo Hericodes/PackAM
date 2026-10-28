@@ -3,7 +3,8 @@ import { requireRole } from "../../../lib/auth-guard";
 import { db } from "../../../lib/db";
 import { redirect } from "next/navigation";
 import { CheckoutClient } from "../../../components/checkout/CheckoutClient";
-import { CHECKOUT_DELIVERY_FEE } from "../../../lib/checkout-pricing";
+import { priceCart } from "../../../lib/cart-pricing";
+import { describeDetails } from "../../../lib/food/plate";
 import { lastLocationFor } from "../../../lib/checkout-location-step";
 import { checkoutProvider } from "../../../lib/payments/gateways";
 import { providerName } from "../../../lib/payments/provider-selection";
@@ -27,25 +28,8 @@ function findUnconfirmedPayment(userId: string) {
 export default async function CheckoutPage() {
   const session = await requireRole("STUDENT", "/checkout");
   const [cart, savedLocations, unconfirmedPayment, lastOrder] = await Promise.all([
-    db.cart.findUnique({
-      where: { userId: session.user.id },
-      include: {
-        items: {
-          include: {
-            product: {
-              select: {
-                id: true,
-                name: true,
-                imageUrl: true,
-                customerPrice: true,
-                category: { select: { name: true } },
-              },
-            },
-          },
-          orderBy: { createdAt: "desc" },
-        },
-      },
-    }),
+    // Every price here is the server's: product prices, and plates priced as base + soup + extras.
+    priceCart(db, session.user.id),
     db.savedLocation.findMany({
       where: { userId: session.user.id },
       orderBy: { createdAt: "desc" },
@@ -66,8 +50,7 @@ export default async function CheckoutPage() {
   const lastLocation = lastLocationFor(savedLocations, lastOrder?.deliveryLocationId);
 
   const payWith = providerName(checkoutProvider());
-  const items = cart?.items ?? [];
-  if (!items.length) redirect("/search");
+  if (!cart.lines.length) redirect("/search");
   return (
     <main className="min-h-screen pb-32 lg:pb-20">
       <div className="packam-container pt-5 sm:pt-10">
@@ -87,15 +70,19 @@ export default async function CheckoutPage() {
         <div className="mt-5 sm:mt-7">
           <CheckoutClient
             providerName={payWith}
-            items={items.map((item) => ({
-              id: item.id,
-              quantity: item.quantity,
-              product: {
-                ...item.product,
-                category: item.product.category.name,
-              },
+            items={cart.lines.map((line) => ({
+              id: line.cartItemId,
+              quantity: line.quantity,
+              name: line.name,
+              imageUrl: line.imageUrl,
+              category: line.category,
+              unitPrice: line.unitPrice,
+              plate: line.details?.kind === "PLATE" ? describeDetails(line.details) : null,
+              problem: line.problem,
             }))}
-            deliveryFee={CHECKOUT_DELIVERY_FEE}
+            shopName={cart.context.kind === "food" ? cart.shop?.name ?? cart.context.shopName : null}
+            problems={cart.problems}
+            deliveryFee={cart.deliveryFee}
             lastLocation={lastLocation}
           />
         </div>

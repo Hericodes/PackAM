@@ -357,5 +357,5 @@ test("a paid order sends the student exactly one order confirmation", { skip }, 
   const orderId = await paidOrder(student, [{ productId: products[0].id, quantity: 1 }]);
   const confirmations = await db.notification.findMany({ where: { userId: student.userId, orderId, title: "Order confirmed" }, select: { message: true } });
   assert.equal(confirmations.length, 1);
-  assert.match(confirmations[0].message, /finding a runner/);
+  assert.match(confirmations[0].message, /find a runner/, "the PackAM-voice confirmation: “We dey find a runner for you.”");
 });

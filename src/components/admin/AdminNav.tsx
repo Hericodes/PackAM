@@ -6,7 +6,7 @@ import { usePathname } from "next/navigation";
 /** Operations navigation grouped by task. Every destination is still protected by its own page and API checks. */
 export const ADMIN_NAV_GROUPS = [
   { label: "Daily ops", links: [["/admin", "Overview"], ["/admin/orders", "Orders"], ["/admin/print-jobs", "Print jobs"], ["/admin/exceptions", "Exceptions"], ["/admin/payments", "Payments"]] },
-  { label: "Catalogue", links: [["/admin/products", "Products"], ["/admin/categories", "Categories"], ["/admin/vendors", "Vendors"], ["/admin/requests", "Requests"]] },
+  { label: "Catalogue", links: [["/admin/products", "Products"], ["/admin/food", "Food"], ["/admin/categories", "Categories"], ["/admin/vendors", "Vendors"], ["/admin/requests", "Requests"]] },
   { label: "People", links: [["/admin/runners", "Runners"], ["/admin/support", "Support"]] },
   { label: "Records", links: [["/admin/finance", "Finance"], ["/admin/audit", "Audit log"]] },
   { label: "Other views", links: [["/search", "Marketplace"], ["/runner", "Runner view"], ["/notifications", "Updates"]] },

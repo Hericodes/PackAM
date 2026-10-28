@@ -102,9 +102,17 @@ test("OPay timeout: the payment stays unresolved, each attempt is recorded, and 
   assert.equal(await db.auditLog.count({ where: { action: "PAYMENT_VERIFICATION_RETRIED", resourceId: attempt.id, actorId: admin.userId } }), 2);
 
   // Overlapping clicks: the second request is refused while the first is still talking to OPay.
-  const slow = provider(async (a) => { await new Promise((resolve) => setTimeout(resolve, 150)); return opayRecord("PENDING")(a); }, attempt, counter);
+  // The first check is held open until the other request has answered, so the overlap is real however
+  // busy the machine is (a fixed delay let the first finish early under load).
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const slow = provider(async (a) => { await gate; return opayRecord("PENDING")(a); }, attempt, counter);
   const before = counter.queries;
-  const results = await Promise.all([review.retryPaymentVerification(admin.userId, attempt.id, slow), review.retryPaymentVerification(admin.userId, attempt.id, slow)]);
+  const calls = [review.retryPaymentVerification(admin.userId, attempt.id, slow), review.retryPaymentVerification(admin.userId, attempt.id, slow)];
+  const refused = await Promise.race([...calls, new Promise<never>((_, reject) => setTimeout(() => reject(new Error("neither request was refused: the lock let both run")), 5_000))]);
+  assert.equal(refused.status, 409, "the request that arrives during a check is refused");
+  release();
+  const results = await Promise.all(calls);
   assert.deepEqual(results.map((r) => r.status).sort(), [200, 409]);
   assert.equal(counter.queries - before, 1, "only one status query ran");
 

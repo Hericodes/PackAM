@@ -134,6 +134,18 @@ enum RunnerAssignmentStatus {
   CANCELLED
 }
 
+/// How a food shop's menu item is used. Null on every non-food product.
+enum FoodRole {
+  /// A ready-made meal sold as one item at a fixed price.
+  MEAL
+  /// A base or portion a plate is built on (one per plate).
+  BASE
+  /// An optional soup for a built plate (at most one per plate).
+  SOUP
+  /// An individually priced extra for a built plate (quantity 1..maxPerPlate, at most 5).
+  EXTRA
+}
+
 enum ProductAvailability {
   AVAILABLE
   UNAVAILABLE
@@ -333,10 +345,21 @@ model Product {
 
   status      ProductStatus @default(ACTIVE)
 
+  // Food menu items only (all null for marketplace products). A food item belongs to exactly one shop
+  // and has a role; database CHECKs keep shopId and foodRole set together (migration 20261028090000).
+  shopId      String?
+  foodRole    FoodRole?
+  /// Admin-chosen menu heading, e.g. "Rice and meals". Free text; nothing is built in.
+  menuSection String?
+  /// EXTRA only: the most a student may add to one plate (1..5). Null means the default of 5.
+  maxPerPlate Int?
+
   category    Category      @relation(fields: [categoryId], references: [id])
+  shop        Vendor?       @relation("FoodShopMenu", fields: [shopId], references: [id], onDelete: Restrict)
 
   sources     ProductSource[]
   cartItems   CartItem[]
+  cartExtras  CartItemExtra[]
   orderItems  OrderItem[]
   requests    ProductRequest[]
 
@@ -344,6 +367,7 @@ model Product {
   updatedAt   DateTime      @updatedAt
 
   @@index([categoryId])
+  @@index([shopId, status])
   @@index([status])
 }
 
@@ -366,13 +390,23 @@ model Vendor {
 
   notes       String?
 
+  // Food shops. Only these (with name and location) are ever shown to students, and only while
+  // listedInFood is true. Existing vendors start unlisted and closed.
+  description  String?
+  imageUrl     String?
+  isOpen       Boolean @default(false)
+  listedInFood Boolean @default(false)
+
   sources     ProductSource[]
   orderSources OrderSource[]
+  menuItems   Product[] @relation("FoodShopMenu")
+  foodOrders  Order[]   @relation("FoodShopOrders")
 
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   @@index([status])
+  @@index([listedInFood])
 }
 
 
@@ -481,19 +515,39 @@ model CartItem {
 
   quantity  Int
 
+  /// "" for a product as it is. For a built plate (productId = its base), the chosen soup and extras,
+  /// so different plates on the same base stay separate lines and identical plates merge.
+  configKey String   @default("")
+
   cart      Cart     @relation(fields: [cartId], references: [id], onDelete: Cascade)
   product   Product  @relation(fields: [productId], references: [id])
+  extras    CartItemExtra[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@unique([cartId, productId])
+  @@unique([cartId, productId, configKey])
 }
 
 
 // ============================================================
 // ORDERS
 // ============================================================
+
+/// A soup or extra chosen for a built plate in the cart. Prices are never stored here: they are read
+/// from the product when the cart is priced, and frozen only into the payment snapshot and the order.
+model CartItemExtra {
+  id         String   @id @default(cuid())
+  cartItemId String
+  productId  String
+  quantity   Int
+
+  cartItem   CartItem @relation(fields: [cartItemId], references: [id], onDelete: Cascade)
+  product    Product  @relation(fields: [productId], references: [id])
+
+  @@unique([cartItemId, productId])
+  @@index([productId])
+}
 
 model Order {
   id          String      @id @default(cuid())
@@ -515,6 +569,8 @@ model Order {
   deliveryInstructions String?
   assignedRunnerId String?
   findingRunnerAt DateTime?
+  /// Food orders only: the shop the student ordered from. The runner must buy from this shop.
+  shopId           String?
 
   user          User            @relation(fields: [userId], references: [id])
   deliveryLocation SavedLocation? @relation(fields: [deliveryLocationId], references: [id])
@@ -524,6 +580,7 @@ model Order {
   payment       Payment?
   assignments   RunnerAssignment[]
   assignedRunner RunnerProfile? @relation("AssignedRunner", fields: [assignedRunnerId], references: [id])
+  shop          Vendor?         @relation("FoodShopOrders", fields: [shopId], references: [id], onDelete: Restrict)
   sources       OrderSource[]
   refunds       Refund[]
   statusHistory OrderStatusHistory[]
@@ -537,6 +594,7 @@ model Order {
   @@index([kind, status])
   @@index([status])
   @@index([createdAt])
+  @@index([shopId])
 }
 
 model OrderItem {
@@ -550,6 +608,9 @@ model OrderItem {
   unitPrice   Int
   quantity    Int
   totalPrice  Int
+  /// Food: the frozen plate (base, soup, extras with names, prices and quantities) or meal at purchase.
+  /// Written once when the order is created; menu edits never change it. Null for marketplace items.
+  details     Json?
 
   order       Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
   sourcing    OrderItemSourcing[]

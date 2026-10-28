@@ -50,7 +50,7 @@ export default async function OrdersPage() {
       where: { userId: session.user.id },
       orderBy: { createdAt: "desc" },
       take: 50,
-      select: { id: true, status: true, total: true, createdAt: true, items: { select: { productId: true, productName: true, quantity: true } } },
+      select: { id: true, status: true, total: true, createdAt: true, shopId: true, items: { select: { productId: true, productName: true, quantity: true } } },
     }),
     db.printJob.count({ where: { userId: session.user.id, NOT: UNPAID_PRINT_JOB_WHERE } }),
   ]);
@@ -84,7 +84,7 @@ export default async function OrdersPage() {
             {past.length > 0 && (
               <section className="mt-8" aria-labelledby="past-orders">
                 <h2 id="past-orders" className="pk-section-title">Past orders</h2>
-                <ul className="mt-3 grid gap-3">{past.map((order) => <OrderCard key={order.id} order={order} showReorder={order.status === "DELIVERED"} />)}</ul>
+                <ul className="mt-3 grid gap-3">{past.map((order) => <OrderCard key={order.id} order={order} showReorder={order.status === "DELIVERED" && !order.shopId} />)}</ul>
               </section>
             )}
           </>

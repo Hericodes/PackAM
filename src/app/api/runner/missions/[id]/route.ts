@@ -1,3 +1,4 @@
+import { describeDetails, parseLineDetails } from "../../../../../lib/food/plate";
 import { auth } from "../../../../../auth";
 import { db } from "../../../../../lib/db";
 import { deliveryPointFromSnapshot, mapsLink } from "../../../../../lib/delivery-location";
@@ -21,6 +22,8 @@ export async function GET(_request: Request, context: Context) {
           total: true,
           deliveryAddress: true,
           deliveryInstructions: true,
+          // Food orders: where to buy (name and location only, no internal vendor details).
+          shop: { select: { id: true, name: true, location: true } },
           user: { select: { firstName: true, phone: true } },
           deliveryLocation: { select: { label: true, latitude: true, longitude: true } },
           payment: { select: { checkoutSnapshot: true } },
@@ -30,6 +33,7 @@ export async function GET(_request: Request, context: Context) {
               productName: true,
               quantity: true,
               unitPrice: true,
+              details: true,
               sourcing: {
                 select: {
                   id: true,
@@ -56,7 +60,9 @@ export async function GET(_request: Request, context: Context) {
     assignmentStatus: assignment.status,
     id: order.id,
     status: order.status,
-    items: order.items,
+    shop: order.shop,
+    // A plate's base, soup and extras as one line, so the runner buys exactly what was paid for.
+    items: order.items.map(({ details, ...item }) => { const parsed = parseLineDetails(details); return { ...item, plate: parsed && parsed.kind === "PLATE" ? describeDetails(parsed) : null }; }),
     deliveryLocationLabel: frozen.label ?? saved?.label ?? "Campus delivery",
     ...(assignment.status === "ACCEPTED" ? {
       deliveryAddress: order.deliveryAddress,

@@ -8,8 +8,8 @@ import { orderStatusDisplay, runnerOrderNextStep } from "../../lib/ops-status";
 import { StatusBadge } from "../ui/StatusBadge";
 
 type Source = { id: string; status: string; quantity: number; catalogueUnitPrice: number; actualUnitPrice: number | null; orderSource: { vendor: { name: string } } };
-type Item = { id: string; productName: string; quantity: number; unitPrice: number; sourcing: Source[] };
-type Mission = { assignmentStatus: string; id: string; status: string; items: Item[]; deliveryLocationLabel: string; deliveryAddress?: string; deliveryInstructions?: string | null; deliveryPoint?: { latitude: number; longitude: number; mapsUrl: string } | null; total?: number; student?: { firstName: string | null; phone: string | null } };
+type Item = { id: string; productName: string; quantity: number; unitPrice: number; sourcing: Source[]; plate?: string | null };
+type Mission = { assignmentStatus: string; id: string; status: string; items: Item[]; deliveryLocationLabel: string; deliveryAddress?: string; deliveryInstructions?: string | null; deliveryPoint?: { latitude: number; longitude: number; mapsUrl: string } | null; total?: number; student?: { firstName: string | null; phone: string | null }; shop?: { id: string; name: string; location: string | null } | null };
 type Vendor = { id: string; name: string; location: string | null };
 type IssueType = "CUSTOMER_UNAVAILABLE" | "DELIVERY_ISSUE" | "WRONG_ITEM" | "MISSING_ITEM" | "DAMAGED_ITEM" | "OTHER";
 
@@ -40,6 +40,8 @@ export function RunnerMissionDetail({ orderId }: { orderId: string }) {
     if (!missionResponse.ok || !vendorResponse.ok) throw new Error(missionData.error || vendorData.error || "Unable to load mission.");
     setMission(missionData.mission);
     setVendors(vendorData.vendors);
+    // A food order is always bought from the shop the student chose; the server enforces it too.
+    if (missionData.mission.shop) setVendorByItem(Object.fromEntries(missionData.mission.items.map((item: Item) => [item.id, missionData.mission.shop.id])));
     setQuantityByItem((current) => Object.fromEntries(missionData.mission.items.map((item: Item) => [item.id, current[item.id] ?? Math.max(1, item.quantity - sourcedQuantity(item))])));
     setPriceByItem((current) => Object.fromEntries(missionData.mission.items.map((item: Item) => [item.id, current[item.id] ?? item.unitPrice])));
   }, [orderId]);
@@ -101,13 +103,15 @@ export function RunnerMissionDetail({ orderId }: { orderId: string }) {
           <DeliveryDestination label={mission.deliveryLocationLabel} address={mission.deliveryAddress} instructions={mission.deliveryInstructions} point={mission.deliveryPoint} />
           {mission.student?.phone && <p className="mt-1 text-sm"><strong>Contact:</strong> <a className="underline" href={`tel:${mission.student.phone}`}>{mission.student.firstName || "Student"} · {mission.student.phone}</a></p>}
           <h2 className="mt-7 font-black">Shop list</h2>
+          {mission.shop && <p className="mt-2 rounded-2xl bg-[#fff4c7] px-4 py-3 text-sm"><strong>Food order:</strong> buy everything from <strong>{mission.shop.name}</strong>{mission.shop.location ? ` · ${mission.shop.location}` : ""}. Don’t buy from another shop.</p>}
           <div className="mt-3 space-y-3">{mission.items.map((item) => {
             const remaining = Math.max(0, item.quantity - sourcedQuantity(item));
             return <section key={item.id} className="rounded-2xl bg-[#fffdf7] p-4">
               <div className="flex justify-between gap-3"><strong>{item.productName} × {item.quantity}</strong><span className="text-xs text-black/50">{remaining} left</span></div>
+              {item.plate && <p className="mt-1 text-sm text-black/70">Plate: {item.plate}</p>}
               {item.sourcing.map((source) => <p key={source.id} className="mt-2 text-xs text-black/55">{source.status.replaceAll("_", " ")} · {source.orderSource.vendor.name}{source.actualUnitPrice !== null ? ` · ₦${source.actualUnitPrice.toLocaleString()}` : ""}</p>)}
               {remaining > 0 && <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_90px_120px]">
-                <label className="grid gap-1 text-xs font-bold text-black/70">Shop<select aria-label={`Shop for ${item.productName}`} className="min-h-11 rounded-xl border border-black/10 bg-white px-3 py-2 text-sm font-normal text-black" value={vendorByItem[item.id] ?? ""} onChange={(event) => setVendorByItem({ ...vendorByItem, [item.id]: event.target.value })}><option value="">Choose shop</option>{vendors.map((vendor) => <option key={vendor.id} value={vendor.id}>{vendor.name}{vendor.location ? ` · ${vendor.location}` : ""}</option>)}</select></label>
+                <label className="grid gap-1 text-xs font-bold text-black/70">Shop<select aria-label={`Shop for ${item.productName}`} className="min-h-11 rounded-xl border border-black/10 bg-white px-3 py-2 text-sm font-normal text-black disabled:bg-black/5" value={vendorByItem[item.id] ?? ""} disabled={Boolean(mission.shop)} onChange={(event) => setVendorByItem({ ...vendorByItem, [item.id]: event.target.value })}><option value="">Choose shop</option>{(mission.shop ? [mission.shop] : vendors).map((vendor) => <option key={vendor.id} value={vendor.id}>{vendor.name}{vendor.location ? ` · ${vendor.location}` : ""}</option>)}</select></label>
                 <label className="grid gap-1 text-xs font-bold text-black/70">Qty<input aria-label={`Quantity sourced for ${item.productName}`} type="number" min="1" max={remaining} value={quantityByItem[item.id] ?? remaining} onChange={(event) => setQuantityByItem({ ...quantityByItem, [item.id]: Number(event.target.value) })} className="min-h-11 rounded-xl border border-black/10 px-3 py-2 text-sm font-normal text-black" /></label>
                 <label className="grid gap-1 text-xs font-bold text-black/70">Unit price ₦<input aria-label={`Unit price for ${item.productName}`} type="number" min="0" value={priceByItem[item.id] ?? item.unitPrice} onChange={(event) => setPriceByItem({ ...priceByItem, [item.id]: Number(event.target.value) })} className="min-h-11 rounded-xl border border-black/10 px-3 py-2 text-sm font-normal text-black" /></label>
                 <div className="flex flex-wrap gap-2 sm:col-span-3"><button disabled={busy || !vendorByItem[item.id]} onClick={() => void act({ action: "source", orderItemId: item.id, vendorId: vendorByItem[item.id], result: "AVAILABLE", quantity: quantityByItem[item.id], actualUnitPrice: priceByItem[item.id] })} className="min-h-11 rounded-full bg-black px-4 py-2 text-xs font-bold text-white disabled:opacity-40">Record sourced</button>

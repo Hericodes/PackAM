@@ -56,3 +56,10 @@ test("signup name fields use neutral placeholders, never a real person's name", 
   assert.doesNotMatch(page, /Olayimika|Ogunmona/i);
   assert.match(page, /firstName: "",\s*lastName: "",/, "fields still start empty: no prefill was added or removed");
 });
+
+test("the homepage offers Order Stuff, Food and Printing, in that order, and no Student Verification", () => {
+  const page = source("./page.tsx");
+  const order = [/id: "order"[^}]*href: "\/search"/, /id: "food"[^}]*href: "\/food"/, /id: "printing"[^}]*href: "\/printing"/].map((pattern) => page.search(pattern));
+  assert.ok(order.every((at, i) => at > 0 && (i === 0 || at > order[i - 1])), `services in order: ${order}`);
+  assert.doesNotMatch(page, /Student Verification/);
+});

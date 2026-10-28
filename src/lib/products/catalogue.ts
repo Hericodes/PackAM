@@ -6,7 +6,10 @@
  * upload, page pricing and secure fulfilment. They stay in the database untouched; they are simply
  * not part of the student catalogue.
  */
-export const DEDICATED_WORKFLOW_CATEGORY_SLUGS = ["printing"] as const;
+/** Categories with their own student flow, never listed or sold through Order Stuff. */
+export const DEDICATED_WORKFLOW_CATEGORY_SLUGS = ["printing", "food"] as const;
+/** Every food shop's menu item is filed under this category (created on first use in Admin → Food). */
+export const FOOD_CATEGORY = { name: "Food", slug: "food" } as const;
 
 export function isDedicatedWorkflowCategory(slug: string | null | undefined) {
   return typeof slug === "string" && (DEDICATED_WORKFLOW_CATEGORY_SLUGS as readonly string[]).includes(slug);
@@ -15,6 +18,8 @@ export function isDedicatedWorkflowCategory(slug: string | null | undefined) {
 /** Prisma `where` for products a student may browse, open and add to a cart. */
 export const studentCatalogueProductWhere = {
   status: "ACTIVE" as const,
+  // Food menu items belong to a shop and are only ever sold through /food, one shop per order.
+  shopId: null,
   // Never show or sell a product whose price hasn't been set (stored as ₦0), even if it were ACTIVE.
   customerPrice: { gte: 1 },
   category: { isActive: true, slug: { notIn: [...DEDICATED_WORKFLOW_CATEGORY_SLUGS] } },

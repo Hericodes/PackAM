@@ -86,6 +86,31 @@ export class PaymentFinalizationMismatchError extends Error {
   }
 }
 
+/** The cart can't be paid for as it is (closed shop, unavailable or hidden item, mixed cart). Nothing was created. */
+export class CartNotPayableError extends Error {
+  constructor(readonly problems: string[]) {
+    super(problems[0] ?? "Your cart can’t be paid for right now.");
+    this.name = "CartNotPayableError";
+  }
+}
+
+export type RevisedCheckout = {
+  subtotal: number;
+  deliveryFee: number;
+  total: number;
+  /** The total the student had reviewed. */
+  reviewedTotal: number;
+  lines: Array<{ cartItemId: string; name: string; quantity: number; unitPrice: number; total: number }>;
+};
+
+/** The server's total differs from the one the student reviewed. Nothing was created; show them the new breakdown. */
+export class PriceChangedError extends Error {
+  constructor(readonly revised: RevisedCheckout) {
+    super("Prices changed since you reviewed your order.");
+    this.name = "PriceChangedError";
+  }
+}
+
 export type PaymentErrorClass =
   /** Genuine disagreement after verification: flag the attempt for operations review. */
   | "mismatch"

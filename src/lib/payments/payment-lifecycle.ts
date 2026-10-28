@@ -4,14 +4,15 @@ import { randomUUID } from "node:crypto";
 import { PaymentProvider, Prisma } from "@prisma/client";
 import { auth } from "../../auth";
 import { db } from "../db";
-import { CHECKOUT_CURRENCY, CHECKOUT_DELIVERY_FEE } from "../checkout-pricing";
+import { CHECKOUT_CURRENCY } from "../checkout-pricing";
 import { transitionOrderInTransaction } from "../orders/transition";
 import { offerFindingOrderToAvailableRunners } from "../orders/runner-assignments";
 import { createNotification, notifyAdmins } from "../notifications";
 import { completeVerifiedPrintPayment } from "../printing/payment-lifecycle";
 import { retrySerializable } from "../db-retry";
-import { isDedicatedWorkflowCategory } from "../products/catalogue";
-import { PaymentFinalizationMismatchError } from "./payment-errors";
+import { priceCart } from "../cart-pricing";
+import { describeDetails, parseLineDetails, type LineDetails } from "../food/plate";
+import { CartNotPayableError, PaymentFinalizationMismatchError, PriceChangedError } from "./payment-errors";
 
 type SnapshotItem = {
   cartItemId: string;
@@ -20,10 +21,14 @@ type SnapshotItem = {
   unitPrice: number;
   quantity: number;
   totalPrice: number;
+  /** Food: the meal or plate exactly as priced for this attempt, copied onto the order item. */
+  details?: LineDetails;
 };
 
 type CheckoutSnapshot = {
   cartId: string;
+  /** Food orders: the shop the runner must buy from. Absent for Order Stuff. */
+  shopId?: string;
   items: SnapshotItem[];
   subtotal: number;
   deliveryFee: number;
@@ -60,6 +65,8 @@ export async function createPaymentAttempt(
   deliveryLocationId: string,
   idempotencyKey: string,
   deliveryInstructions?: string | null,
+  /** The total the student last reviewed. If the server's total differs, nothing is created (PriceChangedError). */
+  reviewedTotal?: number,
 ) {
   const session = await auth();
   if (!session?.user || session.user.role !== "STUDENT") {
@@ -104,67 +111,57 @@ export async function createPaymentAttempt(
       });
       if (!student) throw new Error("This student account is not active.");
 
+      // Prices, availability, open shops and the delivery fee, all from the database right now.
       const [cart, location] = await Promise.all([
-        tx.cart.findUnique({
-          where: { userId: student.id },
-          select: {
-            id: true,
-            items: {
-              select: {
-                id: true,
-                productId: true,
-                quantity: true,
-                product: {
-                  select: {
-                    id: true,
-                    name: true,
-                    customerPrice: true,
-                    status: true,
-                    category: { select: { isActive: true, slug: true } },
-                  },
-                },
-              },
-            },
-          },
-        }),
+        priceCart(tx, student.id),
         tx.savedLocation.findFirst({
           where: { id: deliveryLocationId, userId: student.id },
           select: { id: true, label: true, address: true, instructions: true, latitude: true, longitude: true },
         }),
       ]);
 
-      if (!cart?.items.length) throw new Error("Your cart is empty.");
+      if (!cart.cartId || !cart.lines.length) throw new Error("Your cart is empty.");
       if (!location) throw new Error("Choose one of your saved delivery locations.");
+      // Closed shop, hidden or unavailable items, or a mixed cart: nothing is charged until the student fixes it.
+      if (cart.problems.length) throw new CartNotPayableError(cart.problems);
 
-      const items: SnapshotItem[] = cart.items.map((item) => {
-        if (item.product.status !== "ACTIVE" || item.product.customerPrice < 1 || !item.product.category.isActive || isDedicatedWorkflowCategory(item.product.category.slug)) {
-          throw new Error(`${item.product.name} is no longer available.`);
-        }
-        if (!Number.isInteger(item.quantity) || item.quantity < 1 || item.quantity > 99) {
+      const items: SnapshotItem[] = cart.lines.map((line) => {
+        if (!Number.isInteger(line.quantity) || line.quantity < 1 || line.quantity > 99) {
           throw new Error("A cart item has an invalid quantity.");
         }
-        const unitPrice = item.product.customerPrice;
         return {
-          cartItemId: item.id,
-          productId: item.product.id,
-          productName: item.product.name,
-          unitPrice,
-          quantity: item.quantity,
-          totalPrice: unitPrice * item.quantity,
+          cartItemId: line.cartItemId,
+          productId: line.productId,
+          productName: line.name,
+          unitPrice: line.unitPrice,
+          quantity: line.quantity,
+          totalPrice: line.unitPrice * line.quantity,
+          ...(line.details ? { details: line.details } : {}),
         };
       });
 
       const subtotal = items.reduce((sum, item) => sum + item.totalPrice, 0);
-      const amount = subtotal + CHECKOUT_DELIVERY_FEE;
+      const amount = subtotal + cart.deliveryFee;
       if (!Number.isSafeInteger(amount) || amount <= 0) {
         throw new Error("The checkout amount is invalid.");
       }
+      // Never charge a total the student hasn't seen: show them the new breakdown and let them confirm.
+      if (reviewedTotal !== undefined && reviewedTotal !== amount) {
+        throw new PriceChangedError({
+          subtotal,
+          deliveryFee: cart.deliveryFee,
+          total: amount,
+          reviewedTotal,
+          lines: cart.lines.map((line) => ({ cartItemId: line.cartItemId, name: line.details?.kind === "PLATE" ? `Plate: ${describeDetails(line.details)}` : line.name, quantity: line.quantity, unitPrice: line.unitPrice, total: line.unitPrice * line.quantity })),
+        });
+      }
 
       const snapshot: CheckoutSnapshot = {
-        cartId: cart.id,
+        cartId: cart.cartId,
+        ...(cart.context.kind === "food" ? { shopId: cart.context.shopId } : {}),
         items,
         subtotal,
-        deliveryFee: CHECKOUT_DELIVERY_FEE,
+        deliveryFee: cart.deliveryFee,
         deliveryLocationId: location.id,
         deliveryAddress: location.address,
         deliveryInstructions: deliveryInstructions === undefined ? location.instructions : deliveryInstructions,
@@ -255,13 +252,18 @@ function parseSnapshot(value: Prisma.JsonValue | null): CheckoutSnapshot {
     if (snapshotItem.quantity < 1 || snapshotItem.unitPrice < 0 || snapshotItem.totalPrice !== snapshotItem.unitPrice * snapshotItem.quantity) {
       throw new PaymentFinalizationMismatchError("Payment attempt contains inconsistent item amounts.");
     }
-    return snapshotItem;
+    const details = item.details === undefined ? null : parseLineDetails(item.details);
+    if (item.details !== undefined && !details) throw new PaymentFinalizationMismatchError("Payment attempt contains an invalid food item snapshot.");
+    return details ? { ...snapshotItem, details } : snapshotItem;
   });
 
   const subtotal = raw.subtotal;
   const deliveryFee = raw.deliveryFee;
   if (typeof subtotal !== "number" || !Number.isSafeInteger(subtotal) || typeof deliveryFee !== "number" || !Number.isSafeInteger(deliveryFee)) {
     throw new PaymentFinalizationMismatchError("Payment attempt contains invalid totals.");
+  }
+  if (raw.shopId !== undefined && (typeof raw.shopId !== "string" || !raw.shopId)) {
+    throw new PaymentFinalizationMismatchError("Payment attempt contains an invalid food shop.");
   }
   if (typeof raw.cartId !== "string" || typeof raw.deliveryLocationId !== "string" || typeof raw.deliveryAddress !== "string") {
     throw new PaymentFinalizationMismatchError("Payment attempt contains incomplete delivery details.");
@@ -275,6 +277,7 @@ function parseSnapshot(value: Prisma.JsonValue | null): CheckoutSnapshot {
 
   return {
     cartId: raw.cartId,
+    ...(typeof raw.shopId === "string" ? { shopId: raw.shopId } : {}),
     items,
     subtotal,
     deliveryFee,
@@ -372,6 +375,8 @@ export async function completeVerifiedPayment(verified: VerifiedProviderPayment)
         deliveryLocationId: location?.id ?? null,
         deliveryAddress: snapshot.deliveryAddress,
         deliveryInstructions: snapshot.deliveryInstructions,
+        // Food: the shop stays on the order for runner assignment and fulfilment.
+        shopId: snapshot.shopId ?? null,
         items: {
           create: snapshot.items.map((item) => ({
             productId: item.productId,
@@ -379,6 +384,8 @@ export async function completeVerifiedPayment(verified: VerifiedProviderPayment)
             unitPrice: item.unitPrice,
             quantity: item.quantity,
             totalPrice: item.totalPrice,
+            // The plate as paid for, frozen: later menu edits never change it.
+            ...(item.details ? { details: item.details as unknown as Prisma.InputJsonValue } : {}),
           })),
         },
         statusHistory: {
