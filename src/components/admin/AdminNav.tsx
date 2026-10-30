@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useRef } from "react";
 
 /** Operations navigation grouped by task. Every destination is still protected by its own page and API checks. */
 export const ADMIN_NAV_GROUPS = [
   { label: "Daily ops", links: [["/admin", "Overview"], ["/admin/orders", "Orders"], ["/admin/print-jobs", "Print jobs"], ["/admin/exceptions", "Exceptions"], ["/admin/payments", "Payments"]] },
   { label: "Catalogue", links: [["/admin/products", "Products"], ["/admin/food", "Food"], ["/admin/categories", "Categories"], ["/admin/labels", "Labels"], ["/admin/vendors", "Vendors"], ["/admin/requests", "Requests"]] },
   { label: "People", links: [["/admin/runners", "Runners"], ["/admin/support", "Support"]] },
-  { label: "Records", links: [["/admin/finance", "Finance"], ["/admin/audit", "Audit log"]] },
+  { label: "Records", links: [["/admin/analytics", "Analytics"], ["/admin/finance", "Finance"], ["/admin/audit", "Audit log"]] },
   { label: "Other views", links: [["/search", "Marketplace"], ["/runner", "Runner view"], ["/notifications", "Updates"]] },
 ] as const;
 
@@ -18,8 +19,18 @@ function isActive(href: string, pathname: string) {
 
 export function AdminNav() {
   const pathname = usePathname();
+  const navRef = useRef<HTMLElement>(null);
+  // On a phone the tabs scroll sideways: bring the current page's tab into view.
+  useEffect(() => {
+    const nav = navRef.current;
+    const active = nav?.querySelector<HTMLElement>('[aria-current="page"]');
+    if (!nav || !active || nav.scrollWidth <= nav.clientWidth) return;
+    nav.scrollLeft = Math.max(0, active.offsetLeft - (nav.clientWidth - active.offsetWidth) / 2);
+  }, [pathname]);
   return (
-    <nav aria-label="Operations" className="-mx-4 overflow-x-auto px-4 pb-1 lg:mx-0 lg:px-0">
+    // "relative" makes the strip contain its absolutely positioned screen-reader labels. Without it they escape
+    // the scroll area and stretch the whole page to the strip's full width on phones.
+    <nav ref={navRef} aria-label="Operations" className="relative -mx-4 overflow-x-auto px-4 pb-1 lg:mx-0 lg:px-0">
       <ul className="flex w-max items-center gap-1 text-sm font-bold lg:w-auto lg:flex-wrap">
         {ADMIN_NAV_GROUPS.map((group, groupIndex) => (
           <li key={group.label} className="flex items-center gap-1">
