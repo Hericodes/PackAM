@@ -3,6 +3,7 @@ import { Roboto } from "next/font/google";
 import "./globals.css";
 import { CartExperience } from "../components/cart/CartExperience";
 import { PwaProvider } from "../components/pwa/PwaProvider";
+import { PageViewTracker } from "../components/analytics/PageViewTracker";
 
 /*
  * The old "Arial, Helvetica" stack looked different on every phone: Android has no Arial (it used Roboto or
@@ -41,7 +42,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={sans.variable}>
-      <body suppressHydrationWarning><CartExperience><PwaProvider>{children}</PwaProvider></CartExperience></body>
+      <body suppressHydrationWarning><CartExperience><PwaProvider>{children}</PwaProvider></CartExperience><PageViewTracker /></body>
     </html>
   );
 }

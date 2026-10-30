@@ -250,6 +250,7 @@ model User {
 
   @@index([role])
   @@index([status])
+  @@index([role, createdAt])
 }
 
 
@@ -868,6 +869,7 @@ model Payment {
   updatedAt            DateTime        @updatedAt
 
   @@index([status])
+  @@index([status, paidAt])
   @@index([printJobId, status])
   @@unique([userId, idempotencyKey])
   @@index([userId, createdAt])
@@ -1114,6 +1116,23 @@ model AuditLog {
   @@index([actorId, createdAt])
   @@index([resource, resourceId, createdAt])
   @@index([action, createdAt])
+}
+
+/// One anonymous page view for admin analytics. No account, IP address, user agent or query string is stored:
+/// visitorId and sessionId are random ids made by the visitor's browser. viewId makes a retried send a no-op.
+model PageView {
+  id        String   @id @default(cuid())
+  viewId    String   @unique
+  visitorId String
+  sessionId String
+  path      String
+  /// The referring site's host only (e.g. "instagram.com"), when it isn't PackAM itself.
+  referrerHost String?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([visitorId, createdAt])
+  @@index([sessionId, createdAt])
 }
 
 model RateLimitBucket {
