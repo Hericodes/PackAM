@@ -27,6 +27,10 @@ const PATHS = {
   chevronRight: <path d="m9 18 6-6-6-6" />,
   chevronDown: <path d="m6 9 6 6 6-6" />,
   check: <path d="M20 6 9 17l-5-5" />,
+  // iOS Share: a box with an arrow out of the top.
+  share: <><path d="M12 3v12" /><path d="m8 7 4-4 4 4" /><path d="M8 11H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2h-2" /></>,
+  plusSquare: <><rect x="3" y="3" width="18" height="18" rx="3" /><path d="M12 8v8M8 12h8" /></>,
+  smartphone: <><rect x="6" y="2" width="12" height="20" rx="2.5" /><path d="M11 18h2" /></>,
   plus: <path d="M12 5v14M5 12h14" />,
   mapPin: <><path d="M20 10c0 5-5.54 10.19-7.4 11.8a1 1 0 0 1-1.2 0C9.54 20.19 4 15 4 10a8 8 0 0 1 16 0" /><circle cx="12" cy="10" r="3" /></>,
   message: <path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z" />,

@@ -19,9 +19,16 @@ export type ProductDraft = {
   description: string;
   status: "ACTIVE" | "INACTIVE";
   imageUrl: string;
+  /** "" for none. Must belong to the chosen category (checked on the server too). */
+  subcategoryId: string;
+  labelIds: string[];
+  /** What the admin typed for stock: "" means not tracked. */
+  stock: string;
+  /** Products with options are priced and stocked per variant. */
+  hasVariants?: boolean;
 };
 
-export type ProductDraftField = "name" | "categoryId" | "price" | "description";
+export type ProductDraftField = "name" | "categoryId" | "price" | "description" | "stock";
 export type ProductDraftErrors = Partial<Record<ProductDraftField, string>>;
 
 export const PRODUCT_NAME_MAX = 120;
@@ -53,25 +60,39 @@ export function validateProductDraft(draft: ProductDraft, isEditing: boolean): P
   else if (price === null && !isEditing) errors.price = "Enter the selling price.";
   else if (price === null && draft.status === "ACTIVE") errors.price = "Set a price before making this product visible to students.";
   if (draft.description.trim().length > PRODUCT_DESCRIPTION_MAX) errors.description = `Keep the description under ${PRODUCT_DESCRIPTION_MAX} characters.`;
+  if (!draft.hasVariants && draft.stock.trim() && parseStock(draft.stock) === "invalid") errors.stock = "Stock must be a whole number of 0 or more, or blank if you don’t track it.";
   return errors;
+}
+
+/** Stock as typed: "" is not tracked (null), otherwise a whole number of 0 or more. */
+export function parseStock(text: string): number | null | "invalid" {
+  const cleaned = text.trim().replace(/,/g, "");
+  if (!cleaned) return null;
+  if (!/^\d+$/.test(cleaned)) return "invalid";
+  const value = Number(cleaned);
+  return Number.isSafeInteger(value) && value <= 1_000_000 ? value : "invalid";
 }
 
 /** The request body for the products API. */
 export function productDraftPayload(draft: ProductDraft) {
   const price = parseNairaInput(draft.price);
+  const stock = parseStock(draft.stock);
   return {
     name: draft.name.trim(),
     description: draft.description.trim(),
     imageUrl: draft.imageUrl,
     categoryId: draft.categoryId,
-    ...(typeof price === "number" ? { customerPrice: price } : {}),
+    ...(typeof price === "number" && !draft.hasVariants ? { customerPrice: price } : {}),
     status: draft.status,
+    subcategoryId: draft.subcategoryId || null,
+    labelIds: draft.labelIds,
+    ...(draft.hasVariants ? {} : { stockQuantity: stock === "invalid" ? null : stock }),
   };
 }
 
-/** After "Add another product": keep the category and visibility, clear everything about the last product. */
+/** After "Add another product": keep the category, subcategory and visibility; clear the rest. */
 export function nextDraftAfterCreate(previous: ProductDraft): ProductDraft {
-  return { name: "", categoryId: previous.categoryId, price: "", description: "", status: previous.status, imageUrl: "" };
+  return { name: "", categoryId: previous.categoryId, subcategoryId: previous.subcategoryId, price: "", description: "", status: previous.status, imageUrl: "", labelIds: [], stock: "" };
 }
 
 export function formatNaira(amount: number) {

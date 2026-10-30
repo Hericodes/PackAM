@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "../ui/Icon";
+import { InstallAppMenuItem } from "../pwa/InstallAppMenuItem";
 import { isNavItemActive, type NavItem } from "./nav-items";
 
 export function SignOutRow({ className = "" }: { className?: string }) {
@@ -127,6 +128,7 @@ export function StudentProfileMenu({
                 })}
               </nav>
             )}
+            <InstallAppMenuItem onSelect={() => setIsOpen(false)} />
             {items.length > 0 && <div className="my-2 border-t border-black/5" />}
             <SignOutRow />
           </div>

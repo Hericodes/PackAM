@@ -12,6 +12,7 @@ import { completeVerifiedPrintPayment } from "../printing/payment-lifecycle";
 import { retrySerializable } from "../db-retry";
 import { priceCart } from "../cart-pricing";
 import { describeDetails, parseLineDetails, type LineDetails } from "../food/plate";
+import { describeOptions, parseVariantDetails, type VariantDetails } from "../products/variants";
 import { CartNotPayableError, PaymentFinalizationMismatchError, PriceChangedError } from "./payment-errors";
 
 type SnapshotItem = {
@@ -21,8 +22,10 @@ type SnapshotItem = {
   unitPrice: number;
   quantity: number;
   totalPrice: number;
-  /** Food: the meal or plate exactly as priced for this attempt, copied onto the order item. */
-  details?: LineDetails;
+  /** Food: the meal or plate; a product with options: the variant's options. Copied onto the order item. */
+  details?: LineDetails | VariantDetails;
+  /** The variant bought, for products with options. */
+  variantId?: string;
 };
 
 type CheckoutSnapshot = {
@@ -137,6 +140,7 @@ export async function createPaymentAttempt(
           quantity: line.quantity,
           totalPrice: line.unitPrice * line.quantity,
           ...(line.details ? { details: line.details } : {}),
+          ...(line.variantId ? { variantId: line.variantId } : {}),
         };
       });
 
@@ -152,7 +156,7 @@ export async function createPaymentAttempt(
           deliveryFee: cart.deliveryFee,
           total: amount,
           reviewedTotal,
-          lines: cart.lines.map((line) => ({ cartItemId: line.cartItemId, name: line.details?.kind === "PLATE" ? `Plate: ${describeDetails(line.details)}` : line.name, quantity: line.quantity, unitPrice: line.unitPrice, total: line.unitPrice * line.quantity })),
+          lines: cart.lines.map((line) => ({ cartItemId: line.cartItemId, name: line.details?.kind === "PLATE" ? `Plate: ${describeDetails(line.details)}` : line.details?.kind === "VARIANT" ? `${line.name} (${describeOptions(line.details.options)})` : line.name, quantity: line.quantity, unitPrice: line.unitPrice, total: line.unitPrice * line.quantity })),
         });
       }
 
@@ -252,9 +256,10 @@ function parseSnapshot(value: Prisma.JsonValue | null): CheckoutSnapshot {
     if (snapshotItem.quantity < 1 || snapshotItem.unitPrice < 0 || snapshotItem.totalPrice !== snapshotItem.unitPrice * snapshotItem.quantity) {
       throw new PaymentFinalizationMismatchError("Payment attempt contains inconsistent item amounts.");
     }
-    const details = item.details === undefined ? null : parseLineDetails(item.details);
-    if (item.details !== undefined && !details) throw new PaymentFinalizationMismatchError("Payment attempt contains an invalid food item snapshot.");
-    return details ? { ...snapshotItem, details } : snapshotItem;
+    const details = item.details === undefined ? null : parseLineDetails(item.details) ?? parseVariantDetails(item.details);
+    if (item.details !== undefined && !details) throw new PaymentFinalizationMismatchError("Payment attempt contains an invalid item snapshot.");
+    if (item.variantId !== undefined && (typeof item.variantId !== "string" || !item.variantId)) throw new PaymentFinalizationMismatchError("Payment attempt contains an invalid variant.");
+    return { ...snapshotItem, ...(details ? { details } : {}), ...(typeof item.variantId === "string" ? { variantId: item.variantId } : {}) };
   });
 
   const subtotal = raw.subtotal;
@@ -285,6 +290,29 @@ function parseSnapshot(value: Prisma.JsonValue | null): CheckoutSnapshot {
     deliveryAddress: raw.deliveryAddress,
     deliveryInstructions: raw.deliveryInstructions,
   };
+}
+
+/**
+ * Lowers tracked stock for each paid line with a conditional update, which Postgres applies atomically, so
+ * concurrent orders can't oversell. Untracked stock (null) is left alone. Returns what couldn't be covered.
+ */
+async function deductStock(tx: Prisma.TransactionClient, items: SnapshotItem[]) {
+  const shortfalls: string[] = [];
+  for (const item of items) {
+    const label = item.details?.kind === "VARIANT" ? `${item.productName} (${describeOptions(item.details.options)})` : item.productName;
+    const covered = item.variantId
+      ? await tx.productVariant.updateMany({ where: { id: item.variantId, stockQuantity: { gte: item.quantity } }, data: { stockQuantity: { decrement: item.quantity } } })
+      : await tx.product.updateMany({ where: { id: item.productId, stockQuantity: { gte: item.quantity } }, data: { stockQuantity: { decrement: item.quantity } } });
+    if (covered.count === 1) continue;
+    const tracked = item.variantId
+      ? await tx.productVariant.findUnique({ where: { id: item.variantId }, select: { stockQuantity: true } })
+      : await tx.product.findUnique({ where: { id: item.productId }, select: { stockQuantity: true } });
+    if (!tracked || tracked.stockQuantity === null) continue; // not tracked: sourced on demand, as before
+    shortfalls.push(`${label}: ${item.quantity} paid for, ${tracked.stockQuantity} in stock`);
+    if (item.variantId) await tx.productVariant.update({ where: { id: item.variantId }, data: { stockQuantity: 0 } });
+    else await tx.product.update({ where: { id: item.productId }, data: { stockQuantity: 0 } });
+  }
+  return shortfalls;
 }
 
 /** Remove only quantities captured by this attempt. Later cart edits/additions survive. */
@@ -384,8 +412,9 @@ export async function completeVerifiedPayment(verified: VerifiedProviderPayment)
             unitPrice: item.unitPrice,
             quantity: item.quantity,
             totalPrice: item.totalPrice,
-            // The plate as paid for, frozen: later menu edits never change it.
+            // The plate or the variant's options as paid for, frozen: later catalogue edits never change it.
             ...(item.details ? { details: item.details as unknown as Prisma.InputJsonValue } : {}),
+            ...(item.variantId ? { variantId: item.variantId } : {}),
           })),
         },
         statusHistory: {
@@ -421,6 +450,20 @@ export async function completeVerifiedPayment(verified: VerifiedProviderPayment)
     if (claim.count !== 1) throw new Error("Payment attempt was already claimed.");
 
     await removeCapturedCartItems(tx, snapshot);
+
+    // Tracked stock goes down now, atomically, so two orders can never take the same last unit.
+    // The payment is already verified: if stock ran out meanwhile, the order still stands and operations
+    // is alerted to source the item or refund it through the existing unavailable-item process.
+    const shortfalls = await deductStock(tx, snapshot.items);
+    if (shortfalls.length) {
+      await notifyAdmins(tx, {
+        type: "ORDER",
+        title: "Stock ran out for a paid order",
+        message: `${shortfalls.join("; ")}. Source the missing quantity or mark it unavailable so the student is refunded.`,
+        orderId: order.id,
+        idempotencyKey: `stock-shortfall:${order.id}`,
+      });
+    }
 
 await offerFindingOrderToAvailableRunners(tx, order.id);
 

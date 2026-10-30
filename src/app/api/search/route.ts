@@ -7,6 +7,8 @@ export async function GET(request: Request) {
     const result = await searchProducts({
       query: url.searchParams.get("q") ?? "",
       category: url.searchParams.get("category") ?? "",
+      subcategory: url.searchParams.get("sub") ?? "",
+      label: url.searchParams.get("label") ?? "",
       page: Number(url.searchParams.get("page") ?? 1),
     });
     return Response.json(result, { headers: { "Cache-Control": "private, no-store" } });

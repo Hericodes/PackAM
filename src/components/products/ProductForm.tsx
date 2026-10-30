@@ -20,10 +20,12 @@ import {
 type Category = {
   id: string;
   name: string;
+  subcategories?: Array<{ id: string; name: string }>;
 };
 
 type ProductFormProps = {
   categories: Category[];
+  labels?: Array<{ id: string; name: string }>;
   initialData?: {
     id: string;
     name: string;
@@ -32,18 +34,22 @@ type ProductFormProps = {
     categoryId: string;
     customerPrice: number;
     status: "ACTIVE" | "INACTIVE";
+    subcategoryId?: string | null;
+    labelIds?: string[];
+    stockQuantity?: number | null;
+    hasVariants?: boolean;
   };
 };
 
 type Saved = { id: string; name: string; price: number | null; category: string; created: boolean };
 
-const FIELD_ORDER: ProductDraftField[] = ["name", "categoryId", "price", "description"];
-const FIELD_IDS: Record<ProductDraftField, string> = { name: "name", categoryId: "category", price: "price", description: "description" };
+const FIELD_ORDER: ProductDraftField[] = ["name", "categoryId", "price", "description", "stock"];
+const FIELD_IDS: Record<ProductDraftField, string> = { name: "name", categoryId: "category", price: "price", description: "description", stock: "stock" };
 
 const labelClass = "mb-2 block text-sm font-black";
 const errorClass = "mt-1.5 text-xs font-semibold text-[#c92d24]";
 
-export function ProductForm({ categories, initialData }: ProductFormProps) {
+export function ProductForm({ categories, labels = [], initialData }: ProductFormProps) {
   const router = useRouter();
   const isEditing = Boolean(initialData?.id);
 
@@ -55,7 +61,12 @@ export function ProductForm({ categories, initialData }: ProductFormProps) {
     description: initialData?.description ?? "",
     status: initialData?.status ?? "ACTIVE",
     imageUrl: initialData?.imageUrl ?? "",
+    subcategoryId: initialData?.subcategoryId ?? "",
+    labelIds: initialData?.labelIds ?? [],
+    stock: initialData?.stockQuantity !== null && initialData?.stockQuantity !== undefined ? String(initialData.stockQuantity) : "",
+    hasVariants: initialData?.hasVariants ?? false,
   });
+  const subcategories = categories.find((category) => category.id === draft.categoryId)?.subcategories ?? [];
   const [errors, setErrors] = useState<ProductDraftErrors>({});
   const [serverError, setServerError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -81,7 +92,7 @@ export function ProductForm({ categories, initialData }: ProductFormProps) {
     setErrors(found);
     const first = FIELD_ORDER.find((field) => found[field]);
     if (first) {
-      if (first === "description") (document.getElementById("more-options") as HTMLDetailsElement | null)?.setAttribute("open", "");
+      if (first === "description" || first === "stock") (document.getElementById("more-options") as HTMLDetailsElement | null)?.setAttribute("open", "");
       document.getElementById(FIELD_IDS[first])?.focus();
       return;
     }
@@ -144,7 +155,7 @@ export function ProductForm({ categories, initialData }: ProductFormProps) {
             ? <button type="button" onClick={addAnother} className="pk-btn pk-btn-primary pk-btn-lg">+ Add another product</button>
             : <button type="button" onClick={() => setSaved(null)} className="pk-btn pk-btn-secondary pk-btn-lg">Keep editing</button>}
           <Link href="/admin/products" className={`pk-btn pk-btn-lg ${saved.created ? "pk-btn-secondary" : "pk-btn-primary"}`}>Back to products</Link>
-          {saved.created && saved.id && <Link href={`/admin/products/${saved.id}/edit`} className="pk-btn pk-btn-ghost pk-btn-lg">Edit this product</Link>}
+          {saved.created && saved.id && <Link href={`/admin/products/${saved.id}/edit#options`} className="pk-btn pk-btn-ghost pk-btn-lg">Add options (sizes, colours…)</Link>}
         </div>
         {saved.created && <p className="text-xs text-black/50">Adding another keeps the category ({saved.category}) and clears the rest.</p>}
       </div>
@@ -174,22 +185,31 @@ export function ProductForm({ categories, initialData }: ProductFormProps) {
       <div className="grid gap-5 sm:grid-cols-2">
         <div>
           <label htmlFor="category" className={labelClass}>Category</label>
-          <select id="category" value={draft.categoryId} onChange={(event) => update("categoryId", event.target.value)} className="pk-input" disabled={saving} {...fieldProps("categoryId")}>
+          <select id="category" value={draft.categoryId} onChange={(event) => { update("categoryId", event.target.value); update("subcategoryId", ""); }} className="pk-input" disabled={saving} {...fieldProps("categoryId")}>
             <option value="">Choose a category</option>
             {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
           </select>
           {errors.categoryId && <p id="category-error" className={errorClass}>{errors.categoryId}</p>}
+          {subcategories.length > 0 && (
+            <div className="mt-3">
+              <label htmlFor="subcategory" className="mb-1.5 block text-xs font-black">Subcategory <span className="font-medium text-black/45">Optional</span></label>
+              <select id="subcategory" value={draft.subcategoryId} onChange={(event) => update("subcategoryId", event.target.value)} className="pk-input" disabled={saving}>
+                <option value="">None</option>
+                {subcategories.map((sub) => <option key={sub.id} value={sub.id}>{sub.name}</option>)}
+              </select>
+            </div>
+          )}
         </div>
 
         <div>
           <label htmlFor="price" className={labelClass}>Selling price</label>
           <div className="relative">
             <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 font-black text-black/55" aria-hidden="true">₦</span>
-            <input id="price" type="text" inputMode="numeric" value={draft.price} onChange={(event) => update("price", event.target.value)} placeholder={isEditing ? "Not set yet" : "e.g. 1500"} autoComplete="off" className="pk-input pl-9" disabled={saving} {...fieldProps("price")} />
+            <input id="price" type="text" inputMode="numeric" value={draft.price} onChange={(event) => update("price", event.target.value)} placeholder={isEditing ? "Not set yet" : "e.g. 1500"} autoComplete="off" className="pk-input pl-9 disabled:bg-black/5" disabled={saving || draft.hasVariants} {...fieldProps("price")} />
           </div>
           {errors.price
             ? <p id="price-error" className={errorClass}>{errors.price}</p>
-            : <p className="mt-1.5 text-xs text-black/50">What the student pays, in whole naira. Delivery is added at checkout.</p>}
+            : <p className="mt-1.5 text-xs text-black/50">{draft.hasVariants ? "Students see “From” this price: each option has its own price below." : "What the student pays, in whole naira. Delivery is added at checkout."}</p>}
         </div>
       </div>
 
@@ -201,9 +221,21 @@ export function ProductForm({ categories, initialData }: ProductFormProps) {
         <p className="mt-2 text-xs text-black/50">A clear photo of the actual product. Without one, students see a clean illustration for its category.</p>
       </div>
 
+      {labels.length > 0 && (
+        <fieldset>
+          <legend className={labelClass}>Labels <span className="font-medium text-black/45">Optional</span></legend>
+          <div className="flex flex-wrap gap-2">
+            {labels.map((label) => {
+              const on = draft.labelIds.includes(label.id);
+              return <button key={label.id} type="button" aria-pressed={on} onClick={() => update("labelIds", on ? draft.labelIds.filter((id) => id !== label.id) : [...draft.labelIds, label.id])} disabled={saving} className={`min-h-10 rounded-full border px-3.5 text-sm font-bold ${on ? "border-black bg-black text-white" : "border-black/15 bg-white"}`}>{on ? "✓ " : ""}{label.name}</button>;
+            })}
+          </div>
+        </fieldset>
+      )}
+
       <details id="more-options" className="group rounded-2xl border border-black/10 bg-white" open={Boolean(isEditing && (initialData?.description || initialData?.status === "INACTIVE")) || undefined}>
         <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-3 px-4 text-sm font-black [&::-webkit-details-marker]:hidden">
-          <span>More options <span className="font-medium text-black/45">Description, visibility</span></span>
+          <span>More options <span className="font-medium text-black/45">Description, visibility, stock</span></span>
           <span aria-hidden="true" className="text-black/45 transition group-open:rotate-180">▾</span>
         </summary>
         <div className="space-y-5 border-t border-black/5 p-4">
@@ -227,9 +259,17 @@ export function ProductForm({ categories, initialData }: ProductFormProps) {
             </div>
           </fieldset>
 
-          <p className="rounded-xl bg-[#f7f5ee] px-3 py-2 text-xs leading-5 text-black/60">
-            <span className="font-black text-black/75">Stock:</span> PackAM doesn’t keep stock counts. Runners confirm whether a shop has it when they buy it, and the product list shows that as in stock or out of stock.
-          </p>
+          {draft.hasVariants ? (
+            <p className="rounded-xl bg-[#f7f5ee] px-3 py-2 text-xs leading-5 text-black/60"><span className="font-black text-black/75">Stock:</span> this product has options, so stock is set for each option below.</p>
+          ) : (
+            <div>
+              <label htmlFor="stock" className={labelClass}>Stock quantity <span className="font-medium text-black/45">Optional</span></label>
+              <input id="stock" type="text" inputMode="numeric" value={draft.stock} onChange={(event) => update("stock", event.target.value)} placeholder="Not tracked" autoComplete="off" className="pk-input" disabled={saving} {...fieldProps("stock")} />
+              {errors.stock
+                ? <p id="stock-error" className={errorClass}>{errors.stock}</p>
+                : <p className="mt-1.5 text-xs leading-5 text-black/50">Leave blank if runners buy it from shops on demand (as now). Enter a number only if PackAM holds this stock: students can’t order more than you have, and it goes down as orders are paid.</p>}
+            </div>
+          )}
         </div>
       </details>
 

@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { CheckoutClient } from "../../../components/checkout/CheckoutClient";
 import { priceCart } from "../../../lib/cart-pricing";
 import { describeDetails } from "../../../lib/food/plate";
+import { describeOptions } from "../../../lib/products/variants";
 import { lastLocationFor } from "../../../lib/checkout-location-step";
 import { checkoutProvider } from "../../../lib/payments/gateways";
 import { providerName } from "../../../lib/payments/provider-selection";
@@ -78,6 +79,7 @@ export default async function CheckoutPage() {
               category: line.category,
               unitPrice: line.unitPrice,
               plate: line.details?.kind === "PLATE" ? describeDetails(line.details) : null,
+              options: line.details?.kind === "VARIANT" ? describeOptions(line.details.options) : null,
               problem: line.problem,
             }))}
             shopName={cart.context.kind === "food" ? cart.shop?.name ?? cart.context.shopName : null}

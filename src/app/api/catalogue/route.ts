@@ -1,6 +1,7 @@
 import { db } from "../../../lib/db";
 import { studentCatalogueProductWhere } from "../../../lib/products/catalogue";
 import { parseSavedProductIds } from "../../../lib/saved-products";
+import { productCardSelect, toProductCard } from "../../../lib/products/card";
 
 /**
  * Public, read-only lookup of catalogue products by id (used by "Saved on this device").
@@ -13,10 +14,10 @@ export async function GET(request: Request) {
   try {
     const products = await db.product.findMany({
       where: { id: { in: ids }, ...studentCatalogueProductWhere },
-      select: { id: true, name: true, customerPrice: true, imageUrl: true, category: { select: { name: true } } },
+      select: productCardSelect,
       take: 100,
     });
-    return Response.json({ products }, { headers: { "Cache-Control": "private, no-store" } });
+    return Response.json({ products: products.map(toProductCard) }, { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) {
     console.error("CATALOGUE LOOKUP ERROR:", error instanceof Error ? error.name : "Unknown error");
     return Response.json({ error: "Saved items couldn’t load. Try again." }, { status: 500 });

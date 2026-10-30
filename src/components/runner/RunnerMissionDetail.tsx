@@ -8,7 +8,7 @@ import { orderStatusDisplay, runnerOrderNextStep } from "../../lib/ops-status";
 import { StatusBadge } from "../ui/StatusBadge";
 
 type Source = { id: string; status: string; quantity: number; catalogueUnitPrice: number; actualUnitPrice: number | null; orderSource: { vendor: { name: string } } };
-type Item = { id: string; productName: string; quantity: number; unitPrice: number; sourcing: Source[]; plate?: string | null };
+type Item = { id: string; productName: string; quantity: number; unitPrice: number; sourcing: Source[]; plate?: string | null; options?: string | null };
 type Mission = { assignmentStatus: string; id: string; status: string; items: Item[]; deliveryLocationLabel: string; deliveryAddress?: string; deliveryInstructions?: string | null; deliveryPoint?: { latitude: number; longitude: number; mapsUrl: string } | null; total?: number; student?: { firstName: string | null; phone: string | null }; shop?: { id: string; name: string; location: string | null } | null };
 type Vendor = { id: string; name: string; location: string | null };
 type IssueType = "CUSTOMER_UNAVAILABLE" | "DELIVERY_ISSUE" | "WRONG_ITEM" | "MISSING_ITEM" | "DAMAGED_ITEM" | "OTHER";
@@ -109,6 +109,7 @@ export function RunnerMissionDetail({ orderId }: { orderId: string }) {
             return <section key={item.id} className="rounded-2xl bg-[#fffdf7] p-4">
               <div className="flex justify-between gap-3"><strong>{item.productName} × {item.quantity}</strong><span className="text-xs text-black/50">{remaining} left</span></div>
               {item.plate && <p className="mt-1 text-sm text-black/70">Plate: {item.plate}</p>}
+              {item.options && <p className="mt-1 text-sm font-bold text-black/80">{item.options}</p>}
               {item.sourcing.map((source) => <p key={source.id} className="mt-2 text-xs text-black/55">{source.status.replaceAll("_", " ")} · {source.orderSource.vendor.name}{source.actualUnitPrice !== null ? ` · ₦${source.actualUnitPrice.toLocaleString()}` : ""}</p>)}
               {remaining > 0 && <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_90px_120px]">
                 <label className="grid gap-1 text-xs font-bold text-black/70">Shop<select aria-label={`Shop for ${item.productName}`} className="min-h-11 rounded-xl border border-black/10 bg-white px-3 py-2 text-sm font-normal text-black disabled:bg-black/5" value={vendorByItem[item.id] ?? ""} disabled={Boolean(mission.shop)} onChange={(event) => setVendorByItem({ ...vendorByItem, [item.id]: event.target.value })}><option value="">Choose shop</option>{(mission.shop ? [mission.shop] : vendors).map((vendor) => <option key={vendor.id} value={vendor.id}>{vendor.name}{vendor.location ? ` · ${vendor.location}` : ""}</option>)}</select></label>

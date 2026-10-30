@@ -3,9 +3,10 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { ProductCard, ProductCardSkeleton } from "../student/ProductCard";
+import type { ProductCardData } from "../../lib/products/card";
 import { useSavedProducts } from "./useSavedProducts";
 
-type Product = { id: string; name: string; customerPrice: number; imageUrl: string | null; category: { name: string } };
+type Product = ProductCardData;
 
 export function SavedProducts() {
   const { ids, ready } = useSavedProducts();
@@ -67,7 +68,7 @@ export function SavedProducts() {
       {unavailable > 0 && <p className="pk-muted mt-5 text-sm">{unavailable} saved item{unavailable === 1 ? " is" : "s are"} no longer available and hidden.</p>}
       <div className="pk-product-grid mt-4 sm:mt-6">
         {products.map((product) => (
-          <ProductCard key={product.id} id={product.id} name={product.name} price={product.customerPrice} image={product.imageUrl} category={product.category.name} />
+          <ProductCard key={product.id} id={product.id} name={product.name} price={product.customerPrice} image={product.imageUrl} category={product.category.name} labels={product.labels} hasOptions={product.hasOptions} priceVaries={product.priceVaries} outOfStock={product.outOfStock} />
         ))}
       </div>
     </>

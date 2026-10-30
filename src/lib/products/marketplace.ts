@@ -39,10 +39,13 @@ export function rankProducts<T extends Rankable>(products: T[], query: string, t
  * The marketplace URL for a search and category. "All" is no category parameter at all, and the page
  * number is never kept, so changing a filter always starts again from the first page.
  */
-export function marketplaceHref(query: string, category: string) {
+export function marketplaceHref(query: string, category: string, narrow: { sub?: string; label?: string } = {}) {
   const params = new URLSearchParams();
   if (query.trim()) params.set("q", query.trim());
   if (category) params.set("category", category);
+  // A subcategory only means something inside its category.
+  if (category && narrow.sub) params.set("sub", narrow.sub);
+  if (narrow.label) params.set("label", narrow.label);
   return `/search${params.size ? `?${params}` : ""}`;
 }
 

@@ -7,6 +7,7 @@ import { consumeRateLimit } from "../../../lib/rate-limit";
 import { isPackamProductImageUrl } from "../../../lib/cloudinary-url";
 import { isProductRequestId } from "../../../lib/products/product-form";
 import { verifyProductImageForSave } from "../../../lib/products/product-image-server";
+import { parseClassification } from "../../../lib/products/product-classification";
 import { PRODUCT_WRITE_LIMITS, PRODUCT_WRITE_WINDOW_MS, productLimitMessage, productWriteLimitKey } from "../../../lib/products/write-limits";
 import { canManageCatalogue, isValidCustomerPrice } from "../../../lib/catalogue-permissions";
 
@@ -105,6 +106,9 @@ export async function POST(request: Request) {
       );
     }
 
+    const classification = await parseClassification(body, categoryId, { hasVariants: false });
+    if (!classification.ok) return NextResponse.json({ error: classification.error }, { status: 400 });
+
     if (typeof imageUrl === "string" && !isPackamProductImageUrl(imageUrl, process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME)) return NextResponse.json({ error: "Choose a PackAM product image." }, { status: 400 });
     if (typeof imageUrl === "string" && imageUrl.trim()) {
       const image = await verifyProductImageForSave(imageUrl.trim());
@@ -130,6 +134,9 @@ export async function POST(request: Request) {
         categoryId,
         customerPrice,
         status: status === "INACTIVE" ? "INACTIVE" : "ACTIVE",
+        subcategoryId: classification.data.subcategoryId ?? null,
+        stockQuantity: classification.data.stockQuantity ?? null,
+        ...(classification.data.labelIds?.length ? { labels: { create: classification.data.labelIds.map((labelId) => ({ labelId })) } } : {}),
       },
       include: {
         category: true,

@@ -5,23 +5,21 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import { ProductCard } from "./ProductCard";
 import { categoryDisplay } from "../../lib/products/category-display";
 import { appendPage, marketplaceHref, type MarketplacePage } from "../../lib/products/marketplace";
+import type { ProductCardData } from "../../lib/products/card";
 
-type Category = { name: string; slug: string };
+type Category = { name: string; slug: string; subcategories?: Array<{ name: string; slug: string }> };
+type Scope = { category: string; sub: string; label: string };
 
-type Item = {
-  id: string;
-  name: string;
-  customerPrice: number;
-  imageUrl: string | null;
-  category: { name: string };
-};
+type Item = ProductCardData;
 
 const SEARCH_ERROR = "Search no dey work right now. Try again in a moment.";
 
-async function fetchPage(query: string, category: string, page: number, signal: AbortSignal): Promise<MarketplacePage<Item>> {
+async function fetchPage(query: string, scope: Scope, page: number, signal: AbortSignal): Promise<MarketplacePage<Item>> {
   const params = new URLSearchParams();
   if (query.trim()) params.set("q", query.trim());
-  if (category) params.set("category", category);
+  if (scope.category) params.set("category", scope.category);
+  if (scope.category && scope.sub) params.set("sub", scope.sub);
+  if (scope.label) params.set("label", scope.label);
   if (page > 1) params.set("page", String(page));
   const response = await fetch(`/api/search${params.size ? `?${params}` : ""}`, { signal });
   const data = await response.json().catch(() => ({}));
@@ -34,14 +32,23 @@ export function LiveSearch({
   category: initialCategory,
   categories,
   initialPage,
+  labels = [],
+  sub: initialSub = "",
+  label: initialLabel = "",
 }: {
   query: string;
   category: string;
   categories: Category[];
   initialPage: MarketplacePage<Item>;
+  /** Labels the admin made available for browsing, e.g. Popular. */
+  labels?: Array<{ name: string; slug: string }>;
+  sub?: string;
+  label?: string;
 }) {
   const [query, setQuery] = useState(initialQuery);
   const [category, setCategory] = useState(initialCategory);
+  const [sub, setSub] = useState(initialSub);
+  const [label, setLabel] = useState(initialLabel);
   const [results, setResults] = useState(initialPage);
   const [loading, setLoading] = useState<"replace" | "more" | null>(null);
   const [error, setError] = useState<{ message: string; retry: "page" | "more" } | null>(null);
@@ -52,24 +59,25 @@ export function LiveSearch({
   const products = results.products;
 
   // What the grid currently shows. The server rendered the first page for the initial search and category.
-  const shown = useRef({ query: initialQuery.trim(), category: initialCategory, attempt: 0 });
+  const shown = useRef({ query: initialQuery.trim(), category: initialCategory, sub: initialSub, label: initialLabel, attempt: 0 });
+  const subcategories = selectedCategory?.subcategories ?? [];
 
   // Any change of search, category ("All" included) or a retry loads page 1 again.
   useEffect(() => {
-    const wanted = { query: query.trim(), category, attempt };
-    if (wanted.query === shown.current.query && wanted.category === shown.current.category && wanted.attempt === shown.current.attempt) return;
+    const wanted = { query: query.trim(), category, sub: category ? sub : "", label, attempt };
+    if (wanted.query === shown.current.query && wanted.category === shown.current.category && wanted.sub === shown.current.sub && wanted.label === shown.current.label && wanted.attempt === shown.current.attempt) return;
     moreRequest.current?.abort();
     const controller = new AbortController();
     const timer = window.setTimeout(async () => {
       setLoading("replace");
       setError(null);
       try {
-        const page = await fetchPage(wanted.query, wanted.category, 1, controller.signal);
+        const page = await fetchPage(wanted.query, wanted, 1, controller.signal);
         if (controller.signal.aborted) return; // a newer filter won; never show stale results
         shown.current = wanted;
         setResults(page);
         // The address always describes what is on screen, including after the search box is cleared.
-        window.history.replaceState(null, "", marketplaceHref(wanted.query, wanted.category));
+        window.history.replaceState(null, "", marketplaceHref(wanted.query, wanted.category, wanted));
       } catch (e) {
         if (!controller.signal.aborted) setError({ message: e instanceof Error ? e.message : SEARCH_ERROR, retry: "page" });
       } finally {
@@ -77,7 +85,7 @@ export function LiveSearch({
       }
     }, wanted.query !== shown.current.query && wanted.query ? 250 : 0);
     return () => { window.clearTimeout(timer); controller.abort(); };
-  }, [query, category, attempt]);
+  }, [query, category, sub, label, attempt]);
 
   async function loadMore() {
     if (loading || !results.hasMore) return;
@@ -86,7 +94,7 @@ export function LiveSearch({
     setLoading("more");
     setError(null);
     try {
-      const next = await fetchPage(shown.current.query, shown.current.category, results.page + 1, controller.signal);
+      const next = await fetchPage(shown.current.query, shown.current, results.page + 1, controller.signal);
       if (controller.signal.aborted) return;
       setResults((current) => ({ ...next, products: appendPage(current.products, next.products) }));
     } catch (e) {
@@ -97,8 +105,8 @@ export function LiveSearch({
   }
 
   // Keep the URL shareable without a server round-trip or remounting this component.
-  function syncUrl(nextQuery: string, nextCategory: string) {
-    window.history.replaceState(null, "", marketplaceHref(nextQuery, nextCategory));
+  function syncUrl(nextQuery: string, nextCategory: string, narrow: { sub?: string; label?: string } = { sub, label }) {
+    window.history.replaceState(null, "", marketplaceHref(nextQuery, nextCategory, narrow));
   }
 
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -107,8 +115,21 @@ export function LiveSearch({
   }
 
   function setFilter(value: string) {
+    // A new category starts without a subcategory.
     setCategory(value);
-    syncUrl(query, value);
+    setSub("");
+    syncUrl(query, value, { label });
+  }
+
+  function chooseSub(value: string) {
+    setSub(value);
+    syncUrl(query, category, { sub: value, label });
+  }
+
+  function toggleLabel(value: string) {
+    const next = label === value ? "" : value;
+    setLabel(next);
+    syncUrl(query, category, { sub, label: next });
   }
 
   const searching = Boolean(query.trim());
@@ -147,6 +168,25 @@ export function LiveSearch({
         </Link>
       </div>
 
+      {subcategories.length > 0 && (
+        <div role="group" aria-label={`Filter ${selectedCategory?.name ?? ""} by type`} className="-mx-4 mt-1.5 flex gap-1.5 overflow-x-auto px-4 pb-1 [scrollbar-width:none] sm:mx-0 sm:flex-wrap sm:px-0 [&::-webkit-scrollbar]:hidden">
+          <button type="button" onClick={() => chooseSub("")} aria-pressed={!sub} className="pk-chip min-h-8 shrink-0 px-3 text-xs">All {selectedCategory?.name}</button>
+          {subcategories.map((item) => (
+            <button key={item.slug} type="button" onClick={() => chooseSub(item.slug)} aria-pressed={sub === item.slug} className="pk-chip min-h-8 shrink-0 px-3 text-xs">{item.name}</button>
+          ))}
+        </div>
+      )}
+
+      {labels.length > 0 && (
+        <div role="group" aria-label="Filter by label" className="-mx-4 mt-1.5 flex items-center gap-1.5 overflow-x-auto px-4 pb-1 [scrollbar-width:none] sm:mx-0 sm:flex-wrap sm:px-0 [&::-webkit-scrollbar]:hidden">
+          {labels.map((item) => (
+            <button key={item.slug} type="button" onClick={() => toggleLabel(item.slug)} aria-pressed={label === item.slug} className={`min-h-8 shrink-0 rounded-full border px-3 text-xs font-black ${label === item.slug ? "border-[#feb80a] bg-[#feb80a] text-black" : "border-[#feb80a]/50 bg-[#fff4c7] text-[#6b4700]"}`}>
+              {label === item.slug ? "✓ " : ""}{item.name}
+            </button>
+          ))}
+        </div>
+      )}
+
       <div className="mt-2 flex min-h-5 items-center justify-between gap-3 sm:mt-4 sm:min-h-6">
         <p className="text-[0.8125rem] font-semibold text-black/70 sm:text-sm" aria-live="polite">
           {replacing
@@ -172,7 +212,7 @@ export function LiveSearch({
       {products.length > 0 && (
         <div id="search-results" aria-busy={replacing} className={`pk-product-grid mt-2 transition-opacity sm:mt-4 ${replacing ? "opacity-60" : ""}`}>
           {products.map((item) => (
-            <ProductCard key={item.id} id={item.id} name={item.name} price={item.customerPrice} image={item.imageUrl} category={item.category.name} />
+            <ProductCard key={item.id} id={item.id} name={item.name} price={item.customerPrice} image={item.imageUrl} category={item.category.name} labels={item.labels} hasOptions={item.hasOptions} priceVaries={item.priceVaries} outOfStock={item.outOfStock} />
           ))}
         </div>
       )}

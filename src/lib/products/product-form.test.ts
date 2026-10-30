@@ -9,7 +9,7 @@ import { isProductRequestId, newProductRequestId, nextDraftAfterCreate, parseNai
 import { ProductForm } from "../../components/products/ProductForm";
 import { ProductImageUpload } from "../../components/products/ProductImageUpload";
 
-const draft = (change: Partial<ProductDraft> = {}): ProductDraft => ({ name: "A4 Project File", categoryId: "cat-stationery", price: "1500", description: "", status: "ACTIVE", imageUrl: "", ...change });
+const draft = (change: Partial<ProductDraft> = {}): ProductDraft => ({ name: "A4 Project File", categoryId: "cat-stationery", price: "1500", description: "", status: "ACTIVE", imageUrl: "", subcategoryId: "", labelIds: [], stock: "", ...change });
 const router = { push() {}, replace() {}, refresh() {}, back() {}, forward() {}, prefetch() {} };
 // Same remote host as next.config.ts, which isn't loaded outside Next.
 const images = { ...imageConfigDefault, remotePatterns: [{ protocol: "https" as const, hostname: "res.cloudinary.com" }] };
@@ -33,19 +33,29 @@ test("new products need a name, a category and a real price; photo and descripti
   assert.match(validateProductDraft(draft({ description: "x".repeat(2001) }), false).description!, /under 2000/);
 });
 
+test("stock: blank is not tracked, otherwise a whole number of 0 or more", () => {
+  assert.deepEqual(validateProductDraft(draft({ stock: "" }), false), {});
+  assert.deepEqual(validateProductDraft(draft({ stock: "0" }), false), {});
+  assert.match(validateProductDraft(draft({ stock: "-3" }), false).stock!, /whole number of 0 or more/);
+  assert.match(validateProductDraft(draft({ stock: "2.5" }), false).stock!, /whole number of 0 or more/);
+});
+
 test("an existing product may stay unpriced only while hidden, matching the API and database rule", () => {
   assert.deepEqual(validateProductDraft(draft({ price: "", status: "INACTIVE" }), true), {});
   assert.match(validateProductDraft(draft({ price: "", status: "ACTIVE" }), true).price!, /before making this product visible/);
 });
 
 test("the payload sends the typed price as a number and never invents one", () => {
-  assert.deepEqual(productDraftPayload(draft({ price: "₦2,000", name: "  Pen  " })), { name: "Pen", description: "", imageUrl: "", categoryId: "cat-stationery", customerPrice: 2000, status: "ACTIVE" });
+  assert.deepEqual(productDraftPayload(draft({ price: "₦2,000", name: "  Pen  " })), { name: "Pen", description: "", imageUrl: "", categoryId: "cat-stationery", customerPrice: 2000, status: "ACTIVE", subcategoryId: null, labelIds: [], stockQuantity: null });
   assert.equal("customerPrice" in productDraftPayload(draft({ price: "" })), false);
+  assert.deepEqual(productDraftPayload(draft({ subcategoryId: "sub-files", labelIds: ["l1"], stock: "12" })).stockQuantity, 12);
+  const withOptions = productDraftPayload(draft({ hasVariants: true, stock: "5" }));
+  assert.equal("customerPrice" in withOptions || "stockQuantity" in withOptions, false, "price and stock live on each variant");
 });
 
 test("add another product keeps the category and visibility and clears the rest", () => {
-  const next = nextDraftAfterCreate(draft({ description: "Blue", imageUrl: photo, status: "INACTIVE" }));
-  assert.deepEqual(next, { name: "", categoryId: "cat-stationery", price: "", description: "", status: "INACTIVE", imageUrl: "" });
+  const next = nextDraftAfterCreate(draft({ description: "Blue", imageUrl: photo, status: "INACTIVE", subcategoryId: "sub-files", labelIds: ["l1"], stock: "9" }));
+  assert.deepEqual(next, { name: "", categoryId: "cat-stationery", subcategoryId: "sub-files", price: "", description: "", status: "INACTIVE", imageUrl: "", labelIds: [], stock: "" });
 });
 
 test("request ids are unguessable, well-formed and different each time", () => {

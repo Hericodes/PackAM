@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Roboto } from "next/font/google";
 import "./globals.css";
 import { CartExperience } from "../components/cart/CartExperience";
+import { PwaProvider } from "../components/pwa/PwaProvider";
 
 /*
  * The old "Arial, Helvetica" stack looked different on every phone: Android has no Arial (it used Roboto or
@@ -18,6 +19,10 @@ export const metadata: Metadata = {
   },
   description:
     "Need something but can't leave where you are? Order it. We'll get it to you.",
+  applicationName: "PackAM",
+  // Installed on iPhone and iPad (Add to Home Screen): opens full screen, named PackAM. The icon is app/apple-icon.png.
+  appleWebApp: { capable: true, title: "PackAM", statusBarStyle: "default" },
+  formatDetection: { telephone: false },
 };
 
 export const viewport: Viewport = {
@@ -25,6 +30,8 @@ export const viewport: Viewport = {
   colorScheme: "only light",
   // Lets env(safe-area-inset-*) report the notch and home-indicator areas, so fixed bars can avoid them.
   viewportFit: "cover",
+  // The browser bar and installed app's title bar match the cream page background.
+  themeColor: "#fffdf7",
 };
 
 export default function RootLayout({
@@ -34,7 +41,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={sans.variable}>
-      <body suppressHydrationWarning><CartExperience>{children}</CartExperience></body>
+      <body suppressHydrationWarning><CartExperience><PwaProvider>{children}</PwaProvider></CartExperience></body>
     </html>
   );
 }

@@ -5,6 +5,7 @@ import { writeAuditLog } from "../../../../lib/audit";
 import { consumeRateLimit } from "../../../../lib/rate-limit";
 import { isPackamProductImageUrl } from "../../../../lib/cloudinary-url";
 import { verifyProductImageForSave } from "../../../../lib/products/product-image-server";
+import { parseClassification } from "../../../../lib/products/product-classification";
 import { activationBlocker, canManageCatalogue, isValidCustomerPrice } from "../../../../lib/catalogue-permissions";
 import { deleteProductAsAdmin } from "../../../../lib/products/product-deletion";
 import { PRODUCT_WRITE_LIMITS, PRODUCT_WRITE_WINDOW_MS, isVisibilityOnlyChange, productLimitMessage, productWriteLimitKey } from "../../../../lib/products/write-limits";
@@ -148,6 +149,13 @@ export async function PATCH(
       }
     }
 
+    // Subcategory, labels and stock. Changing the category clears a subcategory from the old one.
+    const finalCategoryId = typeof categoryId === "string" && categoryId ? categoryId : existingProduct.categoryId;
+    const variantCount = await db.productVariant.count({ where: { productId: id } });
+    const classification = await parseClassification(body, finalCategoryId, { hasVariants: variantCount > 0 });
+    if (!classification.ok) return NextResponse.json({ error: classification.error }, { status: 400 });
+    if (finalCategoryId !== existingProduct.categoryId && classification.data.subcategoryId === undefined) classification.data.subcategoryId = null;
+
     if (imageUrl !== undefined && typeof imageUrl === "string" && !isPackamProductImageUrl(imageUrl, process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME)) return NextResponse.json({ error: "Choose a PackAM product image." }, { status: 400 });
     // Only a new photo is checked against image storage; keeping the current one (or removing it) needs no check.
     if (typeof imageUrl === "string" && imageUrl.trim() && imageUrl.trim() !== existingProduct.imageUrl) {
@@ -197,9 +205,16 @@ export async function PATCH(
         ...(status === "ACTIVE" || status === "INACTIVE"
           ? { status }
           : {}),
+
+        ...(classification.data.subcategoryId !== undefined && { subcategoryId: classification.data.subcategoryId }),
+        ...(classification.data.stockQuantity !== undefined && { stockQuantity: classification.data.stockQuantity }),
       },
     });
     if (changed.count !== 1) throw new Error("PRODUCT_CHANGED");
+    if (classification.data.labelIds !== undefined) {
+      await tx.productLabelOnProduct.deleteMany({ where: { productId: id } });
+      if (classification.data.labelIds.length) await tx.productLabelOnProduct.createMany({ data: classification.data.labelIds.map((labelId) => ({ productId: id, labelId })) });
+    }
     const updated = await tx.product.findUnique({ where: { id }, include: { category: true } });
     if (!updated) throw new Error("PRODUCT_CHANGED");
     await writeAuditLog(tx, { actorId: session.user.id, action: "PRODUCT_UPDATED", resource: "Product", resourceId: id, previousState: { name: before.name, categoryId: before.categoryId, customerPrice: before.customerPrice, status: before.status }, newState: { name: updated.name, categoryId: updated.categoryId, customerPrice: updated.customerPrice, status: updated.status } });

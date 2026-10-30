@@ -7,6 +7,7 @@ import { ReorderButton } from "../../../../components/orders/ReorderButton";
 import { PrintTrackingRefresher } from "../../../../components/student/PrintTrackingRefresher";
 import { Icon } from "../../../../components/ui/Icon";
 import { describeDetails, parseLineDetails } from "../../../../lib/food/plate";
+import { optionsText } from "../../../../lib/products/variants";
 
 /** A food plate's frozen contents ("Amala + Ewedu + Meat ×2"), or null for anything else. */
 function plateOf(details: unknown) {
@@ -96,6 +97,7 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
                     <strong className="shrink-0 whitespace-nowrap text-sm">₦{item.totalPrice.toLocaleString()}</strong>
                   </div>
                   {plateOf(item.details) && <p className="mt-1 text-sm leading-5 text-black/65">{plateOf(item.details)}</p>}
+                  {optionsText(item.details) && <p className="mt-1 text-sm leading-5 text-black/65">{optionsText(item.details)}</p>}
                   {item.sourcing.map((source) => <div key={source.id} className="mt-3 rounded-xl border border-[#f0dfaa] bg-[#fff8df] p-3 text-sm leading-5">
                     {source.status === "PRICE_PENDING"
                       ? <><p className="font-bold">Price changed at {source.orderSource.vendor.name} 👀</p><p className="mt-1 text-sm leading-5 text-black/75">{item.productName} costs ₦{source.actualUnitPrice?.toLocaleString()} each there; you paid ₦{source.catalogueUnitPrice.toLocaleString()} each. Your runner is waiting for your choice.</p><PriceDecision orderId={order.id} sourcingId={source.id} orderTotal={order.total} /></>
@@ -162,7 +164,7 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
               </section>
             ) : (
               <section className="pk-card p-5">
-                <ReorderButton items={order.items.map((item) => ({ productId: item.productId, name: item.productName, quantity: item.quantity }))} />
+                <ReorderButton items={order.items.map((item) => ({ productId: item.productId, name: item.productName, quantity: item.quantity, variantId: item.variantId }))} />
               </section>
             )}
           </aside>

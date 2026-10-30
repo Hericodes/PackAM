@@ -14,6 +14,10 @@ export type CartAddition = {
   /** A built plate's soup and extras (empty otherwise). */
   extras: Array<{ productId: string; quantity: number }>;
   quantity: number;
+  /** The chosen variant of a product with options (configKey is then "variant:<id>"). */
+  variantId?: string | null;
+  /** Tracked stock for this product or variant; the line's total quantity may not exceed it. */
+  stockLimit?: number | null;
 };
 
 export type CartAddResult = { ok: true; cleared: boolean } | { ok: false; conflict: CartConflict } | { ok: false; error: string };
@@ -42,6 +46,10 @@ export async function addToCart(userId: string, addition: CartAddition, clearCar
       where: { cartId_productId_configKey: { cartId: cart.id, productId: addition.productId, configKey: addition.configKey } },
       select: { id: true, quantity: true },
     });
+    const total = (existing?.quantity ?? 0) + addition.quantity;
+    if (addition.stockLimit !== null && addition.stockLimit !== undefined && total > addition.stockLimit) {
+      return { ok: false as const, error: addition.stockLimit === 0 ? "That’s out of stock right now." : `Only ${addition.stockLimit} left${existing ? `, and ${existing.quantity} ${existing.quantity === 1 ? "is" : "are"} already in your cart` : ""}.` };
+    }
     if (existing) {
       const quantity = existing.quantity + addition.quantity;
       if (quantity > 99) return { ok: false as const, error: "You can add a maximum of 99 of one item." };
@@ -53,6 +61,7 @@ export async function addToCart(userId: string, addition: CartAddition, clearCar
           productId: addition.productId,
           configKey: addition.configKey,
           quantity: addition.quantity,
+          variantId: addition.variantId ?? null,
           ...(addition.extras.length ? { extras: { create: addition.extras.map((extra) => ({ productId: extra.productId, quantity: extra.quantity })) } } : {}),
         },
       });

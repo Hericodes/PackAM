@@ -16,7 +16,8 @@ test("the homepage greets students in the PackAM voice", () => {
 });
 
 test("admin data tables stack into labelled cards on phones: every cell has a label", () => {
-  for (const path of ["./admin/payments/page.tsx", "./admin/finance/page.tsx", "../components/admin/AdminCategories.tsx"]) {
+  // Categories moved to a card layout (one card per category), which needs no table stacking.
+  for (const path of ["./admin/payments/page.tsx", "./admin/finance/page.tsx"]) {
     const file = source(path);
     const tables = file.split("<table").slice(1).map((chunk) => chunk.slice(0, chunk.indexOf("</table>")));
     assert.ok(tables.length > 0, path);

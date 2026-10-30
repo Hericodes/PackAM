@@ -6,9 +6,19 @@ import { useCartExperience } from "../cart/CartExperience";
 import { Icon } from "../ui/Icon";
 import { CartConflictDialog } from "../cart/CartConflictDialog";
 
-type AddToCartProps = { productId: string; compact?: boolean };
+type AddToCartProps = {
+  productId: string;
+  compact?: boolean;
+  /** The chosen variant of a product with options. */
+  variantId?: string | null;
+  /** Why it can't be added yet (e.g. "Choose a size"); the button is disabled and shows this. */
+  blockedReason?: string | null;
+  /** Tracked stock: the quantity picker stops here. */
+  maxQuantity?: number | null;
+};
 
-export function AddToCart({ productId, compact = false }: AddToCartProps) {
+export function AddToCart({ productId, compact = false, variantId = null, blockedReason = null, maxQuantity = null }: AddToCartProps) {
+  const limit = Math.max(1, Math.min(99, maxQuantity ?? 99));
   const router = useRouter();
   const { adjust, setSummary } = useCartExperience();
   const [quantity, setQuantity] = useState(1);
@@ -27,7 +37,7 @@ export function AddToCart({ productId, compact = false }: AddToCartProps) {
       const response = await fetch("/api/cart", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ productId, quantity, ...(clearCart ? { clearCart: true } : {}) }),
+        body: JSON.stringify({ productId, quantity: Math.min(quantity, limit), ...(variantId ? { variantId } : {}), ...(clearCart ? { clearCart: true } : {}) }),
       });
       const data = await response.json();
       if (response.status === 401) {
@@ -87,10 +97,10 @@ export function AddToCart({ productId, compact = false }: AddToCartProps) {
       <div className="flex h-12 w-full items-center justify-between rounded-full border border-black/10 bg-white md:w-auto md:justify-normal">
         <button type="button" onClick={() => setQuantity((value) => Math.max(1, value - 1))} disabled={loading || quantity === 1} aria-label="Decrease quantity" className="h-12 w-12 rounded-l-full text-lg font-black transition hover:bg-black/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-black disabled:opacity-30 md:w-12">−</button>
         <span className="w-8 text-center text-sm font-black">{quantity}</span>
-        <button type="button" onClick={() => setQuantity((value) => Math.min(99, value + 1))} disabled={loading || quantity === 99} aria-label="Increase quantity" className="h-12 w-12 rounded-r-full text-lg font-black transition hover:bg-black/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-black disabled:opacity-30 md:w-12">+</button>
+        <button type="button" onClick={() => setQuantity((value) => Math.min(limit, value + 1))} disabled={loading || quantity >= limit || Boolean(blockedReason)} aria-label="Increase quantity" className="h-12 w-12 rounded-r-full text-lg font-black transition hover:bg-black/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-black disabled:opacity-30 md:w-12">+</button>
       </div>
-      <button type="button" onClick={() => void handleAddToCart()} disabled={loading} className="min-h-12 min-w-0 flex-1 rounded-full bg-black px-4 text-sm font-black text-white transition hover:bg-black/85 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black disabled:cursor-not-allowed disabled:opacity-50 md:px-6">
-        {loading ? "Adding…" : "Add to cart"}
+      <button type="button" onClick={() => void handleAddToCart()} disabled={loading || Boolean(blockedReason)} className="min-h-12 min-w-0 flex-1 rounded-full bg-black px-4 text-sm font-black text-white transition hover:bg-black/85 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black disabled:cursor-not-allowed disabled:opacity-50 md:px-6">
+        {loading ? "Adding…" : blockedReason ?? "Add to cart"}
       </button>
     </div>
     {added && <p role="status" className="mt-3 text-sm font-bold text-green-800">Added to cart ✓ E don enter. Check out whenever you’re ready.</p>}

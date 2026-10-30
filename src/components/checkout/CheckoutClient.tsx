@@ -22,6 +22,8 @@ type CheckoutItem = {
   unitPrice: number;
   /** A built plate's contents, e.g. "Amala + Ewedu + Meat ×2". */
   plate: string | null;
+  /** The chosen options of a product with variants, e.g. "Colour: Black · Size: XL". */
+  options?: string | null;
   /** Why this line can't be paid for right now. */
   problem: string | null;
 };
@@ -241,6 +243,7 @@ export function CheckoutClient({ items: initialItems, deliveryFee, lastLocation,
                   <div className="min-w-0 flex-1">
                     <p className="break-words text-sm font-black sm:text-base">{item.plate ? "Plate" : item.name}</p>
                     {item.plate && <p className="mt-0.5 break-words text-sm leading-5 text-black/70">{item.plate}</p>}
+                    {item.options && <p className="mt-0.5 break-words text-sm leading-5 text-black/70">{item.options}</p>}
                     {item.problem ? <p className="mt-0.5 text-sm font-semibold text-[#c92d24]">{item.problem}</p> : <p className="mt-0.5 text-sm text-black/55">{money(item.unitPrice)} each</p>}
                     <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
                       <div className="flex h-11 items-center rounded-full border border-black/10 bg-white" role="group" aria-label={`${item.name} quantity`}>

@@ -88,7 +88,7 @@ export function asUser<T>(user: SessionUser, call: () => Promise<T>) {
   return call();
 }
 
-const created = { users: [] as string[], products: [] as string[], categories: [] as string[], vendors: [] as string[] };
+const created = { users: [] as string[], products: [] as string[], categories: [] as string[], vendors: [] as string[], labels: [] as string[] };
 export const runTag = randomUUID().slice(0, 8);
 
 export async function createTestUser(
@@ -127,9 +127,11 @@ export async function createTestCatalogue(products: Array<{ name: string; price:
 }
 
 /** Registers rows a test created through the real API, so cleanup removes them like fixture rows. */
-export function trackForCleanup(rows: { products?: string[]; vendors?: string[] }) {
+export function trackForCleanup(rows: { products?: string[]; vendors?: string[]; categories?: string[]; labels?: string[] }) {
   created.products.push(...(rows.products ?? []));
   created.vendors.push(...(rows.vendors ?? []));
+  created.categories.push(...(rows.categories ?? []));
+  created.labels.push(...(rows.labels ?? []));
 }
 
 export async function createTestVendor(name = "Test shop") {
@@ -212,6 +214,9 @@ async function deleteCreatedRows(db: Db) {
   await db.productSource.deleteMany({ where: { productId: { in: created.products } } });
   await db.cart.deleteMany({ where: { userId: users } });
   await db.product.deleteMany({ where: { id: { in: created.products } } });
+  await db.productLabel.deleteMany({ where: { id: { in: created.labels } } });
+  // Subcategories keep their category (Restrict), so they go first.
+  await db.subcategory.deleteMany({ where: { categoryId: { in: created.categories } } });
   await db.category.deleteMany({ where: { id: { in: created.categories } } });
   await db.vendor.deleteMany({ where: { id: { in: created.vendors } } });
   await db.user.deleteMany({ where: { id: users } });

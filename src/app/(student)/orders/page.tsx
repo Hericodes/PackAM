@@ -11,7 +11,7 @@ type OrderRow = {
   status: string;
   total: number;
   createdAt: Date;
-  items: { productId: string; productName: string; quantity: number }[];
+  items: { productId: string; productName: string; quantity: number; variantId: string | null }[];
 };
 
 function OrderCard({ order, showReorder }: { order: OrderRow; showReorder: boolean }) {
@@ -37,7 +37,7 @@ function OrderCard({ order, showReorder }: { order: OrderRow; showReorder: boole
       )}
       <div className="mt-4 flex flex-wrap items-start gap-2">
         <Link href={`/orders/${order.id}`} className="pk-btn pk-btn-primary pk-btn-sm">{isFinalOrderStatus(order.status) ? "View details" : "Track order"}</Link>
-        {showReorder && <ReorderButton size="small" items={order.items.map((item) => ({ productId: item.productId, name: item.productName, quantity: item.quantity }))} />}
+        {showReorder && <ReorderButton size="small" items={order.items.map((item) => ({ productId: item.productId, name: item.productName, quantity: item.quantity, variantId: item.variantId }))} />}
       </div>
     </li>
   );
@@ -50,7 +50,7 @@ export default async function OrdersPage() {
       where: { userId: session.user.id },
       orderBy: { createdAt: "desc" },
       take: 50,
-      select: { id: true, status: true, total: true, createdAt: true, shopId: true, items: { select: { productId: true, productName: true, quantity: true } } },
+      select: { id: true, status: true, total: true, createdAt: true, shopId: true, items: { select: { productId: true, productName: true, quantity: true, variantId: true } } },
     }),
     db.printJob.count({ where: { userId: session.user.id, NOT: UNPAID_PRINT_JOB_WHERE } }),
   ]);

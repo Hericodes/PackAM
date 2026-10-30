@@ -6,7 +6,8 @@ import { useState } from "react";
 import { summariseReorder, type ReorderResult } from "../../lib/reorder";
 import { useCartExperience } from "../cart/CartExperience";
 
-type Item = { productId: string; name: string; quantity: number };
+/** variantId: the option the student bought, so "Order again" adds the same one (the server re-checks it). */
+type Item = { productId: string; name: string; quantity: number; variantId?: string | null };
 
 /** Re-adds a past order's items through the normal cart API (same checks, current prices). */
 export function ReorderButton({ items, size = "default" }: { items: Item[]; size?: "default" | "small" }) {
@@ -25,7 +26,7 @@ export function ReorderButton({ items, size = "default" }: { items: Item[]; size
         const response = await fetch("/api/cart", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ productId: item.productId, quantity: Math.min(99, Math.max(1, item.quantity)) }),
+          body: JSON.stringify({ productId: item.productId, quantity: Math.min(99, Math.max(1, item.quantity)), ...(item.variantId ? { variantId: item.variantId } : {}) }),
         });
         if (response.status === 401) {
           router.push(`/login?callbackUrl=${encodeURIComponent(window.location.pathname)}`);

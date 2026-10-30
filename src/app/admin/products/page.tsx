@@ -33,7 +33,9 @@ export default async function AdminProductsPage({ searchParams }: { searchParams
       select: {
         id: true, name: true, description: true, customerPrice: true, status: true, imageUrl: true, updatedAt: true,
         category: { select: { name: true } },
-        _count: { select: { orderItems: true } },
+        stockQuantity: true,
+        subcategory: { select: { name: true } },
+        _count: { select: { orderItems: true, variants: true } },
         sources: { select: { availability: true } },
       },
     }),
@@ -137,10 +139,12 @@ export default async function AdminProductsPage({ searchParams }: { searchParams
                         {product.description && <p className="mt-1 truncate text-xs text-black/45">{product.description}</p>}
                         <p className="mt-1 text-xs text-black/45">
                           {product._count.orderItems ? `In ${product._count.orderItems} order ${product._count.orderItems === 1 ? "item" : "items"}` : "Never ordered"}
+                          {product._count.variants > 0 && ` · ${product._count.variants} ${product._count.variants === 1 ? "variant" : "variants"}`}
+                          {product._count.variants === 0 && product.stockQuantity !== null && ` · ${product.stockQuantity} in stock`}
                         </p>
                       </div>
-                      <p className="text-sm font-semibold text-black/60"><span className="text-black/40 lg:hidden">Category: </span>{product.category.name}</p>
-                      <p className="text-sm font-black">{isPriceSet(product.customerPrice) ? `₦${product.customerPrice.toLocaleString()}` : <span className="font-semibold text-black/45">Not set</span>}</p>
+                      <p className="text-sm font-semibold text-black/60"><span className="text-black/40 lg:hidden">Category: </span>{product.category.name}{product.subcategory ? ` · ${product.subcategory.name}` : ""}</p>
+                      <p className="text-sm font-black">{isPriceSet(product.customerPrice) ? `${product._count.variants > 0 ? "From " : ""}₦${product.customerPrice.toLocaleString()}` : <span className="font-semibold text-black/45">Not set</span>}</p>
                       <div className="col-span-2 lg:col-span-1"><ProductRowActions product={{ id: product.id, name: product.name, status: product.status }} deleteBlockedReason={blocker} activationBlockedReason={product.status === "INACTIVE" ? activationBlocker(product.customerPrice) : null} /></div>
                     </div>
                   </li>

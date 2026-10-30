@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Icon } from "../ui/Icon";
+import { InstallAppMenuItem } from "../pwa/InstallAppMenuItem";
 import { isNavItemActive, type NavItem } from "./nav-items";
 import { SignOutRow } from "./StudentProfileMenu";
 
@@ -118,6 +119,7 @@ export function StudentMobileMenu({ user, primary, secondary }: { user: MenuUser
                       </Link>
                     );
                   })}
+                  <InstallAppMenuItem onSelect={close} className="min-h-12" />
                   {secondary.length > 0 && <div className="mx-3 my-1 border-t border-black/5" />}
                   <SignOutRow className="min-h-12" />
                 </div>
@@ -125,6 +127,9 @@ export function StudentMobileMenu({ user, primary, secondary }: { user: MenuUser
                 <div className="mt-4 grid grid-cols-2 gap-2.5">
                   <Link href="/login" onClick={close} className="pk-btn pk-btn-secondary pk-btn-lg">Log in</Link>
                   <Link href="/register" onClick={close} className="pk-btn pk-btn-accent pk-btn-lg">Sign up</Link>
+                  <div className="col-span-2 rounded-2xl border border-black/[0.07] bg-white p-1.5 empty:hidden">
+                    <InstallAppMenuItem onSelect={close} className="min-h-12" />
+                  </div>
                 </div>
               )}
             </div>

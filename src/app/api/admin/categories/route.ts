@@ -2,6 +2,7 @@ import { auth } from "../../../../auth";
 import { db } from "../../../../lib/db";
 import { writeAuditLog } from "../../../../lib/audit";
 import { consumeRateLimit } from "../../../../lib/rate-limit";
+import { checkCatalogueImage } from "../../../../lib/products/catalogue-images";
 
 export async function POST(request: Request) {
   const session = await auth();
@@ -11,15 +12,20 @@ export async function POST(request: Request) {
   let body: unknown;
   try { body = await request.json(); } catch { return Response.json({ error: "Enter a category name." }, { status: 400 }); }
   if (!body || typeof body !== "object" || Array.isArray(body)) return Response.json({ error: "Enter a category name." }, { status: 400 });
-  const input = body as { name?: unknown; description?: unknown };
+  const input = body as { name?: unknown; description?: unknown; sortOrder?: unknown; imageUrl?: unknown };
   const name = typeof input.name === "string" ? input.name.trim() : "";
   const description = typeof input.description === "string" ? input.description.trim() : "";
   if (!name || name.length > 80 || description.length > 300) return Response.json({ error: "Check the category name and description." }, { status: 400 });
   const slug = name.toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
   if (!slug) return Response.json({ error: "Use a category name with letters or numbers." }, { status: 400 });
+  const sortOrder = input.sortOrder === undefined ? 0 : input.sortOrder;
+  if (typeof sortOrder !== "number" || !Number.isInteger(sortOrder) || sortOrder < 0 || sortOrder > 9999) return Response.json({ error: "Display order must be a whole number from 0 to 9999." }, { status: 400 });
+  const imageUrl = typeof input.imageUrl === "string" && input.imageUrl.trim() ? input.imageUrl.trim() : null;
+  const image = await checkCatalogueImage(imageUrl, null);
+  if (!image.ok) return Response.json({ error: image.error }, { status: image.status });
   try {
     const category = await db.$transaction(async (tx) => {
-      const created = await tx.category.create({ data: { name, slug, description: description || null }, select: { id: true, name: true, slug: true, isActive: true } });
+      const created = await tx.category.create({ data: { name, slug, description: description || null, sortOrder, imageUrl }, select: { id: true, name: true, slug: true, isActive: true } });
       await writeAuditLog(tx, { actorId: session.user.id, action: "CATEGORY_CREATED", resource: "Category", resourceId: created.id, newState: created });
       return created;
     });

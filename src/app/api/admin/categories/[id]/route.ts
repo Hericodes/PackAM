@@ -2,6 +2,7 @@ import { auth } from "../../../../../auth";
 import { db } from "../../../../../lib/db";
 import { writeAuditLog } from "../../../../../lib/audit";
 import { consumeRateLimit } from "../../../../../lib/rate-limit";
+import { checkCatalogueImage } from "../../../../../lib/products/catalogue-images";
 
 type Context = { params: Promise<{ id: string }> };
 
@@ -14,15 +15,23 @@ export async function PATCH(request: Request, context: Context) {
   let body: unknown;
   try { body = await request.json(); } catch { return Response.json({ error: "Invalid category changes." }, { status: 400 }); }
   if (!body || typeof body !== "object" || Array.isArray(body)) return Response.json({ error: "Invalid category changes." }, { status: 400 });
-  const input = body as { isActive?: unknown; name?: unknown; description?: unknown };
-  const data: { isActive?: boolean; name?: string; description?: string | null } = {};
+  const input = body as { isActive?: unknown; name?: unknown; description?: unknown; sortOrder?: unknown; imageUrl?: unknown };
+  const data: { isActive?: boolean; name?: string; description?: string | null; sortOrder?: number; imageUrl?: string | null } = {};
   if (input.isActive !== undefined) { if (typeof input.isActive !== "boolean") return Response.json({ error: "Invalid category status." }, { status: 400 }); data.isActive = input.isActive; }
   if (input.name !== undefined) { if (typeof input.name !== "string" || !input.name.trim() || input.name.trim().length > 80) return Response.json({ error: "Invalid category name." }, { status: 400 }); data.name = input.name.trim(); }
   if (input.description !== undefined) { if (typeof input.description !== "string") return Response.json({ error: "Invalid category description." }, { status: 400 }); data.description = input.description.trim().slice(0, 300) || null; }
+  if (input.sortOrder !== undefined) { if (typeof input.sortOrder !== "number" || !Number.isInteger(input.sortOrder) || input.sortOrder < 0 || input.sortOrder > 9999) return Response.json({ error: "Display order must be a whole number from 0 to 9999." }, { status: 400 }); data.sortOrder = input.sortOrder; }
+  if (input.imageUrl !== undefined) {
+    if (input.imageUrl !== null && typeof input.imageUrl !== "string") return Response.json({ error: "Invalid category image." }, { status: 400 });
+    data.imageUrl = typeof input.imageUrl === "string" && input.imageUrl.trim() ? input.imageUrl.trim() : null;
+    const current = await db.category.findUnique({ where: { id }, select: { imageUrl: true } });
+    const image = await checkCatalogueImage(data.imageUrl, current?.imageUrl ?? null);
+    if (!image.ok) return Response.json({ error: image.error }, { status: image.status });
+  }
   if (!Object.keys(data).length) return Response.json({ error: "No valid category changes." }, { status: 400 });
   try {
     const category = await db.$transaction(async (tx) => {
-      const before = await tx.category.findUnique({ where: { id }, select: { name: true, slug: true, description: true, isActive: true, updatedAt: true } });
+      const before = await tx.category.findUnique({ where: { id }, select: { name: true, slug: true, description: true, isActive: true, sortOrder: true, updatedAt: true } });
       if (!before) throw new Error("NOT_FOUND");
       const changed = await tx.category.updateMany({ where: { id, updatedAt: before.updatedAt }, data });
       if (changed.count !== 1) throw new Error("CONFLICT");

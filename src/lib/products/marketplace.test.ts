@@ -11,7 +11,7 @@ import { AppRouterContext } from "next/dist/shared/lib/app-router-context.shared
 const router = { push() {}, replace() {}, refresh() {}, back() {}, forward() {}, prefetch() {} };
 const page = (props: Parameters<typeof LiveSearch>[0]) => renderToStaticMarkup(createElement(AppRouterContext.Provider, { value: router as never }, createElement(PathnameContext.Provider, { value: "/search" }, createElement(CartExperience, null, createElement(LiveSearch, props)))));
 
-const item = (id: string, name: string, category = "Academic Materials") => ({ id, name, customerPrice: 100, imageUrl: null, description: null, category: { name: category } });
+const item = (id: string, name: string, category = "Academic Materials") => ({ id, name, customerPrice: 100, imageUrl: null, description: null, category: { name: category }, labels: [] as string[], hasOptions: false, priceVaries: false, outOfStock: false });
 
 test("'All' is the plain marketplace URL; a filter change never keeps a page number", () => {
   assert.equal(marketplaceHref("", ""), "/search");
