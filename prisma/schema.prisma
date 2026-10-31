@@ -25,6 +25,12 @@ enum UserStatus {
   DEACTIVATED
 }
 
+enum AccountTokenPurpose {
+  EMAIL_VERIFICATION
+  PASSWORD_RESET
+  EMAIL_CHANGE
+}
+
 enum ProductStatus {
   ACTIVE
   INACTIVE
@@ -227,6 +233,14 @@ model User {
   firstName     String?
   lastName      String?
 
+  /// When the person confirmed they own `email`; null = not confirmed. Accounts made before migration
+  /// 20261101090000 start unconfirmed, and nothing is blocked by it yet.
+  emailVerifiedAt   DateTime?
+  /// Bumped to sign the account out on every device: each session cookie carries the version it was
+  /// issued with, and src/auth.ts refuses any other. Cookies from before this column count as 0.
+  sessionVersion    Int        @default(0)
+  passwordChangedAt DateTime?
+
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
 
@@ -247,6 +261,7 @@ model User {
   incidents             Incident[]       @relation("ReportedIncidents")
   auditLogs             AuditLog[]
   handledSupportCases   SupportCase[]     @relation("HandledSupportCases")
+  accountTokens         AccountToken[]
 
   @@index([role])
   @@index([status])
@@ -303,6 +318,34 @@ model AdminProfile {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+
+// ============================================================
+// ACCOUNT TOKENS
+// ============================================================
+
+/// A one-time emailed link: email verification, password reset or an email change. Only the SHA-256 of
+/// the raw token is stored (src/lib/account/tokens.ts); the raw value exists only in the link. A token is
+/// used once (usedAt), and issuing a new one marks the user's older unused ones of that purpose used.
+/// Database CHECK constraints (not expressible in Prisma), see migration 20261101090000:
+///   AccountToken_tokenHash_check: tokenHash is 64 characters.
+///   AccountToken_expiry_check: expiresAt is after createdAt.
+model AccountToken {
+  id        String              @id @default(cuid())
+  userId    String
+  purpose   AccountTokenPurpose
+  tokenHash String              @unique
+  /// The address the link was sent to (for EMAIL_CHANGE: the new address).
+  email     String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime            @default(now())
+
+  user      User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, purpose])
+  @@index([expiresAt])
 }
 
 

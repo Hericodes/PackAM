@@ -6,15 +6,21 @@ export function roleHome(role: string): string {
   return "/";
 }
 
+/** Where a student may land after login: each section and everything under it. */
+const STUDENT_SECTIONS = [
+  "/search", "/checkout", "/cart", "/orders", "/product-requests",
+  "/notifications", "/support", "/products",
+  "/printing", "/food", "/account", "/saved",
+];
+
 function isAllowedForRole(role: string, pathname: string) {
   const inSection = (section: string) => pathname === section || pathname.startsWith(`${section}/`);
+  if (role !== "STUDENT" && role !== "RUNNER" && role !== "ADMIN") return false;
+  // Account settings are for every role.
+  if (inSection("/settings")) return true;
   if (role === "ADMIN") return inSection("/admin");
   if (role === "RUNNER") return inSection("/runner");
-  if (role !== "STUDENT") return false;
-  return pathname === "/" || [
-    "/search", "/checkout", "/cart", "/orders", "/product-requests",
-    "/notifications", "/support", "/products",
-  ].some(inSection);
+  return pathname === "/" || STUDENT_SECTIONS.some(inSection);
 }
 
 /** Returns only a safe internal destination authorized for this authenticated role. */

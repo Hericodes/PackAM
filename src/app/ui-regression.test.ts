@@ -53,11 +53,15 @@ test("every phone gets the same font and safe-area handling", () => {
 });
 
 test("signup name fields use neutral placeholders, never a real person's name", () => {
+  // The page is a server component now (for its title and the signed-in redirect); the fields live in RegisterForm.
   const page = source("./register/page.tsx");
-  assert.match(page, /placeholder="Enter your first name"/);
-  assert.match(page, /placeholder="Enter your last name"/);
-  assert.doesNotMatch(page, /Olayimika|Ogunmona/i);
-  assert.match(page, /firstName: "",\s*lastName: "",/, "fields still start empty: no prefill was added or removed");
+  const form = source("../components/auth/RegisterForm.tsx");
+  assert.match(page, /export const metadata/, "the sign-up tab has its own title");
+  assert.match(page, /<RegisterForm /);
+  assert.match(form, /placeholder="Enter your first name"/);
+  assert.match(form, /placeholder="Enter your last name"/);
+  for (const file of [page, form]) assert.doesNotMatch(file, /Olayimika|Ogunmona/i);
+  assert.match(form, /firstName: "",\s*lastName: "",/, "fields still start empty: no prefill was added or removed");
 });
 
 test("the homepage offers Order Stuff, Food and Printing, in that order, and no Student Verification", () => {

@@ -13,6 +13,7 @@
  * this test harness; the application exposes no simulator endpoint.
  */
 import "dotenv/config";
+import bcrypt from "bcryptjs";
 import { randomUUID } from "node:crypto";
 import * as nodeModule from "node:module";
 import { pathToFileURL } from "node:url";
@@ -33,7 +34,10 @@ export const expectedDatabaseName = testDatabaseUrl && verdict.ok ? decodeURICom
 // db.ts reads DATABASE_URL at import time; app modules must be imported after this line runs.
 process.env.DATABASE_URL = verdict.ok ? testDatabaseUrl! : "postgresql://skipped:skipped@127.0.0.1:1/packam_tests_skipped";
 process.env.DIRECT_URL = process.env.DATABASE_URL;
+// Also selects the in-memory email outbox (src/lib/email), so no test can send real mail.
 process.env.PACKAM_DB_TEST = "1";
+// Emailed links point at the same made-up origin callRoute uses, never at a real deployment.
+process.env.APP_URL = "http://packam.test";
 
 // registerHooks exists from Node 22.15; the project's @types/node predates it.
 type ResolveResult = { url: string; shortCircuit?: boolean };
@@ -126,8 +130,28 @@ export async function createTestCatalogue(products: Array<{ name: string; price:
   return { categoryId: category.id, categorySlug: category.slug, products: rows };
 }
 
+/** Gives a test user a password (bcrypt cost 4: fast, and still a real hash that login code can compare). */
+export async function setTestPassword(userId: string, password: string) {
+  const db = await testDb();
+  await db.user.update({ where: { id: userId }, data: { passwordHash: await bcrypt.hash(password, 4) } });
+}
+
+let clientIpCount = 0;
+
+/**
+ * A fresh x-real-ip value for each call. callRoute sends none, so without one every rate-limited route shares the
+ * "unknown" bucket, which outlives the run. Pass it as `headers: { "x-real-ip": testClientIp() }`.
+ */
+export function testClientIp() {
+  clientIpCount += 1;
+  const random = randomUUID().replace(/-/g, "");
+  // The IPv6 documentation range: never a real client.
+  return `2001:db8:${random.slice(0, 4)}:${random.slice(4, 8)}:${random.slice(8, 12)}:${random.slice(12, 16)}:${random.slice(16, 20)}:${clientIpCount.toString(16)}`;
+}
+
 /** Registers rows a test created through the real API, so cleanup removes them like fixture rows. */
-export function trackForCleanup(rows: { products?: string[]; vendors?: string[]; categories?: string[]; labels?: string[] }) {
+export function trackForCleanup(rows: { users?: string[]; products?: string[]; vendors?: string[]; categories?: string[]; labels?: string[] }) {
+  created.users.push(...(rows.users ?? []));
   created.products.push(...(rows.products ?? []));
   created.vendors.push(...(rows.vendors ?? []));
   created.categories.push(...(rows.categories ?? []));
