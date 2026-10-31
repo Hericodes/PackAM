@@ -1,6 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { VerifyEmailBanner } from "../../../components/account/VerifyEmailBanner";
+import { emailLinksAvailable } from "../../../components/account/email-links";
 import { AddressBook } from "../../../components/student/AddressBook";
+import { Icon } from "../../../components/ui/Icon";
 import { requireRole } from "../../../lib/auth-guard";
 import { db } from "../../../lib/db";
 
@@ -38,12 +41,23 @@ export default async function AccountPage() {
     ["Faculty", profile?.faculty],
     ["Level", profile?.level],
   ].filter((entry): entry is [string, string] => Boolean(entry[1]));
+  // Verification status is read fresh on every request (src/auth.ts). Only nag when a link can actually be sent.
+  const verifyEmail = user && !session.user.emailVerified && emailLinksAvailable() ? user.email : null;
 
   return (
     <main className="min-h-screen pb-16">
       <div className="packam-container py-7 sm:py-10">
         <p className="pk-eyebrow">Account</p>
         <h1 className="pk-page-title mt-2">Hi, {user?.firstName || "there"} 👋</h1>
+
+        {verifyEmail && (
+          <VerifyEmailBanner
+            email={verifyEmail}
+            returnTo="/account"
+            className="mt-5 max-w-2xl"
+            action={<Link href="/settings#email" className="inline-flex min-h-11 items-center text-sm font-bold text-black/75 underline decoration-black/30 underline-offset-4 hover:text-black hover:decoration-black">Wrong email? Change it</Link>}
+          />
+        )}
 
         <nav aria-label="Account shortcuts" className="mt-6">
           <ul className="grid grid-cols-2 gap-3 md:grid-cols-3">
@@ -63,7 +77,13 @@ export default async function AccountPage() {
 
         <div className="mt-6 grid gap-5 lg:grid-cols-2">
           <section className="pk-card p-5 sm:p-6" aria-labelledby="profile-heading">
-            <h2 id="profile-heading" className="text-lg font-black">Your details</h2>
+            <div className="flex items-center justify-between gap-3">
+              <h2 id="profile-heading" className="text-lg font-black">Your details</h2>
+              <Link href="/settings" className="pk-btn pk-btn-secondary shrink-0">
+                <Icon name="settings" className="h-4 w-4" />
+                Settings
+              </Link>
+            </div>
             <p className="mt-1 text-base font-bold">{name}</p>
             <dl className="mt-3 divide-y divide-black/5 text-sm">
               {details.map(([label, value]) => (
@@ -73,7 +93,9 @@ export default async function AccountPage() {
                 </div>
               ))}
             </dl>
-            <p className="pk-muted mt-3 text-xs leading-5">To change these details, contact <Link href="/support" className="font-bold underline">support</Link>.</p>
+            <p className="pk-muted mt-3 text-xs leading-5">
+              Change your name, email or password in <Link href="/settings" className="font-bold underline">Settings</Link>. For anything else, like your phone number, contact <Link href="/support" className="font-bold underline">support</Link>.
+            </p>
           </section>
 
           <section className="pk-card p-5 sm:p-6" aria-labelledby="addresses-heading">

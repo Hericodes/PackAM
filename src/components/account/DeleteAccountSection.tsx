@@ -134,8 +134,9 @@ export function DeleteAccountSection({ email }: { email: string }) {
         try {
           await signOut({ redirectTo: GOODBYE });
         } catch {
-          // The account is closed and every session has ended on the server; this only clears this browser's cookie.
-          window.location.assign(GOODBYE);
+          // The account is closed and every session has ended on the server; signOut only clears this browser's
+          // cookie. Load the home page afresh anyway, replacing this page in history: there's nothing to go back to.
+          window.location.replace(GOODBYE);
         }
       } else if (result.blockers.length) {
         flushSync(() => {

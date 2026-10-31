@@ -60,6 +60,7 @@ function NavLinks({ pathname, iconOnly = false, onNavigate }: { pathname: string
 function AccountControls({ name, unread, pathname, iconOnly = false, onNavigate }: { name: string; unread: number; pathname: string; iconOnly?: boolean; onNavigate?: () => void }) {
   const [signingOut, setSigningOut] = useState(false);
   const updatesActive = pathname === "/notifications";
+  const settingsActive = pathname === "/settings";
   const row = `relative flex min-h-11 w-full items-center gap-3 rounded-xl text-sm font-semibold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-black ${iconOnly ? "justify-center px-0" : "px-3"}`;
   return (
     <div className="space-y-0.5">
@@ -69,6 +70,11 @@ function AccountControls({ name, unread, pathname, iconOnly = false, onNavigate 
           {unread > 0 && <span aria-hidden="true" className="absolute -right-2 -top-2 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#feb80a] px-1 text-[10px] font-black leading-none text-black">{unread > 99 ? "99+" : unread}</span>}
         </span>
         {!iconOnly && <span className="flex-1">Updates</span>}
+      </Link>
+      {/* Your own name, email, password and devices (the same Settings page every role has). */}
+      <Link href="/settings" onClick={onNavigate} aria-current={settingsActive ? "page" : undefined} aria-label={iconOnly ? "Settings" : undefined} title={iconOnly ? "Settings" : undefined} className={`${row} ${settingsActive ? "bg-[#fff4c7] text-black" : "text-black/70 hover:bg-black/[0.04] hover:text-black"}`}>
+        <Icon name="settings" className="h-[18px] w-[18px]" />
+        {!iconOnly && <span className="flex-1">Settings</span>}
       </Link>
       {!iconOnly && (
         <div className="flex items-center gap-3 px-3 py-2">

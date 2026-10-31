@@ -13,12 +13,14 @@ export type NavItem = {
 /**
  * Destinations are role-aware so nobody is shown a link that will only send them to /unauthorized.
  * `primary` sits in the navbar; `secondary` lives in the profile menu (desktop) and mobile sheet.
+ * Settings (name, email, password, devices) is for every signed-in role.
  */
 export function navItemsFor(role: NavRole): { primary: NavItem[]; secondary: NavItem[] } {
   const shop: NavItem = { href: "/search", label: "Shop", icon: "shop", match: ["/products"] };
   const printing: NavItem = { href: "/printing", label: "Printing", icon: "printer" };
   const saved: NavItem = { href: "/saved", label: "Saved", icon: "heart" };
   const support: NavItem = { href: "/support", label: "Help & support", icon: "help" };
+  const settings: NavItem = { href: "/settings", label: "Settings", icon: "settings" };
 
   switch (role) {
     case "STUDENT":
@@ -27,13 +29,14 @@ export function navItemsFor(role: NavRole): { primary: NavItem[]; secondary: Nav
         secondary: [
           { href: "/account", label: "Account", icon: "user" },
           { href: "/product-requests", label: "My requests", icon: "requests" },
+          settings,
           support,
         ],
       };
     case "RUNNER":
-      return { primary: [shop, printing, { href: "/runner", label: "Runner hub", icon: "truck" }], secondary: [support] };
+      return { primary: [shop, printing, { href: "/runner", label: "Runner hub", icon: "truck" }], secondary: [settings, support] };
     case "ADMIN":
-      return { primary: [shop, printing, { href: "/admin", label: "Operations", icon: "dashboard" }], secondary: [] };
+      return { primary: [shop, printing, { href: "/admin", label: "Operations", icon: "dashboard" }], secondary: [settings] };
     default:
       return { primary: [shop, printing, saved], secondary: [] };
   }

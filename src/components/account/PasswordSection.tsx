@@ -112,8 +112,10 @@ export function PasswordSection({ email, names, lastChanged, resetAvailable }: P
           noticeRef.current?.focus();
           router.refresh();
         } else {
+          // The password did change, but this browser is signed out too: a fresh login page, so nothing signed-in
+          // is left in this tab's memory.
           leaving = true;
-          window.location.assign(LOG_IN_AGAIN);
+          window.location.replace(LOG_IN_AGAIN);
         }
       } else if (result.code === "WRONG_PASSWORD") {
         showFieldErrors({ current: result.error || "That isn’t your current password. Check it and try again." });

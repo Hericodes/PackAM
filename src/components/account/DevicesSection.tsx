@@ -101,8 +101,9 @@ export function DevicesSection({ email }: { email: string }) {
         try {
           await signOut({ redirectTo: SIGNED_OUT });
         } catch {
-          // Every session has already ended on the server; this only clears this browser's cookie.
-          window.location.assign(SIGNED_OUT);
+          // Every session has already ended on the server; signOut only clears this browser's cookie. Load the login
+          // page afresh anyway, replacing this page in history.
+          window.location.replace(SIGNED_OUT);
         }
       } else if (result.ok) {
         // Every session just ended, this one too: sign back in with the same password to stay signed in here.
@@ -113,8 +114,9 @@ export function DevicesSection({ email }: { email: string }) {
           });
           noticeRef.current?.focus();
         } else {
+          // Signed out here as well now: a fresh login page, so nothing signed-in is left in this tab's memory.
           leaving = true;
-          window.location.assign(LOG_IN_AGAIN);
+          window.location.replace(LOG_IN_AGAIN);
         }
       } else if (result.code === "WRONG_PASSWORD") {
         showError(result.error || "That isn’t your current password. Check it and try again.");
