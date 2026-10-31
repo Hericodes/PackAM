@@ -42,7 +42,8 @@ const asideLinkClass =
  * alert. The password is sent exactly as typed: existing passwords were never trimmed or held to today's rules.
  *
  * Like every auth form it has no method, action or field names, and its button waits for hydration, so a submit
- * before the page has loaded can never put the password in a URL. Each link on the page carries the callbackUrl.
+ * before the page has loaded can never put the password in a URL. The sign-up and password reset links carry the
+ * callbackUrl.
  */
 export function LoginForm({ callbackUrl, notice }: { callbackUrl?: string; notice?: LoginNotice }) {
   const [identifier, setIdentifier] = useState("");
