@@ -2,7 +2,7 @@ import { auth } from "../../../../../auth";
 import { db } from "../../../../../lib/db";
 import { afterResponse } from "../../../../../lib/after-response";
 import { appUrl } from "../../../../../lib/app-url";
-import { isSchemaBehindCode, schemaBehindCodeResponse } from "../../../../../lib/db-errors";
+import { isSchemaBehindCode, accountSchemaBehindResponse } from "../../../../../lib/db-errors";
 import { isEmailConfigured, sendEmail } from "../../../../../lib/email";
 import { verifyEmail } from "../../../../../lib/email/templates";
 import { issueAccountToken } from "../../../../../lib/account/account-tokens";
@@ -68,7 +68,7 @@ export async function POST(request: Request) {
     });
     return Response.json({ status: "sent" });
   } catch (error) {
-    if (isSchemaBehindCode(error)) return schemaBehindCodeResponse(error, "email verification resend");
+    if (isSchemaBehindCode(error)) return accountSchemaBehindResponse(error, "email verification resend");
     console.error("VERIFICATION RESEND ERROR:", error instanceof Error ? error.name : "Unknown error");
     return Response.json({ error: "We couldn’t send a new link. Please try again." }, { status: 500 });
   }

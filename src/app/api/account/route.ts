@@ -2,7 +2,7 @@ import { auth } from "../../../auth";
 import { db } from "../../../lib/db";
 import { findPendingEmailChange } from "../../../lib/account/account-tokens";
 import { AppUrlConfigError, appUrl } from "../../../lib/app-url";
-import { isSchemaBehindCode, schemaBehindCodeResponse } from "../../../lib/db-errors";
+import { isSchemaBehindCode, accountSchemaBehindResponse } from "../../../lib/db-errors";
 import { isEmailConfigured } from "../../../lib/email";
 
 const NO_STORE = { "Cache-Control": "private, no-store" };
@@ -41,7 +41,7 @@ export async function GET() {
       canDelete: user.role === "STUDENT",
     }, { headers: NO_STORE });
   } catch (error) {
-    if (isSchemaBehindCode(error)) return schemaBehindCodeResponse(error, "GET /api/account");
+    if (isSchemaBehindCode(error)) return accountSchemaBehindResponse(error, "GET /api/account");
     console.error("ACCOUNT LOAD ERROR:", error instanceof Error ? error.name : "Unknown error");
     return Response.json({ error: "We couldn’t load your account. Please try again." }, { status: 500, headers: NO_STORE });
   }

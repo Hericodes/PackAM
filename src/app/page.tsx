@@ -76,13 +76,22 @@ function ServiceCard({ service }: { service: Service }) {
   );
 }
 
-export default function HomePage() {
+type HomePageProps = { searchParams: Promise<{ accountDeleted?: string }> };
+
+export default async function HomePage({ searchParams }: HomePageProps) {
+  // Where a deleted account lands after signing out (Settings → Delete account).
+  const accountDeleted = (await searchParams).accountDeleted === "1";
   return (
     <div className="flex min-h-svh flex-col text-black">
       <GatewayHeader />
 
       <main className="packam-container flex flex-1 flex-col justify-center py-10 sm:py-14">
         <div className="mx-auto w-full max-w-2xl">
+          {accountDeleted && (
+            <p role="status" className="mb-6 rounded-2xl bg-[#e9f8ee] px-4 py-3 text-center text-sm font-semibold leading-6 text-[#0f5f2c]">
+              Your PackAM account has been deleted. Thanks for using PackAM.
+            </p>
+          )}
           <div className="text-center">
             <h1 className="text-balance text-[clamp(1.75rem,6vw,2.5rem)] font-black leading-[1.1] tracking-[-0.03em]">Wetin dey sup?</h1>
             <p className="pk-muted mt-2 text-base sm:text-lg">Pick wetin you need — we go handle the waka.</p>

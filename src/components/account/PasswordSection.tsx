@@ -11,7 +11,7 @@ import { SubmitButton } from "../auth/SubmitButton";
 import { SettingsNotice, type Notice } from "./SettingsNotice";
 import { SettingsSection } from "./SettingsSection";
 import { accountRequest, problemMessage } from "./account-requests";
-import { LOG_IN_AGAIN, signInAgain } from "./sign-in-again";
+import { LOG_IN_WITH_NEW_PASSWORD, signInAgain } from "./sign-in-again";
 
 type FieldErrors = { current?: string; next?: string; confirm?: string };
 
@@ -115,7 +115,7 @@ export function PasswordSection({ email, names, lastChanged, resetAvailable }: P
           // The password did change, but this browser is signed out too: a fresh login page, so nothing signed-in
           // is left in this tab's memory.
           leaving = true;
-          window.location.replace(LOG_IN_AGAIN);
+          window.location.replace(LOG_IN_WITH_NEW_PASSWORD);
         }
       } else if (result.code === "WRONG_PASSWORD") {
         showFieldErrors({ current: result.error || "That isn’t your current password. Check it and try again." });
@@ -204,7 +204,7 @@ export function PasswordSection({ email, names, lastChanged, resetAvailable }: P
           <p className="text-sm leading-6 text-black/70">
             {lastChanged ? <>Last changed on <span className="font-bold text-black">{lastChanged}</span>.</> : "Use a strong password that you don’t use anywhere else."}
           </p>
-          <button ref={openButtonRef} type="button" onClick={openForm} className="pk-btn pk-btn-secondary shrink-0">Change password</button>
+          <button ref={openButtonRef} type="button" onClick={openForm} className="pk-btn pk-btn-secondary shrink-0 self-start sm:self-auto">Change password</button>
         </div>
       )}
     </SettingsSection>

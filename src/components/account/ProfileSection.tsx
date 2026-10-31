@@ -60,9 +60,12 @@ export function ProfileSection({ firstName, lastName, email, phone, role, member
     (next.firstName ? firstRef : lastRef).current?.focus();
   }
 
-  /** Renders the message now, then moves focus to it so it's read out. */
-  function showNotice(next: Notice) {
-    flushSync(() => setNotice(next));
+  /** Renders the message (and any other change) now, then moves focus to it so it's read out. */
+  function showNotice(next: Notice, update?: () => void) {
+    flushSync(() => {
+      update?.();
+      setNotice(next);
+    });
     noticeRef.current?.focus();
   }
 
@@ -81,9 +84,10 @@ export function ProfileSection({ firstName, lastName, email, phone, role, member
     const body = { firstName: normaliseName(first), lastName: normaliseName(last) };
     setErrors({});
     if (body.firstName === saved.firstName && body.lastName === saved.lastName) {
-      setFirst(body.firstName);
-      setLast(body.lastName);
-      showNotice({ tone: "info", message: "That’s already your name, so there was nothing to save." });
+      showNotice({ tone: "info", message: "That’s already your name, so there was nothing to save." }, () => {
+        setFirst(body.firstName);
+        setLast(body.lastName);
+      });
       return;
     }
 
@@ -96,10 +100,11 @@ export function ProfileSection({ firstName, lastName, email, phone, role, member
           firstName: typeof result.data.firstName === "string" ? result.data.firstName : body.firstName,
           lastName: typeof result.data.lastName === "string" ? result.data.lastName : body.lastName,
         };
-        setSaved(stored);
-        setFirst(stored.firstName);
-        setLast(stored.lastName);
-        showNotice({ tone: "success", message: "Saved. PackAM shows your new name from now on." });
+        showNotice({ tone: "success", message: "Saved. PackAM shows your new name from now on." }, () => {
+          setSaved(stored);
+          setFirst(stored.firstName);
+          setLast(stored.lastName);
+        });
         // Server-rendered pages and headers read the name fresh; this keeps this page's data in step too.
         router.refresh();
       } else if (result.code === "INVALID_NAME" && (result.fields.firstName || result.fields.lastName)) {

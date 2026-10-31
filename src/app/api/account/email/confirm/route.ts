@@ -4,7 +4,7 @@ import { auth } from "../../../../../auth";
 import { db } from "../../../../../lib/db";
 import { writeAuditLog } from "../../../../../lib/audit";
 import { afterResponse } from "../../../../../lib/after-response";
-import { isSchemaBehindCode, schemaBehindCodeResponse } from "../../../../../lib/db-errors";
+import { isSchemaBehindCode, accountSchemaBehindResponse } from "../../../../../lib/db-errors";
 import { sendEmail } from "../../../../../lib/email";
 import { emailChangedNotice } from "../../../../../lib/email/templates";
 import { consumeAccountToken, revokeAccountTokens } from "../../../../../lib/account/account-tokens";
@@ -38,7 +38,7 @@ export async function GET(request: Request) {
     const session = await auth();
     return redirectTo(session?.user?.id === outcome.userId ? "/settings?email=changed" : "/login?emailChanged=1");
   } catch (error) {
-    if (isSchemaBehindCode(error)) return schemaBehindCodeResponse(error, "GET /api/account/email/confirm");
+    if (isSchemaBehindCode(error)) return accountSchemaBehindResponse(error, "GET /api/account/email/confirm");
     console.error("EMAIL CHANGE CONFIRM ERROR:", error instanceof Error ? error.name : "Unknown error");
     // Nothing was changed and the link wasn't used up, so opening it again can still work.
     return Response.json({ error: "We couldn’t confirm your new email just now. Please open the link again in a few minutes." }, { status: 500, headers: LINK_HEADERS });

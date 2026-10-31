@@ -4,7 +4,7 @@ import { auth } from "../../../../auth";
 import { db } from "../../../../lib/db";
 import { writeAuditLog } from "../../../../lib/audit";
 import { afterResponse } from "../../../../lib/after-response";
-import { isSchemaBehindCode, schemaBehindCodeResponse } from "../../../../lib/db-errors";
+import { isSchemaBehindCode, accountSchemaBehindResponse } from "../../../../lib/db-errors";
 import { sendEmail } from "../../../../lib/email";
 import { passwordChangedNotice } from "../../../../lib/email/templates";
 import { revokeAccountTokens } from "../../../../lib/account/account-tokens";
@@ -74,7 +74,7 @@ export async function POST(request: Request) {
     });
     return Response.json({ ok: true, reauth: true });
   } catch (error) {
-    if (isSchemaBehindCode(error)) return schemaBehindCodeResponse(error, "POST /api/account/password");
+    if (isSchemaBehindCode(error)) return accountSchemaBehindResponse(error, "POST /api/account/password");
     console.error("ACCOUNT PASSWORD ERROR:", error instanceof Error ? error.name : "Unknown error");
     return Response.json({ error: "We couldn’t change your password. Nothing has changed. Please try again." }, { status: 500 });
   }

@@ -5,6 +5,8 @@ import { signIn } from "next-auth/react";
  * Back to Settings after logging in (resolvePostLoginDestination allows /settings for every role).
  */
 export const LOG_IN_AGAIN = "/login?signedOut=1&callbackUrl=%2Fsettings";
+/** The same after a password change: /login's ?reset=done banner says the password changed and every device was signed out. */
+export const LOG_IN_WITH_NEW_PASSWORD = "/login?reset=done&callbackUrl=%2Fsettings";
 
 /**
  * Signs this browser straight back in after the account's sessions were ended on the server (a password change,

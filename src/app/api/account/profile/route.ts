@@ -1,7 +1,7 @@
 import { auth } from "../../../../auth";
 import { db } from "../../../../lib/db";
 import { writeAuditLog } from "../../../../lib/audit";
-import { isSchemaBehindCode, schemaBehindCodeResponse } from "../../../../lib/db-errors";
+import { isSchemaBehindCode, accountSchemaBehindResponse } from "../../../../lib/db-errors";
 import { nameProblem, normaliseName } from "../../../../lib/account/validation";
 import { rejectCrossSite, requireJson } from "../../../../lib/request-guards";
 
@@ -41,7 +41,7 @@ export async function PATCH(request: Request) {
     if (!saved) return signInRequired();
     return Response.json({ firstName, lastName });
   } catch (error) {
-    if (isSchemaBehindCode(error)) return schemaBehindCodeResponse(error, "PATCH /api/account/profile");
+    if (isSchemaBehindCode(error)) return accountSchemaBehindResponse(error, "PATCH /api/account/profile");
     console.error("ACCOUNT PROFILE ERROR:", error instanceof Error ? error.name : "Unknown error");
     return Response.json({ error: "We couldn’t save your name. Nothing has changed. Please try again." }, { status: 500 });
   }

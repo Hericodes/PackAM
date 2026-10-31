@@ -5,7 +5,7 @@ import { db } from "../../../../lib/db";
 import { writeAuditLog } from "../../../../lib/audit";
 import { afterResponse } from "../../../../lib/after-response";
 import { AppUrlConfigError, appUrl } from "../../../../lib/app-url";
-import { isSchemaBehindCode, schemaBehindCodeResponse } from "../../../../lib/db-errors";
+import { isSchemaBehindCode, accountSchemaBehindResponse } from "../../../../lib/db-errors";
 import { isEmailConfigured, sendEmail } from "../../../../lib/email";
 import { confirmEmailChange, emailChangeRequestedNotice } from "../../../../lib/email/templates";
 import { TOKEN_TTL_MS, findPendingEmailChange, issueAccountToken, revokeAccountTokens } from "../../../../lib/account/account-tokens";
@@ -72,7 +72,7 @@ export async function POST(request: Request) {
     });
     return Response.json({ pendingEmail: newEmail, pendingEmailExpiresAt: new Date(now.getTime() + TOKEN_TTL_MS.EMAIL_CHANGE), status: "sent" });
   } catch (error) {
-    if (isSchemaBehindCode(error)) return schemaBehindCodeResponse(error, "POST /api/account/email");
+    if (isSchemaBehindCode(error)) return accountSchemaBehindResponse(error, "POST /api/account/email");
     console.error("ACCOUNT EMAIL CHANGE ERROR:", error instanceof Error ? error.name : "Unknown error");
     return Response.json({ error: "We couldn’t start your email change. Nothing has changed. Please try again." }, { status: 500 });
   }
@@ -98,7 +98,7 @@ export async function DELETE(request: Request) {
     if (cancelled === null) return signInRequired();
     return Response.json({ ok: true, cancelled });
   } catch (error) {
-    if (isSchemaBehindCode(error)) return schemaBehindCodeResponse(error, "DELETE /api/account/email");
+    if (isSchemaBehindCode(error)) return accountSchemaBehindResponse(error, "DELETE /api/account/email");
     console.error("ACCOUNT EMAIL CANCEL ERROR:", error instanceof Error ? error.name : "Unknown error");
     return Response.json({ error: "We couldn’t cancel your email change. Please try again." }, { status: 500 });
   }

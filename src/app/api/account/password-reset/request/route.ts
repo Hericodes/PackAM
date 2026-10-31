@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { db } from "../../../../../lib/db";
 import { afterResponse } from "../../../../../lib/after-response";
 import { appUrl } from "../../../../../lib/app-url";
-import { isSchemaBehindCode, schemaBehindCodeResponse } from "../../../../../lib/db-errors";
+import { isSchemaBehindCode, accountSchemaBehindResponse } from "../../../../../lib/db-errors";
 import { isEmailConfigured, sendEmail } from "../../../../../lib/email";
 import { resetPassword } from "../../../../../lib/email/templates";
 import { issueAccountToken } from "../../../../../lib/account/account-tokens";
@@ -68,7 +68,7 @@ export async function POST(request: Request) {
     }
     return Response.json({ ok: true });
   } catch (error) {
-    if (isSchemaBehindCode(error)) return schemaBehindCodeResponse(error, "password reset request");
+    if (isSchemaBehindCode(error)) return accountSchemaBehindResponse(error, "password reset request");
     console.error("PASSWORD RESET REQUEST ERROR:", error instanceof Error ? error.name : "Unknown error");
     return Response.json({ error: "Something went wrong. Please try again." }, { status: 500 });
   }

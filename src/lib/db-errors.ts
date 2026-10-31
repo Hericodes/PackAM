@@ -58,10 +58,15 @@ export function missingSchemaElement(error: unknown) {
  * fix, answered with a safe 503 the browser can show ("try again shortly"). Nothing about the database
  * reaches the browser, and nothing is changed or discarded.
  */
-export function schemaBehindCodeResponse(error: unknown, where: string) {
+export function schemaBehindCodeResponse(error: unknown, where: string, message = "PackAM is being updated. Your cart is safe — please try again in a few minutes.") {
   console.error(`SCHEMA BEHIND CODE in ${where}: the database is missing ${missingSchemaElement(error)}. Apply the pending Prisma migrations (npx prisma migrate deploy) to this database.`);
   return Response.json(
-    { error: "PackAM is being updated. Your cart is safe — please try again in a few minutes.", code: "SERVICE_UPDATING" },
+    { error: message, code: "SERVICE_UPDATING" },
     { status: 503, headers: { "Retry-After": "120" } },
   );
+}
+
+/** The same 503 for account and sign-up routes, without the shopping wording. */
+export function accountSchemaBehindResponse(error: unknown, where: string) {
+  return schemaBehindCodeResponse(error, where, "PackAM is being updated. Please try again in a few minutes.");
 }

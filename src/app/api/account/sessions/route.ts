@@ -3,7 +3,7 @@ import bcrypt from "bcryptjs";
 import { auth } from "../../../../auth";
 import { db } from "../../../../lib/db";
 import { writeAuditLog } from "../../../../lib/audit";
-import { isSchemaBehindCode, schemaBehindCodeResponse } from "../../../../lib/db-errors";
+import { isSchemaBehindCode, accountSchemaBehindResponse } from "../../../../lib/db-errors";
 import { consumeRateLimit } from "../../../../lib/rate-limit";
 import { rejectCrossSite, requireJson } from "../../../../lib/request-guards";
 
@@ -51,7 +51,7 @@ export async function POST(request: Request) {
     if (!revoked) return signInRequired();
     return Response.json({ ok: true, reauth: action === "others" });
   } catch (error) {
-    if (isSchemaBehindCode(error)) return schemaBehindCodeResponse(error, "POST /api/account/sessions");
+    if (isSchemaBehindCode(error)) return accountSchemaBehindResponse(error, "POST /api/account/sessions");
     console.error("ACCOUNT SESSIONS ERROR:", error instanceof Error ? error.name : "Unknown error");
     return Response.json({ error: "We couldn’t sign out your devices. Nothing has changed. Please try again." }, { status: 500 });
   }

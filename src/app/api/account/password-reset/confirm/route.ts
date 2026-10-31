@@ -3,7 +3,7 @@ import bcrypt from "bcryptjs";
 import { db } from "../../../../../lib/db";
 import { afterResponse } from "../../../../../lib/after-response";
 import { writeAuditLog } from "../../../../../lib/audit";
-import { isSchemaBehindCode, schemaBehindCodeResponse } from "../../../../../lib/db-errors";
+import { isSchemaBehindCode, accountSchemaBehindResponse } from "../../../../../lib/db-errors";
 import { sendEmail } from "../../../../../lib/email";
 import { passwordChangedNotice } from "../../../../../lib/email/templates";
 import { consumeAccountToken, peekAccountToken, revokeAccountTokens, type AccountTokenFailure } from "../../../../../lib/account/account-tokens";
@@ -102,7 +102,7 @@ export async function POST(request: Request) {
     return Response.json({ ok: true });
   } catch (error) {
     if (error instanceof ResetRefusedError) return linkProblem("invalid");
-    if (isSchemaBehindCode(error)) return schemaBehindCodeResponse(error, "password reset");
+    if (isSchemaBehindCode(error)) return accountSchemaBehindResponse(error, "password reset");
     console.error("PASSWORD RESET ERROR:", error instanceof Error ? error.name : "Unknown error");
     return Response.json({ error: "We couldn’t save your new password. Please try again." }, { status: 500 });
   }

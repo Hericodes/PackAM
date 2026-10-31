@@ -3,7 +3,7 @@ import bcrypt from "bcryptjs";
 import { auth } from "../../../../auth";
 import { db } from "../../../../lib/db";
 import { afterResponse } from "../../../../lib/after-response";
-import { isSchemaBehindCode, schemaBehindCodeResponse } from "../../../../lib/db-errors";
+import { isSchemaBehindCode, accountSchemaBehindResponse } from "../../../../lib/db-errors";
 import { sendEmail } from "../../../../lib/email";
 import { accountDeletedNotice } from "../../../../lib/email/templates";
 import { deleteAccount, findDeletionBlockers, removeDeletedAccountDocuments } from "../../../../lib/account/deletion";
@@ -25,7 +25,7 @@ export async function GET() {
     if (user.role !== "STUDENT") return studentsOnly();
     return Response.json({ blockers: await findDeletionBlockers(db, user.id) }, { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) {
-    if (isSchemaBehindCode(error)) return schemaBehindCodeResponse(error, "GET /api/account/delete");
+    if (isSchemaBehindCode(error)) return accountSchemaBehindResponse(error, "GET /api/account/delete");
     console.error("ACCOUNT DELETE CHECK ERROR:", error instanceof Error ? error.name : "Unknown error");
     return Response.json({ error: "We couldn’t check your account right now. Please try again." }, { status: 500 });
   }
@@ -74,7 +74,7 @@ export async function POST(request: Request) {
     });
     return Response.json({ ok: true });
   } catch (error) {
-    if (isSchemaBehindCode(error)) return schemaBehindCodeResponse(error, "POST /api/account/delete");
+    if (isSchemaBehindCode(error)) return accountSchemaBehindResponse(error, "POST /api/account/delete");
     console.error("ACCOUNT DELETE ERROR:", error instanceof Error ? error.name : "Unknown error");
     return Response.json({ error: "We couldn’t delete your account. Nothing has changed. Please try again." }, { status: 500 });
   }

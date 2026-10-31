@@ -1,10 +1,11 @@
 import bcrypt from "bcryptjs";
+import { randomBytes } from "node:crypto";
 import { Prisma } from "@prisma/client";
 
 import { db } from "../../../lib/db";
 import { afterResponse } from "../../../lib/after-response";
 import { appUrl } from "../../../lib/app-url";
-import { isSchemaBehindCode, missingSchemaElement, schemaBehindCodeResponse } from "../../../lib/db-errors";
+import { isSchemaBehindCode, missingSchemaElement, accountSchemaBehindResponse } from "../../../lib/db-errors";
 import { isEmailConfigured, sendEmail } from "../../../lib/email";
 import { verifyEmail } from "../../../lib/email/templates";
 import { issueAccountToken } from "../../../lib/account/account-tokens";
@@ -68,37 +69,11 @@ export async function POST(request: Request) {
     const passwordHash = await bcrypt.hash(password, 12);
     let userId: string;
     try {
-      userId = await db.$transaction(async (transaction) => {
-        const user = await transaction.user.create({
-          data: {
-            firstName,
-            lastName,
-            email,
-            phone,
-            passwordHash,
-
-            // Registration is always for students.
-            // Users cannot choose their own role.
-            role: "STUDENT",
-
-            status: "ACTIVE",
-
-            studentProfile: {
-              create: {},
-            },
-
-            carts: {
-              create: {},
-            },
-          },
-          select: { id: true },
-        });
-        return user.id;
-      });
+      userId = await createStudent({ firstName, lastName, email, phone, passwordHash });
     } catch (error) {
       // Another sign-up took the email or phone between the check above and this insert (two taps, two tabs):
       // nothing was created, so answer the way the check would have.
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      if (isUniqueViolation(error)) {
         const conflict = await alreadyTaken(email, phone);
         if (conflict) return conflict;
       }
@@ -108,10 +83,64 @@ export async function POST(request: Request) {
     const verificationEmail = await sendConfirmationLink({ id: userId, email, firstName });
     return Response.json({ success: true, message: "Your PackAM account has been created.", verificationEmail }, { status: 201 });
   } catch (error) {
-    if (isSchemaBehindCode(error)) return schemaBehindCodeResponse(error, "registration");
+    if (isSchemaBehindCode(error)) return accountSchemaBehindResponse(error, "registration");
     console.error("REGISTRATION ERROR:", error instanceof Error ? error.name : "Unknown error");
     return failure(500, "Something went wrong while creating your account. Please try again.");
   }
+}
+
+type NewStudent = { firstName: string; lastName: string; email: string; phone: string; passwordHash: string };
+
+/** The account, its student profile and its cart, together or not at all. Returns the new user's id. */
+async function createStudent(account: NewStudent) {
+  try {
+    return await db.$transaction(async (transaction) => {
+      const user = await transaction.user.create({
+        data: {
+          ...account,
+          // Registration is always for students; nobody chooses their own role.
+          role: "STUDENT",
+          status: "ACTIVE",
+          studentProfile: { create: {} },
+          carts: { create: {} },
+        },
+        select: { id: true },
+      });
+      return user.id;
+    });
+  } catch (error) {
+    if (!isSchemaBehindCode(error)) throw error;
+    // The code is live before its migration (the new User columns don't exist yet). Prisma names every column in an
+    // insert, so a plain create can't work: make the same three rows with only the original columns, so sign-up
+    // never stops because of the deploy order. Everything else about the account fills in once the migration runs.
+    console.error(`SCHEMA BEHIND CODE in registration: the database is missing ${missingSchemaElement(error)}. Creating the account with the original columns until the pending Prisma migrations are applied.`);
+    return createStudentWithOriginalColumns(account);
+  }
+}
+
+/** cuid-shaped ids (the format the rest of PackAM expects), for rows created outside Prisma. */
+function newRowId() {
+  return `c${Date.now().toString(36)}${randomBytes(10).toString("hex")}`;
+}
+
+async function createStudentWithOriginalColumns(account: NewStudent) {
+  const userId = newRowId();
+  // Prisma keeps timestamps in UTC; now() alone would follow the database session's time zone.
+  await db.$transaction([
+    db.$executeRaw`INSERT INTO "User" ("id", "email", "phone", "passwordHash", "role", "status", "firstName", "lastName", "createdAt", "updatedAt")
+      VALUES (${userId}, ${account.email}, ${account.phone}, ${account.passwordHash}, 'STUDENT'::"UserRole", 'ACTIVE'::"UserStatus", ${account.firstName}, ${account.lastName}, (now() AT TIME ZONE 'UTC'), (now() AT TIME ZONE 'UTC'))`,
+    db.$executeRaw`INSERT INTO "StudentProfile" ("id", "userId", "createdAt", "updatedAt") VALUES (${newRowId()}, ${userId}, (now() AT TIME ZONE 'UTC'), (now() AT TIME ZONE 'UTC'))`,
+    db.$executeRaw`INSERT INTO "Cart" ("id", "userId", "createdAt", "updatedAt") VALUES (${newRowId()}, ${userId}, (now() AT TIME ZONE 'UTC'), (now() AT TIME ZONE 'UTC'))`,
+  ]);
+  return userId;
+}
+
+/** A unique email/phone clash, from a Prisma create (P2002) or a raw insert (Postgres 23505). */
+function isUniqueViolation(error: unknown) {
+  if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") return true;
+  if (!error || typeof error !== "object") return false;
+  const details = `${(error as { message?: unknown }).message ?? ""} ${JSON.stringify((error as { meta?: unknown }).meta ?? null)}`;
+  return /23505|unique constraint/i.test(details);
 }
 
 /** The problem with each field, in the form's order, in the form's words; empty when everything can be used. */
