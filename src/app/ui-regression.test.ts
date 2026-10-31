@@ -28,7 +28,9 @@ test("admin data tables stack into labelled cards on phones: every cell has a la
       for (const cell of cells) assert.match(cell, /data-label="[^"]+"/, `${path}: ${cell.slice(0, 60)}`);
     }
   }
-  assert.match(source("./admin/layout.tsx"), /className="pk-ops-main"/, "admin pages get phone-friendly wrapping and tap targets");
+  // The admin layout renders every page inside AdminShell, which applies the wrapper.
+  assert.match(source("./admin/layout.tsx"), /<AdminShell /, "admin pages use the admin shell");
+  assert.match(source("../components/admin/AdminShell.tsx"), /className="pk-ops-main"/, "admin pages get phone-friendly wrapping and tap targets");
 });
 
 test("PackAM is always light: the page declares it, and nothing reacts to a dark device setting", async () => {

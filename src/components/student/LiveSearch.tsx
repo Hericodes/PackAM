@@ -12,7 +12,7 @@ type Scope = { category: string; sub: string; label: string };
 
 type Item = ProductCardData;
 
-const SEARCH_ERROR = "Search no dey work right now. Try again in a moment.";
+const SEARCH_ERROR = "you nno fit search right now. Try again in a moment.";
 
 async function fetchPage(query: string, scope: Scope, page: number, signal: AbortSignal): Promise<MarketplacePage<Item>> {
   const params = new URLSearchParams();

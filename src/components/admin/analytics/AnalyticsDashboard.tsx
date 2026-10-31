@@ -11,6 +11,7 @@ function query(selection: Selection) {
   return "range" in selection ? `range=${selection.range}` : `from=${selection.from}&to=${selection.to}`;
 }
 const fullDate = (iso: string) => new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "Africa/Lagos" });
+const count = (n: number, one: string, many: string) => `${compact(n)} ${n === 1 ? one : many}`;
 const shortDay = (day: string) => new Date(`${day}T00:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
 
 function Delta({ value, goodWhenUp = true }: { value: number | null | undefined; goodWhenUp?: boolean }) {
@@ -25,11 +26,12 @@ function Delta({ value, goodWhenUp = true }: { value: number | null | undefined;
   );
 }
 
-function Tile({ label, value, hint, delta, goodWhenUp }: { label: string; value: string; hint?: string; delta?: number | null; goodWhenUp?: boolean }) {
+function Tile({ label, value, hint, delta, goodWhenUp, className = "" }: { label: string; value: string; hint?: string; delta?: number | null; goodWhenUp?: boolean; className?: string }) {
   return (
-    <section className="min-w-0 rounded-2xl bg-white p-4">
+    <section className={`min-w-0 rounded-2xl bg-white p-4 ${className}`}>
       <h3 className="text-xs font-bold text-black/55">{label}</h3>
-      <p className="mt-1 break-words text-2xl font-black leading-tight sm:text-3xl">{value}</p>
+      {/* Numbers never break mid-way (the admin area otherwise wraps anywhere, for long reference ids). */}
+      <p className="mt-1 text-2xl font-black leading-tight [overflow-wrap:normal] sm:text-3xl">{value}</p>
       <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5">
         <Delta value={delta} goodWhenUp={goodWhenUp} />
         {hint && <span className="text-[0.6875rem] leading-4 text-black/50">{hint}</span>}
@@ -137,9 +139,10 @@ export function AnalyticsDashboard({ initial, today }: { initial: Selection; tod
           </p>
 
           <h2 className="mt-6 text-lg font-black">Overview</h2>
-          <div className="mt-3 grid grid-cols-1 gap-3 min-[380px]:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+          {/* Two columns on any phone (values are compact, so they fit); one only on very narrow screens. */}
+          <div className="mt-3 grid grid-cols-1 gap-3 min-[340px]:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
             <Tile label="Unique visitors" value={visitorValue(s.visitors)} delta={c.visitors} hint={tracked ? `${compact(s.returningVisitors)} returning` : "Not recorded"} />
-            <Tile label="Total visits (page views)" value={visitorValue(s.pageViews)} delta={c.pageViews} hint={tracked ? `${compact(s.sessions)} sessions` : "Not recorded"} />
+            <Tile label="Total visits (page views)" value={visitorValue(s.pageViews)} delta={c.pageViews} hint={tracked ? count(s.sessions, "session", "sessions") : "Not recorded"} />
             <Tile label="New customers" value={compact(s.newUsers)} delta={c.newUsers} hint="Student sign-ups" />
             <Tile label="Total customers" value={compact(s.totalUsers)} hint="All students by the end of the period" />
             <Tile label="Marketplace orders" value={compact(s.orders.total)} delta={c.orders} hint="Food and shop orders" />
@@ -151,17 +154,18 @@ export function AnalyticsDashboard({ initial, today }: { initial: Selection; tod
             <Tile label="Completed print jobs" value={compact(s.printJobs.completed)} hint="Delivered" />
           </div>
 
-          <div className="mt-3 grid grid-cols-1 gap-3 min-[380px]:grid-cols-3">
-            <Tile label="Average order value" value={s.averageOrderValue === null ? "—" : naira(s.averageOrderValue)} hint="Paid marketplace orders" />
+          {/* Phones: order value across the top, the two rates side by side; one row of three from tablet width. */}
+          <div className="mt-3 grid grid-cols-1 gap-3 min-[340px]:grid-cols-2 sm:grid-cols-3">
+            <Tile label="Average order value" value={s.averageOrderValue === null ? "—" : naira(s.averageOrderValue, true)} hint="Paid marketplace orders" className="min-[340px]:col-span-2 sm:col-span-1" />
             <Tile label="Completion rate" value={s.completionRate === null ? "—" : `${s.completionRate}%`} hint="Delivered ÷ paid" />
             <Tile label="Cancellation rate" value={s.cancellationRate === null ? "—" : `${s.cancellationRate}%`} hint="Cancelled or refunded ÷ paid" />
           </div>
 
           <h2 className="mt-8 text-lg font-black">Over time</h2>
           <div className="mt-3 grid gap-3 lg:grid-cols-2">
-            <TrendChart title={`Visitors per ${data.range.bucket}`} points={data.series.visitors} format={(v) => `${v.toLocaleString("en-NG")} visitors`} emptyNote={tracked ? "No visits in this period." : "No visitor data for this period."} />
-            <TrendChart title={`New customers per ${data.range.bucket}`} points={data.series.signups} format={(v) => `${v.toLocaleString("en-NG")} sign-ups`} />
-            <TrendChart title={`Paid orders per ${data.range.bucket}`} points={data.series.orders} format={(v) => `${v.toLocaleString("en-NG")} orders`} />
+            <TrendChart title={`Visitors per ${data.range.bucket}`} points={data.series.visitors} format={(v) => `${v.toLocaleString("en-NG")} ${v === 1 ? "visitor" : "visitors"}`} emptyNote={tracked ? "No visits in this period." : "No visitor data for this period."} />
+            <TrendChart title={`New customers per ${data.range.bucket}`} points={data.series.signups} format={(v) => `${v.toLocaleString("en-NG")} ${v === 1 ? "sign-up" : "sign-ups"}`} />
+            <TrendChart title={`Paid orders per ${data.range.bucket}`} points={data.series.orders} format={(v) => `${v.toLocaleString("en-NG")} ${v === 1 ? "order" : "orders"}`} />
             <TrendChart title={`Payments received per ${data.range.bucket}`} points={data.series.revenue} format={(v) => naira(v)} axis={(v) => naira(v, true)} />
           </div>
 
@@ -180,11 +184,11 @@ export function AnalyticsDashboard({ initial, today }: { initial: Selection; tod
               {data.funnel.visitors === null && <p className="mt-3 text-xs text-black/50">Visitors aren’t shown: there’s no visitor data for this period.</p>}
             </Panel>
             <Panel title="Where visits start" note="The first page of each visit, and the sites that sent visitors.">
-              {data.landingPages.length ? <BarList format={(v) => `${compact(v)} visits`} rows={data.landingPages.map((row) => ({ label: row.path, value: row.sessions }))} /> : <p className="text-sm text-black/50">{tracked ? "No visits in this period." : "No visitor data for this period."}</p>}
+              {data.landingPages.length ? <BarList format={(v) => count(v, "visit", "visits")} rows={data.landingPages.map((row) => ({ label: row.path, value: row.sessions }))} /> : <p className="text-sm text-black/50">{tracked ? "No visits in this period." : "No visitor data for this period."}</p>}
               {data.referrers.length > 0 && (
                 <div className="mt-5 border-t border-black/5 pt-4">
                   <h4 className="text-xs font-bold text-black/55">Referring sites</h4>
-                  <div className="mt-3"><BarList format={(v) => `${compact(v)} visits`} rows={data.referrers.map((row) => ({ label: row.host, value: row.sessions }))} /></div>
+                  <div className="mt-3"><BarList format={(v) => count(v, "visit", "visits")} rows={data.referrers.map((row) => ({ label: row.host, value: row.sessions }))} /></div>
                 </div>
               )}
             </Panel>
@@ -196,7 +200,7 @@ export function AnalyticsDashboard({ initial, today }: { initial: Selection; tod
               {data.topProducts.length ? <BarList format={(v) => `${compact(v)} sold`} rows={data.topProducts.map((p) => ({ label: p.name, value: p.units, note: naira(p.revenue, true) }))} /> : <p className="text-sm text-black/50">No sales in this period.</p>}
             </Panel>
             <Panel title="Most ordered categories" note="Orders containing each category (a product’s current category).">
-              {data.topCategories.length ? <BarList format={(v) => `${compact(v)} orders`} rows={data.topCategories.map((cat) => ({ label: cat.name, value: cat.orders, note: naira(cat.revenue, true) }))} /> : <p className="text-sm text-black/50">No sales in this period.</p>}
+              {data.topCategories.length ? <BarList format={(v) => count(v, "order", "orders")} rows={data.topCategories.map((cat) => ({ label: cat.name, value: cat.orders, note: naira(cat.revenue, true) }))} /> : <p className="text-sm text-black/50">No sales in this period.</p>}
             </Panel>
           </div>
 
