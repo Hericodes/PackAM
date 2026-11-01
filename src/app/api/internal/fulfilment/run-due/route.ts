@@ -1,3 +1,5 @@
+import { runAccountHousekeeping } from "../../../../../lib/account/housekeeping";
+import { afterResponse } from "../../../../../lib/after-response";
 import { cronSecretConfigured, isAuthorizedCronRequest } from "../../../../../lib/cron-auth";
 import { expireUnclaimedRunnerOrders } from "../../../../../lib/orders/scheduled-work";
 import { expireUnclaimedPrintJobs } from "../../../../../lib/printing/fulfilment-recovery";
@@ -22,6 +24,11 @@ async function run(request: Request) {
   // One run at a time: a second call within the lease is skipped, not queued (the next schedule picks up).
   const lease = await consumeRateLimit("fulfilment-run-due", 1, 60_000);
   if (!lease.allowed) return Response.json({ skipped: true, reason: "Another dispatch run started within the last minute." });
+  // Account clean-up runs after the response, whatever dispatch does: it can't delay the scheduler or change this
+  // run's status, and it never throws.
+  await afterResponse(async () => {
+    await runAccountHousekeeping();
+  });
   try {
     const orders = await expireUnclaimedRunnerOrders();
     const printJobs = await expireUnclaimedPrintJobs();

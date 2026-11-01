@@ -10,8 +10,11 @@ import { isEmailChangeStatus, type EmailChangeStatus } from "./account-requests"
 
 export type ConfirmEmailOutcome = EmailChangeStatus | "missing" | "unavailable";
 
-/** Who is looking: signed in (to any account) or not, and where their role's home is. */
-export type ConfirmEmailViewer = { signedIn: boolean; home: string };
+/**
+ * Who is looking: signed in (to any account) or not, and where their role's home is. `otherAccount`: signed in to an
+ * account other than the one the link is for, so nothing here may call the link's account "your account".
+ */
+export type ConfirmEmailViewer = { signedIn: boolean; home: string; otherAccount?: boolean };
 
 type Copy = { tone: "success" | "error" | "info"; title: string; message: string };
 
@@ -21,10 +24,20 @@ export function confirmEmailAnswer(data: unknown): EmailChangeStatus | "error" {
   return isEmailChangeStatus(status) ? status : "error";
 }
 
-/** The heading and message for each outcome. `maskedEmail` (maskEmail) names the new address once it's in use. */
-export function confirmEmailCopy(outcome: ConfirmEmailOutcome, maskedEmail?: string): Copy {
+/**
+ * The heading and message for each outcome. `maskedEmail` (maskEmail) names the new address once it's in use;
+ * `otherAccount` is true when the viewer is signed in to a different account from the link's.
+ */
+export function confirmEmailCopy(outcome: ConfirmEmailOutcome, maskedEmail?: string, otherAccount = false): Copy {
   switch (outcome) {
     case "changed":
+      if (otherAccount) {
+        return {
+          tone: "success",
+          title: "Email changed",
+          message: `The PackAM account this link was for now uses ${maskedEmail || "the new email"}, and it’s verified. That isn’t the account you’re signed in to.`,
+        };
+      }
       return {
         tone: "success",
         title: "Email changed",

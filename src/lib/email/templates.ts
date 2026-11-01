@@ -28,6 +28,14 @@ export function escapeHtml(value: string): string {
   return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
+/**
+ * The name to greet someone by: only once their address is confirmed. Until then the name is whatever the account
+ * typed, and the address may not even be theirs, so emails open with "Hi there," instead of account-chosen text.
+ */
+export function confirmedName(account: { firstName: string | null; emailVerifiedAt: Date | null }) {
+  return account.emailVerifiedAt ? account.firstName : null;
+}
+
 export function verifyEmail(name: string | null | undefined, link: string): EmailContent {
   return compose({
     subject: "Confirm your email for PackAM",
@@ -72,14 +80,20 @@ export function confirmEmailChange(name: string | null | undefined, link: string
 }
 
 /** Sent to the OLD address when a change is requested. Pass the new address already masked (maskEmail). */
-export function emailChangeRequestedNotice(name: string | null | undefined, newEmailMasked: string): EmailContent {
+/**
+ * To the account's current address. `newEmailMasked` names the new address (maskEmail) only when the current address
+ * is confirmed: otherwise the account typed both addresses, and its owner may not be the person reading this inbox, so
+ * the email says "a different address" rather than carry text (a domain) the account chose.
+ */
+export function emailChangeRequestedNotice(name: string | null | undefined, newEmailMasked: string | null): EmailContent {
+  const to = newEmailMasked ? oneLine(newEmailMasked) : "a different address";
   return compose({
     subject: "Your PackAM email is about to change",
     preview: "Someone asked to change the email on your PackAM account.",
     heading: "Email change requested",
     name,
     blocks: [
-      { kind: "paragraph", text: `Someone asked to change the email on your PackAM account to ${oneLine(newEmailMasked)}. Nothing changes unless that address is confirmed.` },
+      { kind: "paragraph", text: `Someone asked to change the email on your PackAM account to ${to}. Nothing changes unless that address is confirmed.` },
       { kind: "paragraph", text: "If this was you, there’s nothing to do here. If it wasn’t, sign in to PackAM, cancel the change in Settings and change your password." },
     ],
   });

@@ -1,71 +1,67 @@
-import { db } from "../../../../lib/db";
-import { isSchemaBehindCode, missingSchemaElement } from "../../../../lib/db-errors";
-import { consumeAccountToken } from "../../../../lib/account/account-tokens";
-import { hashToken, isWellFormedToken } from "../../../../lib/account/tokens";
+import { accountSchemaBehindResponse, isSchemaBehindCode } from "../../../../lib/db-errors";
+import { confirmEmailAddress, type VerifyStatus } from "../../../../lib/account/email-verification";
+import { rejectCrossSite, requireJson } from "../../../../lib/request-guards";
 
-/** What /verify-email shows. "error" means nothing was used up, so opening the link again can still work. */
-type VerifyStatus = "verified" | "already" | "expired" | "used" | "invalid" | "error";
+// The token is only ever in the link's own address: never cached, and never passed on as a Referer.
+const LINK_HEADERS = { "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" };
 
 /**
- * The link in a confirmation email: GET /api/account/verify-email?token=…. It uses the link up and confirms the
- * address, but only while it is still the account's email (a link sent before an email change proves nothing about
- * the new address), then sends the browser to /verify-email?status=… with 303. Works signed out: the link is the
- * proof, so it never goes through /login, and the token never reaches the page it lands on.
- *
- * Mail scanners often open links before the person does. A spent or expired link whose address is already
- * confirmed therefore shows "already" rather than an error.
+ * The link in a confirmation email: GET /api/account/verify-email?token=…. Opening it changes nothing: mail scanners
+ * and link previews open links too, and one opening a link sent to an address the account's owner doesn't control
+ * must never confirm it (a confirmed address unlocks the account's name in emails, and skips the shared per-inbox
+ * limit). It only leads, with a 303, to /verify-email?token=…, a page that works signed in or out and asks for a press
+ * of "Confirm my email", which POSTs here. Links sent before this worked this way land on the same page.
  */
-export async function GET(request: Request) {
+export function GET(request: Request) {
   const token = new URL(request.url).searchParams.get("token");
-  let status: VerifyStatus;
-  try {
-    status = await confirmAddress(token);
-  } catch (error) {
-    if (isSchemaBehindCode(error)) {
-      console.error(`SCHEMA BEHIND CODE in email verification: the database is missing ${missingSchemaElement(error)}. Apply the pending Prisma migrations (npx prisma migrate deploy) to this database.`);
-    } else {
-      console.error("EMAIL VERIFICATION ERROR:", error instanceof Error ? error.name : "Unknown error");
-    }
-    status = "error";
-  }
+  // Whatever arrived goes on as it is (encoded): the page explains a link that is incomplete or isn't one of ours.
   return new Response(null, {
     status: 303,
-    headers: { Location: `/verify-email?status=${status}`, "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" },
+    headers: { Location: token ? `/verify-email?${new URLSearchParams({ token })}` : "/verify-email", ...LINK_HEADERS },
   });
 }
 
 /**
- * Link checkers sometimes probe with HEAD first, and Next would answer HEAD by running GET. Answering here
- * instead means only a real visit uses the link up.
+ * Link checkers sometimes probe with HEAD first, and Next would answer HEAD by running GET. It changes nothing, like
+ * GET, and doesn't even redirect.
  */
 export function HEAD() {
-  return new Response(null, { status: 204, headers: { "Cache-Control": "no-store" } });
+  return new Response(null, { status: 204, headers: LINK_HEADERS });
 }
 
-async function confirmAddress(token: string | null): Promise<VerifyStatus> {
-  const now = new Date();
-  const status = await db.$transaction(async (tx): Promise<VerifyStatus> => {
-    const claimed = await consumeAccountToken(tx, { token, purpose: "EMAIL_VERIFICATION", now });
-    if (!claimed.ok) return claimed.reason;
-    // Conditional, so an email change landing at the same moment can never be confirmed by the old link.
-    const confirmed = await tx.user.updateMany({
-      where: { id: claimed.userId, email: claimed.email, emailVerifiedAt: null },
-      data: { emailVerifiedAt: now },
-    });
-    if (confirmed.count === 1) return "verified";
-    const account = await tx.user.findUnique({ where: { id: claimed.userId }, select: { email: true, emailVerifiedAt: true } });
-    return account?.email === claimed.email && account.emailVerifiedAt ? "already" : "invalid";
-  });
-  if ((status === "used" || status === "expired") && (await alreadyConfirmed(token))) return "already";
-  return status;
+/**
+ * The "Confirm my email" button on /verify-email: { token }. Works signed in or out (the token is the proof). Answers
+ * 200 { status: "verified" | "already" | "expired" | "used" | "invalid" }, or { status: "error" } with 500 (503 while
+ * the database is behind the code); after "error" nothing was used up, so pressing again can still work.
+ */
+export async function POST(request: Request) {
+  const blocked = rejectCrossSite(request) ?? requireJson(request);
+  if (blocked) return blocked;
+  const body = await readJsonObject(request);
+
+  try {
+    return answer(await confirmEmailAddress(body?.token ?? null));
+  } catch (error) {
+    if (isSchemaBehindCode(error)) {
+      // The shared 503 (logged with the missing table or column, SERVICE_UPDATING, Retry-After), plus this route's status.
+      const updating = accountSchemaBehindResponse(error, "POST /api/account/verify-email");
+      return Response.json({ ...(await updating.json()), status: "error" }, { status: updating.status, headers: updating.headers });
+    }
+    console.error("EMAIL VERIFICATION ERROR:", error instanceof Error ? error.name : "Unknown error");
+    return answer("error", 500);
+  }
 }
 
-/** Whether a spent or expired link's address is, by now, the account's confirmed email. */
-async function alreadyConfirmed(token: string | null) {
-  if (!isWellFormedToken(token)) return false;
-  const link = await db.accountToken.findUnique({
-    where: { tokenHash: hashToken(token) },
-    select: { email: true, user: { select: { email: true, emailVerifiedAt: true } } },
-  });
-  return Boolean(link?.user.emailVerifiedAt && link.user.email === link.email);
+function answer(status: VerifyStatus | "error", httpStatus = 200) {
+  return Response.json({ status }, { status: httpStatus, headers: { "Cache-Control": "no-store" } });
+}
+
+/** The JSON body when it is an object, otherwise null. */
+async function readJsonObject(request: Request): Promise<Record<string, unknown> | null> {
+  try {
+    const body: unknown = await request.json();
+    return body && typeof body === "object" && !Array.isArray(body) ? (body as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
 }

@@ -5,7 +5,7 @@ import { afterResponse } from "../../../../../lib/after-response";
 import { appUrl } from "../../../../../lib/app-url";
 import { isSchemaBehindCode, accountSchemaBehindResponse } from "../../../../../lib/db-errors";
 import { isEmailConfigured, sendEmail } from "../../../../../lib/email";
-import { resetPassword } from "../../../../../lib/email/templates";
+import { confirmedName, resetPassword } from "../../../../../lib/email/templates";
 import { issueAccountToken } from "../../../../../lib/account/account-tokens";
 import { isValidEmail, normaliseEmail } from "../../../../../lib/account/validation";
 import { clientAddress, consumeRateLimit } from "../../../../../lib/rate-limit";
@@ -57,12 +57,12 @@ export async function POST(request: Request) {
     if (perEmail.allowed) {
       const user = await db.user.findUnique({
         where: { email },
-        // emailVerifiedAt isn't used here: it comes from the same migration as AccountToken, so selecting it makes a
-        // database that hasn't been migrated answer 503 now, instead of promising a link that can't be stored.
+        // emailVerifiedAt decides the greeting (confirmedName). It also comes from the same migration as AccountToken,
+        // so selecting it makes a database that hasn't been migrated answer 503 now, not promise a link it can't store.
         select: { id: true, email: true, firstName: true, status: true, passwordHash: true, emailVerifiedAt: true },
       });
       if (user && user.status === "ACTIVE" && user.passwordHash) {
-        const account = { id: user.id, email: user.email, firstName: user.firstName };
+        const account = { id: user.id, email: user.email, firstName: confirmedName(user), confirmed: Boolean(user.emailVerifiedAt) };
         await afterResponse(() => sendResetLink(account));
       }
     }
@@ -75,11 +75,28 @@ export async function POST(request: Request) {
 }
 
 /** Runs after the response: a new link (older reset links stop working) and the email that carries it. */
-async function sendResetLink(account: { id: string; email: string; firstName: string | null }) {
+async function sendResetLink(account: { id: string; email: string; firstName: string | null; confirmed: boolean }) {
   try {
-    const token = await db.$transaction((tx) => issueAccountToken(tx, { userId: account.id, purpose: "PASSWORD_RESET", email: account.email }));
+    const now = new Date();
+    const token = await db.$transaction(async (tx) => {
+      // Locks the account's row and re-checks the lookup, which ran before the response: an account deleted,
+      // suspended or moved to another address meanwhile gets no link, and a deletion starting now waits for this
+      // transaction, then deletes the link with the rest.
+      const unchanged = await tx.user.updateMany({
+        where: { id: account.id, status: "ACTIVE", email: account.email, passwordHash: { not: null } },
+        data: { updatedAt: now },
+      });
+      if (unchanged.count !== 1) return null;
+      return issueAccountToken(tx, { userId: account.id, purpose: "PASSWORD_RESET", email: account.email, now });
+    });
+    if (!token) return;
     // A failed send is logged by sendEmail (purpose and error name only); the person can simply ask again.
-    await sendEmail({ to: account.email, purpose: "password-reset", ...resetPassword(account.firstName, appUrl(`/reset-password?token=${token}`)) });
+    await sendEmail({
+      to: account.email,
+      purpose: "password-reset",
+      toConfirmedAddress: account.confirmed,
+      ...resetPassword(account.firstName, appUrl(`/reset-password?token=${token}`)),
+    });
   } catch (error) {
     console.error("PASSWORD RESET REQUEST ERROR:", error instanceof Error ? error.name : "Unknown error");
   }

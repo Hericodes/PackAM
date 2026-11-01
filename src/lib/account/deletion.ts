@@ -4,7 +4,8 @@ import { Prisma } from "@prisma/client";
 import { db } from "../db";
 import { retrySerializable } from "../db-retry";
 import { writeAuditLog } from "../audit";
-import { deletePrivatePrintDocument } from "../printing/document";
+import { confirmedName } from "../email/templates";
+import { createPrintDocumentPublicId, deletePrivatePrintDocument } from "../printing/document";
 import { transitionPrintJobInTransaction } from "../printing/status";
 import { canTransitionPrintJob } from "../printing/status-machine";
 import {
@@ -21,6 +22,7 @@ import {
   PRODUCT_REQUEST_CANCELLABLE_STATUSES,
   REFUND_UNSETTLED_STATUSES,
   SUPPORT_CASE_OPEN_STATUSES,
+  DELETED_ACCOUNT_EMAIL_SUFFIX,
   deletedAccountEmail,
   deletionBlockers,
   type DeletionBlocker,
@@ -69,7 +71,7 @@ export async function findDeletionBlockers(tx: BlockerStore, userId: string): Pr
 
 export type AccountDeletionResult =
   /** Done. `email` and `firstName` are the values from before, for the goodbye email only. */
-  | { kind: "DELETED"; email: string; firstName: string | null }
+  | { kind: "DELETED"; email: string; emailConfirmed: boolean; firstName: string | null }
   | { kind: "BLOCKED"; blockers: DeletionBlocker[] }
   /** Not an active student account (any more): nothing was changed. */
   | { kind: "UNAVAILABLE" };
@@ -80,7 +82,7 @@ export type AccountDeletionResult =
  */
 export async function deleteAccount(userId: string): Promise<AccountDeletionResult> {
   return retrySerializable(() => db.$transaction(async (tx): Promise<AccountDeletionResult> => {
-    const user = await tx.user.findFirst({ where: { id: userId, role: "STUDENT", status: "ACTIVE" }, select: { id: true, email: true, firstName: true } });
+    const user = await tx.user.findFirst({ where: { id: userId, role: "STUDENT", status: "ACTIVE" }, select: { id: true, email: true, firstName: true, emailVerifiedAt: true } });
     if (!user) return { kind: "UNAVAILABLE" };
     const blockers = await findDeletionBlockers(tx, user.id);
     if (blockers.length) return { kind: "BLOCKED", blockers };
@@ -149,24 +151,27 @@ export async function deleteAccount(userId: string): Promise<AccountDeletionResu
       },
       details: "The student deleted their account. Personal details were removed; orders, payments, print jobs and support history were kept.",
     });
-    return { kind: "DELETED", email: user.email, firstName: user.firstName };
+    return { kind: "DELETED", email: user.email, emailConfirmed: Boolean(user.emailVerifiedAt), firstName: confirmedName(user) };
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 15_000 }), { attempts: 5, baseDelayMs: 25 });
 }
 
-/**
- * After a deletion has committed: removes the uploaded PDFs of the account's finished print jobs from storage and
- * marks each document deleted (the rows stay, as when a student replaces a document). Best effort: a failure is
- * logged by error name and the next document is tried. Only for a DEACTIVATED account, so nothing in progress, and
- * no active account, can lose a file. `deleteFile` is replaceable for tests.
- */
-export async function removeDeletedAccountDocuments(
-  userId: string,
-  deleteFile: (publicId: string) => Promise<void> = deletePrivatePrintDocument,
-): Promise<{ removed: number; failed: number }> {
-  const documents = await db.printDocument.findMany({
-    where: { deletedAt: null, printJob: { userId, status: { in: [...PRINT_JOB_FINISHED_STATUSES] }, user: { status: "DEACTIVATED" } } },
-    select: { id: true, publicId: true },
-  });
+/** Finished print jobs of accounts deleted through this flow (not merely deactivated): the placeholder address is
+ * the mark, so an account deactivated some other way keeps its files. */
+function deletedAccountJobsWhere(userId?: string): Prisma.PrintJobWhereInput {
+  return {
+    ...(userId ? { userId } : {}),
+    status: { in: [...PRINT_JOB_FINISHED_STATUSES] },
+    user: { status: "DEACTIVATED", email: { endsWith: DELETED_ACCOUNT_EMAIL_SUFFIX } },
+  };
+}
+
+/** Those jobs' documents that are still in storage. */
+function deletedAccountDocumentsWhere(userId?: string): Prisma.PrintDocumentWhereInput {
+  return { deletedAt: null, printJob: deletedAccountJobsWhere(userId) };
+}
+
+/** Deletes each file, then marks it removed; a failure leaves it for the next sweep (safe to repeat). */
+async function removeDocuments(documents: Array<{ id: string; publicId: string }>, deleteFile: (publicId: string) => Promise<void>) {
   let removed = 0;
   let failed = 0;
   for (const document of documents) {
@@ -180,4 +185,45 @@ export async function removeDeletedAccountDocuments(
     }
   }
   return { removed, failed };
+}
+
+/**
+ * The scheduled retry for removeDeletedAccountDocuments: any deleted account's files that are still stored (Cloudinary
+ * was down, the request ran out of time…), oldest first, a batch at a time.
+ */
+export async function sweepDeletedAccountDocuments(take = 25, deleteFile: (publicId: string) => Promise<void> = deletePrivatePrintDocument) {
+  const documents = await db.printDocument.findMany({ where: deletedAccountDocumentsWhere(), orderBy: { uploadedAt: "asc" }, take, select: { id: true, publicId: true } });
+  return removeDocuments(documents, deleteFile);
+}
+
+/**
+ * After a deletion has committed: removes the uploaded PDFs of the account's finished print jobs from storage and
+ * marks each document deleted (the rows stay, as when a student replaces a document). Best effort: a failure is
+ * logged by error name and the next document is tried; the scheduled sweep retries it. Only for a DEACTIVATED
+ * account, so nothing in progress, and no active account, can lose a file. `deleteFile` is replaceable for tests.
+ *
+ * An upload that never finished (the tab closed, or checking the file failed) can be in storage with no document row,
+ * at the path its draft was given. Each such job's path is tried once too ("not found" counts as done); the sweep
+ * can't see these, so a failure here is only logged.
+ */
+export async function removeDeletedAccountDocuments(
+  userId: string,
+  deleteFile: (publicId: string) => Promise<void> = deletePrivatePrintDocument,
+): Promise<{ removed: number; failed: number }> {
+  const documents = await db.printDocument.findMany({ where: deletedAccountDocumentsWhere(userId), select: { id: true, publicId: true } });
+  const result = await removeDocuments(documents, deleteFile);
+  const unrecorded = await db.printJob.findMany({
+    where: { ...deletedAccountJobsWhere(userId), document: null },
+    select: { id: true },
+  });
+  for (const job of unrecorded) {
+    try {
+      await deleteFile(createPrintDocumentPublicId(job.id));
+      result.removed += 1;
+    } catch (error) {
+      result.failed += 1;
+      console.error("DELETED ACCOUNT UPLOAD CLEANUP ERROR:", error instanceof Error ? error.name : "Unknown error");
+    }
+  }
+  return result;
 }

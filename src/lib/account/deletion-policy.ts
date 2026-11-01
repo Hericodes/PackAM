@@ -142,11 +142,21 @@ export function deletionBlockers(counts: Partial<Record<DeletionBlockerKind, num
 // ---- The deleted account ----
 
 /**
+ * Set for a few minutes by a successful deletion. The home page shows its goodbye only alongside it, so a link with
+ * ?accountDeleted=1 can't make PackAM tell anyone else their account was deleted.
+ */
+export const ACCOUNT_DELETED_COOKIE = "packam_account_deleted";
+export const ACCOUNT_DELETED_COOKIE_MAX_AGE_SECONDS = 300;
+
+/** The domain every deleted account is renamed into (see deletedAccountEmail). */
+export const DELETED_ACCOUNT_EMAIL_SUFFIX = "@deleted.packam.invalid";
+
+/**
  * The email a deleted account keeps. User.email is required and unique, so it is made from the account id; the
  * .invalid top-level name can never receive mail (RFC 2606), and nobody can sign in or register with it.
  */
 export function deletedAccountEmail(userId: string): string {
-  return `deleted-${userId}@deleted.packam.invalid`;
+  return `deleted-${userId}${DELETED_ACCOUNT_EMAIL_SUFFIX}`;
 }
 
 /** What the person types to confirm. */

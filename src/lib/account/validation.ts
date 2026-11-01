@@ -52,6 +52,8 @@ export function isValidEmail(value: unknown): value is string {
   if (!EMAIL_LOCAL.test(local) || local.startsWith(".") || local.endsWith(".") || local.includes("..")) return false;
   const labels = value.slice(at + 1).split(".");
   const topLevel = labels[labels.length - 1];
+  // .invalid can never receive mail (RFC 2606) and is what deleted accounts are renamed to; no live account may use it.
+  if (topLevel.toLowerCase() === "invalid") return false;
   return labels.length >= 2 && labels.every((label) => DOMAIN_LABEL.test(label)) && topLevel.length >= 2 && /^[a-z]/i.test(topLevel);
 }
 

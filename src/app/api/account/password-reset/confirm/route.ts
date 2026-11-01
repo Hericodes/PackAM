@@ -5,7 +5,7 @@ import { afterResponse } from "../../../../../lib/after-response";
 import { writeAuditLog } from "../../../../../lib/audit";
 import { isSchemaBehindCode, accountSchemaBehindResponse } from "../../../../../lib/db-errors";
 import { sendEmail } from "../../../../../lib/email";
-import { passwordChangedNotice } from "../../../../../lib/email/templates";
+import { confirmedName, passwordChangedNotice } from "../../../../../lib/email/templates";
 import { consumeAccountToken, peekAccountToken, revokeAccountTokens, type AccountTokenFailure } from "../../../../../lib/account/account-tokens";
 import { passwordProblem } from "../../../../../lib/account/password-policy";
 import { clientAddress, consumeRateLimit } from "../../../../../lib/rate-limit";
@@ -61,7 +61,7 @@ export async function POST(request: Request) {
     if (!link.ok) return linkProblem(link.reason);
     const account = await db.user.findUnique({
       where: { id: link.userId },
-      select: { email: true, firstName: true, lastName: true, status: true, passwordHash: true },
+      select: { email: true, firstName: true, lastName: true, status: true, passwordHash: true, emailVerifiedAt: true },
     });
     if (!account || account.status !== "ACTIVE" || !account.passwordHash || account.email !== link.email) return linkProblem("invalid");
 
@@ -97,7 +97,10 @@ export async function POST(request: Request) {
     if (!outcome.ok) return linkProblem(outcome.reason);
 
     await afterResponse(async () => {
-      await sendEmail({ to: outcome.email, purpose: "password-changed", ...passwordChangedNotice(account.firstName) });
+      // The reset proved this inbox, so the notice can't be crowded out of the shared per-inbox limit. The name is the
+      // one from before the reset: if the address wasn't confirmed until now, the account may have been made by
+      // someone else with this address (and a name they chose), and this reset is its owner taking it back.
+      await sendEmail({ to: outcome.email, purpose: "password-changed", toConfirmedAddress: true, ...passwordChangedNotice(confirmedName(account)) });
     });
     return Response.json({ ok: true });
   } catch (error) {

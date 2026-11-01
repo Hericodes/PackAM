@@ -18,7 +18,7 @@ export const metadata: Metadata = {
 
 type ConfirmEmailPageProps = { searchParams: Promise<{ token?: string | string[] }> };
 
-type LinkState = { kind: "valid"; token: string; maskedEmail: string } | { kind: Exclude<ConfirmEmailOutcome, "changed" | "taken"> };
+type LinkState = { kind: "valid"; token: string; maskedEmail: string; userId: string } | { kind: Exclude<ConfirmEmailOutcome, "changed" | "taken"> };
 
 /**
  * Where a "confirm your new email" link lands: GET /api/account/email/confirm sends it here as /confirm-email?token=…
@@ -33,7 +33,11 @@ export default async function ConfirmEmailPage({ searchParams }: ConfirmEmailPag
   const role = session?.user?.role;
   const viewer = { signedIn: Boolean(role), home: role ? roleHome(role) : "/" };
 
-  if (link.kind === "valid") return <ConfirmEmailForm token={link.token} maskedEmail={link.maskedEmail} viewer={viewer} />;
+  if (link.kind === "valid") {
+    // Signed in to someone else's account: the page must not call the link's account "yours".
+    const otherAccount = Boolean(session?.user?.id) && session?.user?.id !== link.userId;
+    return <ConfirmEmailForm token={link.token} maskedEmail={link.maskedEmail} viewer={{ ...viewer, otherAccount }} />;
+  }
   return <ConfirmEmailResult outcome={link.kind} viewer={viewer} />;
 }
 
@@ -45,7 +49,7 @@ async function checkLink(token: string | undefined): Promise<LinkState> {
     if (!link.ok) return { kind: link.reason };
     const account = await db.user.findUnique({ where: { id: link.userId }, select: { status: true } });
     if (account?.status !== "ACTIVE") return { kind: "invalid" };
-    return { kind: "valid", token, maskedEmail: maskEmail(link.email) };
+    return { kind: "valid", token, maskedEmail: maskEmail(link.email), userId: link.userId };
   } catch (error) {
     if (isSchemaBehindCode(error)) {
       console.error(`SCHEMA BEHIND CODE in confirm email page: the database is missing ${missingSchemaElement(error)}. Apply the pending Prisma migrations (npx prisma migrate deploy) to this database.`);

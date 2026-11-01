@@ -175,7 +175,7 @@ async function sendConfirmationLink(account: { id: string; email: string; firstN
   if (!canEmailLinks()) return "not-configured";
   try {
     const token = await db.$transaction((tx) => issueAccountToken(tx, { userId: account.id, purpose: "EMAIL_VERIFICATION", email: account.email }));
-    const message = verifyEmail(account.firstName, appUrl(`/api/account/verify-email?token=${token}`));
+    const message = verifyEmail(null, appUrl(`/api/account/verify-email?token=${token}`));
     const delivery: { status: VerificationEmail } = { status: "sent" };
     await afterResponse(async () => {
       delivery.status = (await sendEmail({ to: account.email, purpose: "email-verification", ...message })).status;

@@ -1,116 +1,59 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { auth } from "../../auth";
-import { AuthShell } from "../../components/auth/AuthShell";
-import { FormAlert, type FormAlertTone } from "../../components/auth/FormAlert";
+import { VerifyEmailForm } from "../../components/auth/VerifyEmailForm";
+import { VerifyEmailResult } from "../../components/auth/VerifyEmailResult";
+import { verifyEmailCopy, verifyEmailOutcome, type VerifyEmailOutcome } from "../../components/auth/verify-email";
+import { isSchemaBehindCode, missingSchemaElement } from "../../lib/db-errors";
+import { checkVerificationLink } from "../../lib/account/email-verification";
 import { roleHome } from "../../lib/auth-redirect";
 
-type VerifyEmailPageProps = { searchParams: Promise<{ status?: string | string[] }> };
+type VerifyEmailPageProps = { searchParams: Promise<{ token?: string | string[]; status?: string | string[] }> };
 
-/** What happens next: "done" (nothing to do), "resend" (send a new link from Settings) or "retry" (open the same link again). */
-type Next = "done" | "resend" | "retry";
-type Outcome = { title: string; tone: FormAlertTone; message: string; next: Next };
+type LinkState = { kind: "valid"; token: string; maskedEmail: string } | { kind: Exclude<VerifyEmailOutcome, "verified" | "waiting"> };
 
-/** The statuses /api/account/verify-email redirects with. */
-const OUTCOMES = {
-  verified: {
-    title: "Email confirmed",
-    tone: "success",
-    message: "Thanks! Your email address is confirmed, so PackAM can reach you about your account, for example to help you reset your password.",
-    next: "done",
-  },
-  already: {
-    title: "Already confirmed",
-    tone: "success",
-    message: "Your email address is already confirmed. There’s nothing else to do.",
-    next: "done",
-  },
-  expired: {
-    title: "This link has expired",
-    tone: "error",
-    message: "Confirmation links work for 24 hours. You can send yourself a new one from Settings.",
-    next: "resend",
-  },
-  used: {
-    title: "This link has already been used",
-    tone: "error",
-    message: "Each confirmation link works once, and only the newest one you were sent works. If your email still shows as not confirmed, send a new link from Settings.",
-    next: "resend",
-  },
-  invalid: {
-    title: "This link isn’t valid",
-    tone: "error",
-    message: "It may be incomplete, or it was sent to an email address that’s no longer on your account. You can send a new link from Settings.",
-    next: "resend",
-  },
-  error: {
-    title: "We couldn’t confirm your email",
-    tone: "error",
-    message: "Something went wrong on our side, and your link hasn’t been used. Open it again from your email in a few minutes.",
-    next: "retry",
-  },
-} satisfies Record<string, Outcome>;
+const first = (value: string | string[] | undefined) => (Array.isArray(value) ? value[0] : value);
 
-/** Someone who came here without a result, e.g. by typing the address. */
-const WAITING: Outcome = {
-  title: "Confirm your email",
-  tone: "info",
-  message: "Open the link in the email we sent you to confirm your address. Can’t find it? You can send a new one from Settings.",
-  next: "resend",
-};
-
-function isOutcome(status: string | undefined): status is keyof typeof OUTCOMES {
-  return status !== undefined && Object.prototype.hasOwnProperty.call(OUTCOMES, status);
-}
-
-async function outcomeFor(searchParams: VerifyEmailPageProps["searchParams"]): Promise<Outcome> {
-  const params = await searchParams;
-  const status = Array.isArray(params.status) ? params.status[0] : params.status;
-  return isOutcome(status) ? OUTCOMES[status] : WAITING;
-}
-
-/** The tab title says how it went, so it's the first thing a screen reader announces. */
+/** The tab title says where things stand, so it's the first thing a screen reader announces. */
 export async function generateMetadata({ searchParams }: VerifyEmailPageProps): Promise<Metadata> {
+  const params = await searchParams;
   return {
-    title: (await outcomeFor(searchParams)).title,
-    // Reached from a link in an email; nothing here should travel on to another site or into search results.
+    title: first(params.token) ? "Confirm your email" : verifyEmailCopy(verifyEmailOutcome(first(params.status))).title,
+    // The address can carry a one-time token: never pass it to another site, and keep the page out of search results.
     referrer: "no-referrer",
     robots: { index: false, follow: false },
   };
 }
 
 /**
- * Where an email confirmation link ends up, once /api/account/verify-email has used it: /verify-email?status=…
- * (verified, already, expired, used, invalid or error). The token never reaches this page. It works signed out;
- * signed in, it offers the way back into PackAM and to Settings, where a new link can be sent.
+ * Where an email confirmation link lands: GET /api/account/verify-email sends it here as /verify-email?token=… without
+ * using it. Works signed in or out. The token is checked here without being used up, and the page shows the address
+ * masked with a "Confirm my email" button; only pressing it confirms the address (mail scanners and link previews
+ * open links, but don't press buttons). A link that can't be used gets a plain explanation and where to go next, as
+ * does every answer to the button. Without a token it shows the ?status= older links redirected with, or how to find
+ * the link.
  */
 export default async function VerifyEmailPage({ searchParams }: VerifyEmailPageProps) {
-  const [session, outcome] = await Promise.all([auth(), outcomeFor(searchParams)]);
-  const actions = nextSteps(outcome.next, session?.user?.role);
+  const params = await searchParams;
+  const token = first(params.token);
+  const [session, link] = await Promise.all([auth(), token ? checkLink(token) : null]);
+  const role = session?.user?.role;
+  const viewer = { signedIn: Boolean(role), home: role ? roleHome(role) : "/" };
 
-  return (
-    <AuthShell eyebrow="Email confirmation" title={outcome.title}>
-      <FormAlert tone={outcome.tone}>{outcome.message}</FormAlert>
-      <div className="mt-5 grid gap-3">
-        {actions.map((action, index) => (
-          <Link key={action.href} href={action.href} className={`pk-btn pk-btn-lg w-full text-base ${index === 0 ? "pk-btn-primary" : "pk-btn-secondary"}`}>
-            {action.label}
-          </Link>
-        ))}
-      </div>
-    </AuthShell>
-  );
+  if (link?.kind === "valid") return <VerifyEmailForm token={link.token} maskedEmail={link.maskedEmail} viewer={viewer} />;
+  return <VerifyEmailResult outcome={link ? link.kind : verifyEmailOutcome(first(params.status))} viewer={viewer} />;
 }
 
-/** The buttons under the message, most useful first. Settings (every role has it) is where a new link is sent. */
-function nextSteps(next: Next, role: string | undefined) {
-  if (role) {
-    const home = { href: roleHome(role), label: "Continue to PackAM" };
-    if (next === "done") return [home, { href: "/settings", label: "Go to Settings" }];
-    if (next === "resend") return [{ href: "/settings", label: "Send a new link from Settings" }, home];
-    return [home];
+/** The checks the confirmation repeats when the button is pressed: an unspent, unexpired link for the account's current, unconfirmed email. */
+async function checkLink(token: string): Promise<LinkState> {
+  try {
+    const link = await checkVerificationLink(token);
+    return link.kind === "valid" ? { kind: "valid", token, maskedEmail: link.maskedEmail } : link;
+  } catch (error) {
+    if (isSchemaBehindCode(error)) {
+      console.error(`SCHEMA BEHIND CODE in verify email page: the database is missing ${missingSchemaElement(error)}. Apply the pending Prisma migrations (npx prisma migrate deploy) to this database.`);
+    } else {
+      console.error("VERIFY EMAIL PAGE ERROR:", error instanceof Error ? error.name : "Unknown error");
+    }
+    return { kind: "error" };
   }
-  if (next === "done") return [{ href: "/login?verified=1", label: "Log in" }];
-  if (next === "resend") return [{ href: `/login?callbackUrl=${encodeURIComponent("/settings")}`, label: "Log in to send a new link" }, { href: "/", label: "Back to PackAM" }];
-  return [{ href: "/", label: "Back to PackAM" }];
 }

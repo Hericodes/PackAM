@@ -19,7 +19,7 @@ type ConfirmEmailResultProps = {
  * confirm form renders it once the button has been pressed.
  */
 export function ConfirmEmailResult({ outcome, viewer, maskedEmail, alertRef }: ConfirmEmailResultProps) {
-  const copy = confirmEmailCopy(outcome, maskedEmail);
+  const copy = confirmEmailCopy(outcome, maskedEmail, viewer.otherAccount);
 
   return (
     <AuthShell eyebrow="Email change" title={copy.title}>

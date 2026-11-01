@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { deletedAccountEmail } from "./deletion-policy";
 import { canonicalEmailForLimits, isValidEmail, maskEmail, nameProblem, normaliseEmail, normaliseName, normalisePhone, phoneProblem } from "./validation";
 
 test("emails are trimmed and lowercased, as they are stored", () => {
@@ -33,6 +34,13 @@ test("a sane email shape is required, without rejecting real addresses", () => {
   ];
   for (const value of bad) assert.equal(isValidEmail(value), false, value);
   for (const junk of [undefined, null, 42]) assert.equal(isValidEmail(junk), false);
+});
+
+test("nobody can sign up or change to a .invalid address, which is what deleted accounts are renamed to", () => {
+  for (const reserved of [deletedAccountEmail("cm0abc123"), "ada@example.invalid", "ADA@DELETED.PACKAM.INVALID", "x@invalid.invalid"]) {
+    assert.equal(isValidEmail(reserved), false, reserved);
+  }
+  for (const ok of ["ada@invalid.com", "ada@uni.invalidation.edu", "invalid@uni.edu"]) assert.equal(isValidEmail(ok), true, ok);
 });
 
 test("names: spaces collapsed; letters in any alphabet plus apostrophes, hyphens and dots; 1–60 characters", () => {

@@ -12,9 +12,12 @@ import { EmailConfigError, parseEmailConfig, type EmailConfig } from "./config";
  * never logs an address, subject, body, link or provider response: only the message's purpose and an error name
  * or HTTP status. A failed send changes nothing else; callers let the person ask again.
  *
- * Every message counts against its inbox first: at most 8 an hour, whatever they're for, with "+tag" and Gmail dot
- * variants of an address counted as one inbox. Making accounts with such variants can't multiply what reaches one
- * person; over the limit nothing is sent and the answer is "failed", like any other failed send.
+ * Mail to an address nobody has confirmed (sign-up and change links, and anything else sent to an unconfirmed
+ * address) counts against its inbox first: at most 8 an hour, with "+tag" and Gmail dot variants of an address counted
+ * as one inbox. Making accounts with such variants can't multiply what reaches one person; over the limit nothing is
+ * sent and the answer is "failed", like any other failed send. Mail to an account's own confirmed address skips that
+ * shared count, so nobody else can use it up and silence that person's reset links or security notices; each route
+ * limits its own sends.
  */
 
 export type EmailMessage = {
@@ -24,6 +27,12 @@ export type EmailMessage = {
   html: string;
   /** What the email is for, e.g. "password-reset". Shown in logs and kept on test outbox messages. */
   purpose: string;
+  /**
+   * True only when `to` is the account's own address and the account has confirmed it (pressed the button in a
+   * confirmation email, finished a password reset or an email change from it). Nobody else can make an account that
+   * receives this mail, so it skips the shared per-inbox limit.
+   */
+  toConfirmedAddress?: boolean;
 };
 export type SendEmailResult = { status: "sent" | "not-configured" | "failed" };
 export type OutboxMessage = EmailMessage & { sentAt: Date };
@@ -58,13 +67,15 @@ export async function sendEmail(message: EmailMessage): Promise<SendEmailResult>
     return { status: "failed" };
   }
   try {
-    // Counted before any transport (the test outbox too), whether or not the send then works. The key holds a hash
-    // of the inbox, never the address.
-    const inbox = createHash("sha256").update(canonicalEmailForLimits(message.to)).digest("hex");
-    const rate = await consumeRateLimit(`email-to:${inbox}`, EMAILS_PER_INBOX_PER_HOUR, HOUR_MS);
-    if (!rate.allowed) {
-      console.warn("EMAIL RATE LIMITED:", purpose);
-      return { status: "failed" };
+    if (!message.toConfirmedAddress) {
+      // Counted before any transport (the test outbox too), whether or not the send then works. The key holds a hash
+      // of the inbox, never the address.
+      const inbox = createHash("sha256").update(canonicalEmailForLimits(message.to)).digest("hex");
+      const rate = await consumeRateLimit(`email-to:${inbox}`, EMAILS_PER_INBOX_PER_HOUR, HOUR_MS);
+      if (!rate.allowed) {
+        console.warn("EMAIL RATE LIMITED:", purpose);
+        return { status: "failed" };
+      }
     }
     if (config.mode === "memory") {
       if (testMode() === "failing") throw new TestEmailFailure();

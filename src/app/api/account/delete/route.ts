@@ -7,7 +7,7 @@ import { isSchemaBehindCode, accountSchemaBehindResponse } from "../../../../lib
 import { sendEmail } from "../../../../lib/email";
 import { accountDeletedNotice } from "../../../../lib/email/templates";
 import { deleteAccount, findDeletionBlockers, removeDeletedAccountDocuments } from "../../../../lib/account/deletion";
-import { isDeleteConfirmation } from "../../../../lib/account/deletion-policy";
+import { ACCOUNT_DELETED_COOKIE, ACCOUNT_DELETED_COOKIE_MAX_AGE_SECONDS, isDeleteConfirmation } from "../../../../lib/account/deletion-policy";
 import { consumeRateLimit } from "../../../../lib/rate-limit";
 import { rejectCrossSite, requireJson } from "../../../../lib/request-guards";
 
@@ -67,12 +67,16 @@ export async function POST(request: Request) {
     if (result.kind === "UNAVAILABLE") return signInRequired();
 
     await afterResponse(async () => {
-      await sendEmail({ to: result.email, purpose: "account-deleted", ...accountDeletedNotice(result.firstName) });
+      await sendEmail({ to: result.email, purpose: "account-deleted", toConfirmedAddress: result.emailConfirmed, ...accountDeletedNotice(result.firstName) });
     });
     await afterResponse(async () => {
       await removeDeletedAccountDocuments(user.id);
     });
-    return Response.json({ ok: true });
+    // Lets this browser's home page say goodbye (see ACCOUNT_DELETED_COOKIE). Holds no account details.
+    const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
+    return Response.json({ ok: true }, {
+      headers: { "Set-Cookie": `${ACCOUNT_DELETED_COOKIE}=1; Path=/; Max-Age=${ACCOUNT_DELETED_COOKIE_MAX_AGE_SECONDS}; HttpOnly; SameSite=Lax${secure}` },
+    });
   } catch (error) {
     if (isSchemaBehindCode(error)) return accountSchemaBehindResponse(error, "POST /api/account/delete");
     console.error("ACCOUNT DELETE ERROR:", error instanceof Error ? error.name : "Unknown error");

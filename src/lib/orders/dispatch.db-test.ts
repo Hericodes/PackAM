@@ -19,6 +19,10 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, test } from "node:test";
 
+// No Cloudinary credentials in tests: the scheduled run's account clean-up must never reach real document storage.
+process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME = "packam-test-cloud";
+delete process.env.CLOUDINARY_API_SECRET;
+
 type App = {
   db: Awaited<ReturnType<typeof testDb>>;
   cart: typeof import("../../app/api/cart/route");

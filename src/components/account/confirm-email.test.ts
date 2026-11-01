@@ -45,3 +45,12 @@ test("next steps: signed in, Settings and home; signed out, log in (with the ban
     ], outcome);
   }
 });
+
+test("signed in to a different account from the link's: the result never calls that account \"yours\"", () => {
+  const other = confirmEmailCopy("changed", "a••@uni.example", true);
+  assert.equal(other.tone, "success");
+  assert.match(other.message, /The PackAM account this link was for now uses a••@uni\.example/);
+  assert.match(other.message, /isn’t the account you’re signed in to/);
+  assert.doesNotMatch(other.message, /Your PackAM account/);
+  assert.match(confirmEmailCopy("changed", "a••@uni.example").message, /^Your PackAM account now uses/, "the link's own account (or signed out) is told it's theirs");
+});

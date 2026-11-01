@@ -134,7 +134,8 @@ test("sign-up makes an active student with a profile and a cart, and emails a li
   assert.equal(sent.length, 1, "one email, to the address as stored");
   assert.equal(sent[0].purpose, "email-verification");
   assert.equal(sent[0].subject, "Confirm your email for PackAM");
-  assert.match(sent[0].text, /^Hi Adaeze,/);
+  assert.match(sent[0].text, /^Hi there,/, "nobody has confirmed the address yet, so the name typed at sign-up isn't used");
+  assert.ok(!sent[0].text.includes("Adaeze") && !sent[0].html.includes("Adaeze"));
   const link = sent[0].text.match(/https?:\/\/\S+/)?.[0];
   assert.ok(link, "the email carries a link");
   const url = new URL(link);
@@ -146,11 +147,18 @@ test("sign-up makes an active student with a profile and a cart, and emails a li
   assert.deepEqual([row.userId, row.purpose, row.email, row.usedAt], [user.id, "EMAIL_VERIFICATION", email, null]);
   assert.equal(row.expiresAt.getTime() - row.createdAt.getTime(), 24 * HOUR, "the link works for 24 hours");
 
-  // Opened from the inbox, signed out, the way a person would.
+  // Opened from the inbox, signed out, the way a person would: the page asks first, and only the button confirms.
+  const confirmedAt = async () => (await db.user.findUniqueOrThrow({ where: { id: user.id }, select: { emailVerifiedAt: true } })).emailVerifiedAt;
   const opened = await app.verify.GET(new Request(link));
-  assert.deepEqual([opened.status, opened.headers.get("location")], [303, "/verify-email?status=verified"]);
-  const confirmed = await db.user.findUniqueOrThrow({ where: { id: user.id }, select: { emailVerifiedAt: true } });
-  assert.ok(confirmed.emailVerifiedAt, "the address is confirmed");
+  assert.deepEqual([opened.status, opened.headers.get("location")], [303, `/verify-email?token=${token}`]);
+  assert.equal(await confirmedAt(), null, "opening the link (or a mail scanner opening it) confirms nothing");
+  const pressed = await app.verify.POST(new Request("http://packam.test/api/account/verify-email", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Sec-Fetch-Site": "same-origin" },
+    body: JSON.stringify({ token }),
+  }));
+  assert.deepEqual(await pressed.json(), { status: "verified" });
+  assert.ok(await confirmedAt(), "the address is confirmed");
 });
 
 test("details the form would refuse get 400 with the problem for each field, and nothing is made", { skip }, async () => {

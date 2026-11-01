@@ -6,7 +6,7 @@ import { writeAuditLog } from "../../../../lib/audit";
 import { afterResponse } from "../../../../lib/after-response";
 import { isSchemaBehindCode, accountSchemaBehindResponse } from "../../../../lib/db-errors";
 import { sendEmail } from "../../../../lib/email";
-import { passwordChangedNotice } from "../../../../lib/email/templates";
+import { confirmedName, passwordChangedNotice } from "../../../../lib/email/templates";
 import { revokeAccountTokens } from "../../../../lib/account/account-tokens";
 import { passwordProblem } from "../../../../lib/account/password-policy";
 import { consumeRateLimit } from "../../../../lib/rate-limit";
@@ -34,7 +34,7 @@ export async function POST(request: Request) {
   if (!body) return Response.json({ error: "PackAM couldn’t read that request. Refresh the page and try again.", code: "INVALID_REQUEST" }, { status: 400 });
 
   try {
-    const user = await db.user.findFirst({ where: { id: userId, status: "ACTIVE" }, select: { id: true, email: true, firstName: true, lastName: true, passwordHash: true } });
+    const user = await db.user.findFirst({ where: { id: userId, status: "ACTIVE" }, select: { id: true, email: true, firstName: true, lastName: true, passwordHash: true, emailVerifiedAt: true } });
     if (!user) return signInRequired();
     if (!(await currentPasswordMatches(body.currentPassword, user.passwordHash))) {
       return Response.json({ error: "That isn’t your current password. Check it and try again.", code: "WRONG_PASSWORD" }, { status: 400 });
@@ -71,7 +71,7 @@ export async function POST(request: Request) {
     }
 
     await afterResponse(async () => {
-      await sendEmail({ to: user.email, purpose: "password-changed", ...passwordChangedNotice(user.firstName) });
+      await sendEmail({ to: user.email, purpose: "password-changed", toConfirmedAddress: Boolean(user.emailVerifiedAt), ...passwordChangedNotice(confirmedName(user)) });
     });
     return Response.json({ ok: true, reauth: true, email: user.email });
   } catch (error) {

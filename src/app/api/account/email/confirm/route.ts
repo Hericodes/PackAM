@@ -3,9 +3,9 @@ import { Prisma } from "@prisma/client";
 import { db } from "../../../../../lib/db";
 import { writeAuditLog } from "../../../../../lib/audit";
 import { afterResponse } from "../../../../../lib/after-response";
-import { isSchemaBehindCode, missingSchemaElement } from "../../../../../lib/db-errors";
+import { accountSchemaBehindResponse, isSchemaBehindCode } from "../../../../../lib/db-errors";
 import { sendEmail } from "../../../../../lib/email";
-import { emailChangedNotice } from "../../../../../lib/email/templates";
+import { confirmedName, emailChangedNotice } from "../../../../../lib/email/templates";
 import { consumeAccountToken, revokeAccountTokens } from "../../../../../lib/account/account-tokens";
 import { hashToken, isWellFormedToken } from "../../../../../lib/account/tokens";
 import { rejectCrossSite, requireJson } from "../../../../../lib/request-guards";
@@ -14,7 +14,7 @@ import { rejectCrossSite, requireJson } from "../../../../../lib/request-guards"
 const LINK_HEADERS = { "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" };
 
 type Outcome =
-  | { kind: "changed"; previousEmail: string | null; firstName: string | null }
+  | { kind: "changed"; previousEmail: string | null; previousConfirmed: boolean; firstName: string | null }
   | { kind: "invalid" | "expired" | "used" | "taken" };
 
 /** What POST answers, as { status }. "error": nothing changed and the link wasn't used, so pressing again can work. */
@@ -53,17 +53,18 @@ export async function POST(request: Request) {
   try {
     const outcome = await applyEmailChange(body?.token ?? null);
     if (outcome.kind === "changed" && outcome.previousEmail) {
-      const { previousEmail, firstName } = outcome;
+      const { previousEmail, previousConfirmed, firstName } = outcome;
       await afterResponse(async () => {
-        await sendEmail({ to: previousEmail, purpose: "email-changed", ...emailChangedNotice(firstName) });
+        await sendEmail({ to: previousEmail, purpose: "email-changed", toConfirmedAddress: previousConfirmed, ...emailChangedNotice(firstName) });
       });
     }
     return answer(outcome.kind);
   } catch (error) {
     // Nothing was changed and the link wasn't used up, so pressing the button again can still work.
     if (isSchemaBehindCode(error)) {
-      console.error(`SCHEMA BEHIND CODE in POST /api/account/email/confirm: the database is missing ${missingSchemaElement(error)}. Apply the pending Prisma migrations (npx prisma migrate deploy) to this database.`);
-      return answer("error", 503);
+      // The shared 503 (logged with the missing table or column, SERVICE_UPDATING, Retry-After), plus this route's status.
+      const updating = accountSchemaBehindResponse(error, "POST /api/account/email/confirm");
+      return Response.json({ ...(await updating.json()), status: "error" }, { status: updating.status, headers: updating.headers });
     }
     console.error("EMAIL CHANGE CONFIRM ERROR:", error instanceof Error ? error.name : "Unknown error");
     return answer("error", 500);
@@ -85,7 +86,7 @@ async function applyEmailChange(token: unknown): Promise<Outcome> {
       const consumed = await consumeAccountToken(tx, { token, purpose: "EMAIL_CHANGE", now });
       if (!consumed.ok) return consumed.reason === "used" ? alreadyConfirmed(tx, token) : { kind: consumed.reason };
       // A suspended or deleted account is never changed (its link just stops working).
-      const user = await tx.user.findFirst({ where: { id: consumed.userId, status: "ACTIVE" }, select: { id: true, email: true, firstName: true } });
+      const user = await tx.user.findFirst({ where: { id: consumed.userId, status: "ACTIVE" }, select: { id: true, email: true, firstName: true, emailVerifiedAt: true } });
       if (!user) return { kind: "invalid" };
       const taken = await tx.user.findFirst({ where: { email: consumed.email, NOT: { id: user.id } }, select: { id: true } });
       if (taken) return { kind: "taken" };
@@ -101,7 +102,13 @@ async function applyEmailChange(token: unknown): Promise<Outcome> {
         newState: { emailVerified: true },
         details: "New email confirmed from the emailed link.",
       });
-      return { kind: "changed", previousEmail: user.email === consumed.email ? null : user.email, firstName: user.firstName };
+      return {
+        kind: "changed",
+        previousEmail: user.email === consumed.email ? null : user.email,
+        // Read before the switch, so these describe the old address the notice goes to.
+        previousConfirmed: Boolean(user.emailVerifiedAt),
+        firstName: confirmedName(user),
+      };
     });
   } catch (error) {
     // Another account took the address between the check and the update. Nothing changed, and the link is unused.
@@ -118,7 +125,7 @@ async function alreadyConfirmed(tx: Prisma.TransactionClient, token: unknown): P
     select: { purpose: true, email: true, user: { select: { email: true, status: true } } },
   });
   if (row?.purpose === "EMAIL_CHANGE" && row.user.status === "ACTIVE" && row.user.email === row.email) {
-    return { kind: "changed", previousEmail: null, firstName: null };
+    return { kind: "changed", previousEmail: null, previousConfirmed: false, firstName: null };
   }
   return { kind: "used" };
 }

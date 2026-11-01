@@ -69,7 +69,13 @@ export function ConfirmEmailForm({ token, maskedEmail, viewer }: ConfirmEmailFor
     <AuthShell
       eyebrow="Email change"
       title="Confirm your new email"
-      subtitle={<>Your PackAM account will use <span className="break-all font-bold text-black">{maskedEmail}</span> once you confirm.</>}
+      subtitle={
+        viewer.otherAccount ? (
+          <>This link is for a different PackAM account from the one you’re signed in to. Confirming changes that account’s email to <span className="break-all font-bold text-black">{maskedEmail}</span>.</>
+        ) : (
+          <>Your PackAM account will use <span className="break-all font-bold text-black">{maskedEmail}</span> once you confirm.</>
+        )
+      }
     >
       <form onSubmit={handleSubmit} noValidate className="space-y-5">
         <p className="text-[0.9375rem] leading-6 text-black/75">

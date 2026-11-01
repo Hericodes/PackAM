@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { EmailConfigError, parseEmailConfig } from "./config";
 import {
-  accountDeletedNotice, confirmEmailChange, emailChangeRequestedNotice, emailChangedNotice, escapeHtml,
+  accountDeletedNotice, confirmEmailChange, confirmedName, emailChangeRequestedNotice, emailChangedNotice, escapeHtml,
   passwordChangedNotice, resetPassword, verifyEmail,
 } from "./templates";
 
@@ -93,6 +93,22 @@ test("templates: names and addresses are escaped in HTML and kept to one line in
   assert.match(verifyEmail("   ", LINK).text, /^Hi there,/);
   assert.match(verifyEmail("A".repeat(200), LINK).text, new RegExp(`^Hi ${"A".repeat(60)},`), "very long names are cut short");
   assert.equal(escapeHtml(`<a href="x">'&'</a>`), "&lt;a href=&quot;x&quot;&gt;&#39;&amp;&#39;&lt;/a&gt;");
+});
+
+test("templates: an email-change notice to an unconfirmed address doesn't name the new one", () => {
+  const notice = emailChangeRequestedNotice(null, null);
+  assert.match(notice.text, /to a different address\./);
+  assert.match(notice.html, /to a different address\./);
+  assert.match(emailChangeRequestedNotice("Ada", "a••@uni.example").text, /to a••@uni\.example\./);
+});
+
+test("templates: a name is used only once its address is confirmed; until then it's \"Hi there,\"", () => {
+  const verifiedAt = new Date("2026-10-01T09:00:00Z");
+  assert.equal(confirmedName({ firstName: "Ada", emailVerifiedAt: verifiedAt }), "Ada");
+  assert.equal(confirmedName({ firstName: "Ada", emailVerifiedAt: null }), null);
+  assert.equal(confirmedName({ firstName: null, emailVerifiedAt: verifiedAt }), null);
+  const unconfirmed = { firstName: "Visit evil.example to claim your prize", emailVerifiedAt: null };
+  assert.match(passwordChangedNotice(confirmedName(unconfirmed)).text, /^Hi there,/, "text an account typed never opens an email to an unconfirmed address");
 });
 
 test("templates refuse anything but an absolute http(s) link", () => {

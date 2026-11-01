@@ -34,9 +34,9 @@ const NEW_EMAIL_CODES = new Set(["INVALID_EMAIL", "SAME_EMAIL", "EMAIL_TAKEN"]);
 
 /**
  * The account's email and whether it's verified, a way to verify it, and the email change: a new address plus the
- * current password sends a link to the new address, and nothing changes until it's opened (the old address keeps
- * working, and gets a notice). A pending change can be cancelled. The page re-reads the account after some
- * actions elsewhere (a password change cancels a pending change), so what the server says wins when it changes.
+ * current password sends a link to the new address, and nothing changes until it's opened and confirmed (the old
+ * address keeps working, and gets a notice). A pending change can be cancelled. The page re-reads the account after
+ * some actions elsewhere (a password change cancels a pending change), so what the server says wins when it changes.
  */
 export function EmailSection({ email, verified: serverVerified, pendingEmail, pendingExpires, emailAvailable, supportAvailable }: EmailSectionProps) {
   const serverPending: Pending | null = pendingEmail ? { email: pendingEmail, expires: pendingExpires } : null;
@@ -130,7 +130,7 @@ export function EmailSection({ email, verified: serverVerified, pendingEmail, pe
       if (result.ok) {
         const sentTo = typeof result.data.pendingEmail === "string" ? result.data.pendingEmail : address;
         showNotice(
-          { tone: "success", title: "Check your new inbox", message: `We’ve sent a link to ${sentTo}. Your email changes once you open it. Until then, keep using ${email} to log in.` },
+          { tone: "success", title: "Check your new inbox", message: `We’ve sent a link to ${sentTo}. Your email changes once you open it and confirm. Until then, keep using ${email} to log in.` },
           () => {
             setPending({ email: sentTo, expires: linkExpiryLabel(result.data.pendingEmailExpiresAt) });
             setChanging(false);
@@ -231,7 +231,7 @@ export function EmailSection({ email, verified: serverVerified, pendingEmail, pe
               if (errors.newEmail) setErrors((current) => ({ ...current, newEmail: undefined }));
             }}
             error={errors.newEmail}
-            hint="We’ll email a link to this address. Your email changes once you open it."
+            hint="We’ll email a link to this address. Your email changes once you open it and confirm."
           />
           <PasswordField
             ref={passwordRef}

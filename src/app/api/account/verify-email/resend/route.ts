@@ -60,11 +60,21 @@ export async function POST(request: Request) {
     const rate = await consumeRateLimit(`verify-email-resend:${userId}`, LINKS_PER_HOUR, HOUR_MS);
     if (!rate.allowed) return tooSoon(rate.retryAfterSeconds, "You’ve asked for several links in the last hour. Check your inbox and spam folder, or try again later.");
 
-    const token = await db.$transaction((tx) => issueAccountToken(tx, { userId, purpose: "EMAIL_VERIFICATION", email: user.email, now }));
+    const token = await db.$transaction(async (tx) => {
+      // Locks the account's row and re-checks it: an account deleted, confirmed or moved to another address since the
+      // lookup gets no link, and a deletion starting now waits for this transaction, then deletes the link with the rest.
+      const unchanged = await tx.user.updateMany({
+        where: { id: userId, status: "ACTIVE", email: user.email, emailVerifiedAt: null },
+        data: { updatedAt: now },
+      });
+      if (unchanged.count !== 1) return null;
+      return issueAccountToken(tx, { userId, purpose: "EMAIL_VERIFICATION", email: user.email, now });
+    });
+    if (!token) return Response.json({ error: "Your account changed while we were sending the link. Refresh the page, then try again.", code: "ACCOUNT_CHANGED" }, { status: 409 });
     const link = appUrl(`/api/account/verify-email?token=${token}`);
     await afterResponse(async () => {
       // A failed send is logged by sendEmail (purpose and error name only); the person can ask again after the cooldown.
-      await sendEmail({ to: user.email, purpose: "email-verification", ...verifyEmail(user.firstName, link) });
+      await sendEmail({ to: user.email, purpose: "email-verification", ...verifyEmail(null, link) });
     });
     return Response.json({ status: "sent" });
   } catch (error) {

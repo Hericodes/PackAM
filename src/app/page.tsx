@@ -1,6 +1,8 @@
+import { cookies } from "next/headers";
 import Link from "next/link";
 import { GatewayHeader } from "../components/student/GatewayHeader";
 import { Icon, type IconName } from "../components/ui/Icon";
+import { ACCOUNT_DELETED_COOKIE } from "../lib/account/deletion-policy";
 
 type Service = {
   id: string;
@@ -79,8 +81,10 @@ function ServiceCard({ service }: { service: Service }) {
 type HomePageProps = { searchParams: Promise<{ accountDeleted?: string }> };
 
 export default async function HomePage({ searchParams }: HomePageProps) {
-  // Where a deleted account lands after signing out (Settings → Delete account).
-  const accountDeleted = (await searchParams).accountDeleted === "1";
+  // Where a deleted account lands after signing out (Settings → Delete account). Only the browser that just deleted
+  // has the cookie, so the query alone shows nothing.
+  const [params, cookieStore] = await Promise.all([searchParams, cookies()]);
+  const accountDeleted = params.accountDeleted === "1" && cookieStore.get(ACCOUNT_DELETED_COOKIE)?.value === "1";
   return (
     <div className="flex min-h-svh flex-col text-black">
       <GatewayHeader />

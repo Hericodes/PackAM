@@ -91,14 +91,17 @@ async function postKeepingHeaders(handler: (request: Request) => Promise<Respons
   return { status: response.status, json: (await response.json()) as Record<string, unknown>, retryAfter: response.headers.get("retry-after") };
 }
 
-/** Opens a confirmation link as a browser would. The answer is a 303 to the result page. */
+/** Opens a confirmation link as a browser (or a mail scanner) would. The answer is a 303 to the page with the button. */
 async function openConfirmationLink(token: string | null) {
   const query = token === null ? "" : `?token=${encodeURIComponent(token)}`;
   const response = await app.verify.GET(new Request(`http://packam.test/api/account/verify-email${query}`));
   return { status: response.status, location: response.headers.get("location") };
 }
 
-const landedOn = (status: string) => ({ status: 303, location: `/verify-email?status=${status}` });
+/** Presses "Confirm my email" on that page: a same-site JSON POST of the token. Returns the { status } answered. */
+async function pressConfirm(token: unknown) {
+  return (await postKeepingHeaders(app.verify.POST, "/api/account/verify-email", { token }, { "Sec-Fetch-Site": "same-origin" })).json.status;
+}
 
 /** Captured emails to `address` for `purpose`, oldest first. Every test user has an address of its own. */
 function mailTo(address: string, purpose: string) {
@@ -169,6 +172,57 @@ test("forgot password matches the address however it's typed, and sends at most 
   assert.equal(tokens.length, 3, "the 4th request in the hour sends nothing");
   assert.notEqual((await tokenRow(tokens[0])).usedAt, null, "sending a new link stops the older ones working");
   assert.equal((await tokenRow(tokens[2])).usedAt, null);
+});
+
+test("a reset email greets by name only when the address is confirmed; otherwise \"Hi there,\"", { skip }, async () => {
+  const confirmed = await student();
+  const unconfirmed = await student();
+  await app.db.user.update({ where: { id: confirmed.userId }, data: { firstName: "Ifeoma", emailVerifiedAt: new Date() } });
+  await app.db.user.update({ where: { id: unconfirmed.userId }, data: { firstName: "Tobenna", emailVerifiedAt: null } });
+  for (const user of [confirmed, unconfirmed]) assert.equal((await requestReset(user.email)).status, 200);
+  assert.match(mailTo(confirmed.email, "password-reset")[0]?.text ?? "", /^Hi Ifeoma,\n\n/);
+  const [toUnconfirmed] = mailTo(unconfirmed.email, "password-reset");
+  assert.match(toUnconfirmed?.text ?? "", /^Hi there,\n\n/, "a name the account typed never opens an email to an address nobody confirmed");
+  assert.ok(!toUnconfirmed.text.includes("Tobenna") && !toUnconfirmed.html.includes("Tobenna"));
+});
+
+test("mail to an account's own confirmed address can't be crowded out of the per-inbox limit; mail to unconfirmed variants still can", { skip }, async () => {
+  const owner = await student();
+  const inbox = `owner-${randomUUID()}@uni.example`;
+  await app.db.user.update({ where: { id: owner.userId }, data: { email: inbox, emailVerifiedAt: new Date() } });
+  const [local, domain] = inbox.split("@");
+  // Someone fills the inbox's hourly allowance with mail to "+tag" variants of it, as sign-ups with them would.
+  const filler = (tag: string) => app.email.sendEmail({ to: `${local}+${tag}@${domain}`, purpose: "email-verification", subject: "Confirm", text: "Hi there,", html: "<p>Hi there,</p>" });
+  for (let i = 1; i <= 8; i += 1) assert.equal((await filler(String(i))).status, "sent");
+  assert.equal((await filler("9")).status, "failed", "the inbox's allowance is used up");
+
+  // The owner's own reset link, and the notice after the reset, still arrive.
+  assert.equal((await requestReset(inbox)).status, 200);
+  const token = tokenFrom(mailTo(inbox, "password-reset")[0], "/reset-password");
+  assert.equal((await confirmReset(token, NEW_PASSWORD)).status, 200);
+  assert.equal(mailTo(inbox, "password-changed").length, 1, "the security notice gets through");
+
+  // An account at a variant nobody confirmed shares the inbox's allowance, so its mail is still held back.
+  const variant = await student();
+  const variantAddress = `${local}+variant@${domain}`;
+  await app.db.user.update({ where: { id: variant.userId }, data: { email: variantAddress } });
+  assert.deepEqual((await requestReset(variantAddress)).json, { ok: true }, "the answer never changes");
+  assert.equal(mailTo(variantAddress, "password-reset").length, 0);
+});
+
+test("a reset that is the inbox's first proof greets \"Hi there,\": someone else may have made the account with that address", { skip }, async () => {
+  const reclaimed = await student();
+  const lure = "Claim your refund at packam-refunds.example";
+  await app.db.user.update({ where: { id: reclaimed.userId }, data: { firstName: lure, emailVerifiedAt: null } });
+  assert.equal((await requestReset(reclaimed.email)).status, 200);
+  const [link] = mailTo(reclaimed.email, "password-reset");
+  assert.match(link?.text ?? "", /^Hi there,\n\n/, "the reset link to an unconfirmed address carries no name either");
+  assert.equal((await confirmReset(tokenFrom(link, "/reset-password"), NEW_PASSWORD)).status, 200);
+  const [notice] = mailTo(reclaimed.email, "password-changed");
+  assert.match(notice?.text ?? "", /^Hi there,\n\n/);
+  assert.ok(!notice.text.includes("Claim") && !notice.html.includes("Claim"), "the name typed before anyone proved the inbox stays out");
+  const after = await app.db.user.findUniqueOrThrow({ where: { id: reclaimed.userId }, select: { emailVerifiedAt: true } });
+  assert.ok(after.emailVerifiedAt, "and the reset confirms the address");
 });
 
 test("forgot password: 429 only for too many requests from one network; 400 for anything that isn't an email", { skip }, async () => {
@@ -286,51 +340,71 @@ test("a confirmation link confirms only the address it was sent to: verified, al
   const issue = (user: User) => app.tokens.issueAccountToken(db, { userId: user.userId, purpose: "EMAIL_VERIFICATION", email: user.email });
   const confirmedAt = async (user: User) => (await db.user.findUniqueOrThrow({ where: { id: user.userId }, select: { emailVerifiedAt: true } })).emailVerifiedAt;
 
-  // Works signed out; a HEAD probe (link checkers) uses nothing up; a second open (or a mail scanner first) says "already".
+  // Works signed out. Opening the link (a person, a HEAD probe from a link checker, or a mail scanner) only leads to
+  // the page with the button: nothing is confirmed or used up until it's pressed; pressing again says "already".
   signInAs(null);
   const ada = await student({ password: false });
   const adaLink = await issue(ada);
   assert.equal(app.verify.HEAD().status, 204);
-  assert.deepEqual(await openConfirmationLink(adaLink), landedOn("verified"));
+  assert.deepEqual(await openConfirmationLink(adaLink), { status: 303, location: `/verify-email?token=${adaLink}` });
+  assert.deepEqual(await openConfirmationLink(null), { status: 303, location: "/verify-email" });
+  assert.equal(await confirmedAt(ada), null, "opening the link confirms nothing");
+  assert.equal((await tokenRow(adaLink)).usedAt, null, "and doesn't use it up");
+  assert.equal(await pressConfirm(adaLink), "verified");
   assert.ok(await confirmedAt(ada));
-  assert.deepEqual(await openConfirmationLink(adaLink), landedOn("already"));
+  assert.equal(await pressConfirm(adaLink), "already");
 
   // Only the newest link works; an expired one confirms nothing.
   const ben = await student({ password: false });
   const older = await issue(ben);
   const newer = await issue(ben);
-  assert.deepEqual(await openConfirmationLink(older), landedOn("used"));
+  assert.equal(await pressConfirm(older), "used");
   await expire(newer);
-  assert.deepEqual(await openConfirmationLink(newer), landedOn("expired"));
+  assert.equal(await pressConfirm(newer), "expired");
   assert.equal(await confirmedAt(ben), null);
 
   // Sent before the email changed: it proves nothing about the new address.
   const cara = await student({ password: false });
   const caraLink = await issue(cara);
   await db.user.update({ where: { id: cara.userId }, data: { email: `cara-${randomUUID()}@packam.test` } });
-  assert.deepEqual(await openConfirmationLink(caraLink), landedOn("invalid"));
+  assert.equal(await pressConfirm(caraLink), "invalid");
   assert.equal(await confirmedAt(cara), null);
 
   // Already confirmed (say, by a password reset): the first confirmation time is kept, even an expired link says so.
   const dan = await student({ password: false });
   const firstConfirmed = new Date("2026-01-02T03:04:05.000Z");
   await db.user.update({ where: { id: dan.userId }, data: { emailVerifiedAt: firstConfirmed } });
-  assert.deepEqual(await openConfirmationLink(await issue(dan)), landedOn("already"));
+  assert.equal(await pressConfirm(await issue(dan)), "already");
   const danExpired = await issue(dan);
   await expire(danExpired);
-  assert.deepEqual(await openConfirmationLink(danExpired), landedOn("already"));
+  assert.equal(await pressConfirm(danExpired), "already");
   assert.equal((await confirmedAt(dan))?.toISOString(), firstConfirmed.toISOString());
 
   // Not a confirmation link at all.
   const resetLink = await app.tokens.issueAccountToken(db, { userId: dan.userId, purpose: "PASSWORD_RESET", email: dan.email });
-  for (const token of [null, "", "nope", newToken(), resetLink]) {
-    assert.deepEqual(await openConfirmationLink(token), landedOn("invalid"), String(token));
+  for (const token of [null, "", "nope", newToken(), resetLink, 42, ["x"]]) {
+    assert.equal(await pressConfirm(token), "invalid", String(token));
   }
 
   // The token stays out of caches and referrers.
   const response = await app.verify.GET(new Request("http://packam.test/api/account/verify-email?token=nope"));
   assert.equal(response.headers.get("cache-control"), "no-store");
   assert.equal(response.headers.get("referrer-policy"), "no-referrer");
+});
+
+test("pressing Confirm my email needs a same-site JSON request; a refused one leaves the link unused", { skip }, async () => {
+  const user = await student({ password: false });
+  const link = await app.tokens.issueAccountToken(app.db, { userId: user.userId, purpose: "EMAIL_VERIFICATION", email: user.email });
+  const crossSite = await postKeepingHeaders(app.verify.POST, "/api/account/verify-email", { token: link }, { "Sec-Fetch-Site": "cross-site", Origin: "https://evil.example" });
+  assert.equal(crossSite.status, 403);
+  const form = await app.verify.POST(new Request("http://packam.test/api/account/verify-email", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: `token=${link}`,
+  }));
+  assert.equal(form.status, 415);
+  assert.equal((await tokenRow(link)).usedAt, null, "refused requests use nothing up");
+  assert.equal(await pressConfirm(link), "verified");
 });
 
 test("resend: signed in only; a new 24-hour link, a 60-second cooldown and 3 an hour; nothing once confirmed", { skip }, async () => {
@@ -366,8 +440,8 @@ test("resend: signed in only; a new 24-hour link, a 60-second cooldown and 3 an 
   const links = mailTo(user.email, "email-verification").map((message) => tokenFrom(message, "/api/account/verify-email"));
   assert.equal(links.length, 3);
 
-  assert.deepEqual(await openConfirmationLink(links[2]), landedOn("verified"));
-  assert.deepEqual(await openConfirmationLink(links[0]), landedOn("already"), "an older link, once the address is confirmed");
+  assert.equal(await pressConfirm(links[2]), "verified");
+  assert.equal(await pressConfirm(links[0]), "already", "an older link, once the address is confirmed");
   const confirmed = await resendLink(user);
   assert.deepEqual([confirmed.status, confirmed.json], [200, { status: "already-verified" }]);
   assert.equal(mailTo(user.email, "email-verification").length, 3, "nothing sent once confirmed");

@@ -307,8 +307,8 @@ test("email change: refused for a wrong password, a taken, same or invalid addre
   const notices = mailTo(askerEmail);
   assert.equal(notices.length, 1);
   assert.equal(notices[0].purpose, "email-change-requested");
-  assert.ok(notices[0].text.includes(maskEmail(newEmail)), "the old address sees the new one masked");
-  assert.ok(!notices[0].text.includes(newEmail) && !/token=/.test(notices[0].text), "never the full new address or the link");
+  assert.match(notices[0].text, /to a different address\./, "an unconfirmed old address isn't shown the new one: the account typed both");
+  assert.ok(!notices[0].text.includes(newEmail.split("@")[1]) && !/token=/.test(notices[0].text), "not even its domain, and never the link");
 
   const unchanged = await account(asker.userId);
   assert.deepEqual([unchanged.email, unchanged.emailVerifiedAt], [askerEmail, null], "the old email keeps working until confirmed");
@@ -714,7 +714,7 @@ test("deleting a student account anonymises it in place: personal details go, mo
   assert.equal(await db.user.count({ where: { OR: [{ email: before.email }, { phone }] } }), 0);
 });
 
-test("after a deletion, finished print documents leave storage; files of active accounts or unfinished jobs stay", { skip }, async () => {
+test("after a deletion, finished print documents leave storage; files of active or suspended accounts, or unfinished jobs, stay", { skip }, async () => {
   const { db, deletion } = app;
   const student = await createTestUser("STUDENT");
   const userId = student.userId;
@@ -728,6 +728,9 @@ test("after a deletion, finished print documents leave storage; files of active 
   const delivered = await document("DELIVERED");
   const failing = await document("CANCELLED");
   const inProgress = await document("PRINTING");
+  // A draft whose upload never finished: the file may be in storage at the draft's path, with no document row.
+  const unfinishedUpload = await db.printJob.create({ data: { userId, status: "CANCELLED" }, select: { id: true } });
+  const unfinishedPath = `packam/print-jobs/${unfinishedUpload.id}.pdf`;
   const removedFiles: string[] = [];
   const fakeStorage = async (publicId: string) => {
     if (publicId === failing.publicId) throw new Error("Storage is unavailable.");
@@ -738,10 +741,26 @@ test("after a deletion, finished print documents leave storage; files of active 
   assert.deepEqual(removedFiles, []);
 
   await db.user.update({ where: { id: userId }, data: { status: "DEACTIVATED" } });
-  assert.deepEqual(await deletion.removeDeletedAccountDocuments(userId, fakeStorage), { removed: 1, failed: 1 }, "one failure doesn't stop the others");
-  assert.deepEqual(removedFiles, [delivered.publicId]);
+  assert.deepEqual(await deletion.removeDeletedAccountDocuments(userId, fakeStorage), { removed: 0, failed: 0 }, "a suspended (deactivated, not deleted) account keeps its files");
+  assert.deepEqual(removedFiles, []);
+
+  await db.user.update({ where: { id: userId }, data: { email: deletedAccountEmail(userId) } });
+  assert.deepEqual(await deletion.removeDeletedAccountDocuments(userId, fakeStorage), { removed: 2, failed: 1 }, "one failure doesn't stop the others");
+  assert.deepEqual(removedFiles, [delivered.publicId, unfinishedPath], "including the path of an upload that never finished");
   const deletedAt = async (id: string) => (await db.printDocument.findUniqueOrThrow({ where: { id } })).deletedAt;
   assert.ok(await deletedAt(delivered.id), "the record stays, marked deleted");
   assert.equal(await deletedAt(failing.id), null, "a failed removal is left to try again");
   assert.equal(await deletedAt(inProgress.id), null, "an unfinished job keeps its file");
+});
+
+test("an email change names the new address (masked) to a confirmed old address only", { skip }, async () => {
+  const asker = await userWithPassword();
+  await app.db.user.update({ where: { id: asker.userId }, data: { emailVerifiedAt: new Date() } });
+  const oldEmail = (await account(asker.userId)).email;
+  const newEmail = freshEmail("confirmed-asker-new");
+  const asked = await changeEmail(asker, newEmail);
+  assert.equal(asked.status, 200, JSON.stringify(asked.json));
+  const [notice] = mailTo(oldEmail);
+  assert.equal(notice?.purpose, "email-change-requested");
+  assert.ok(notice.text.includes(maskEmail(newEmail)) && !notice.text.includes(newEmail), "masked, never in full");
 });

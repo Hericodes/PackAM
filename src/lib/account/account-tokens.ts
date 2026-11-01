@@ -92,6 +92,21 @@ export async function revokeAccountTokens(
   return result.count;
 }
 
+/**
+ * How long a link's row is kept after it expires, so an old link still opens as "used" or "expired" rather than
+ * "invalid". Every link expires within a day of being sent, used or not, so this bounds the table.
+ */
+export const EXPIRED_TOKEN_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+
+/** Housekeeping for the scheduled run: deletes up to `take` links that expired over 30 days ago. Returns how many. */
+export async function purgeExpiredAccountTokens(db: TokenStore, input: { now?: Date; take?: number } = {}): Promise<number> {
+  const cutoff = new Date((input.now ?? new Date()).getTime() - EXPIRED_TOKEN_RETENTION_MS);
+  const rows = await db.accountToken.findMany({ where: { expiresAt: { lt: cutoff } }, orderBy: { expiresAt: "asc" }, take: input.take ?? 500, select: { id: true } });
+  if (rows.length === 0) return 0;
+  const result = await db.accountToken.deleteMany({ where: { id: { in: rows.map((row) => row.id) }, expiresAt: { lt: cutoff } } });
+  return result.count;
+}
+
 /** The new address of an email change still waiting for confirmation (newest unused, unexpired link), or null. */
 export async function findPendingEmailChange(db: TokenStore, userId: string, now = new Date()): Promise<{ email: string; expiresAt: Date } | null> {
   return db.accountToken.findFirst({

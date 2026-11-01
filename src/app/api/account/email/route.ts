@@ -8,7 +8,7 @@ import { afterResponse } from "../../../../lib/after-response";
 import { AppUrlConfigError, appUrl } from "../../../../lib/app-url";
 import { isSchemaBehindCode, accountSchemaBehindResponse } from "../../../../lib/db-errors";
 import { isEmailConfigured, sendEmail } from "../../../../lib/email";
-import { confirmEmailChange, emailChangeRequestedNotice } from "../../../../lib/email/templates";
+import { confirmEmailChange, confirmedName, emailChangeRequestedNotice } from "../../../../lib/email/templates";
 import { TOKEN_TTL_MS, findPendingEmailChange, issueAccountToken, revokeAccountTokens } from "../../../../lib/account/account-tokens";
 import { canonicalEmailForLimits, isValidEmail, maskEmail, normaliseEmail } from "../../../../lib/account/validation";
 import { clientAddress, consumeRateLimit } from "../../../../lib/rate-limit";
@@ -18,8 +18,8 @@ const HOUR_MS = 60 * 60 * 1000;
 /** Per account, wrong passwords and refusals included. */
 const REQUESTS_PER_ACCOUNT_PER_HOUR = 5;
 /**
- * Per network, every account on it together, counted before anything is checked: one person with many accounts
- * can't send links to many outside inboxes, or keep asking which addresses already have an account.
+ * Per network, every account on it together, counted before the address, password or "already in use" checks: one
+ * person with many accounts can't send links to many outside inboxes, or keep asking which addresses have an account.
  */
 const REQUESTS_PER_NETWORK_PER_HOUR = 20;
 /** Confirmation links to one inbox, whichever accounts ask ("+tag" and Gmail dot variants count as one inbox). */
@@ -53,7 +53,7 @@ export async function POST(request: Request) {
   if (!isValidEmail(newEmail)) return Response.json({ error: "Enter a valid email address, like name@example.com.", code: "INVALID_EMAIL" }, { status: 400 });
 
   try {
-    const user = await db.user.findFirst({ where: { id: userId, status: "ACTIVE" }, select: { id: true, email: true, firstName: true, passwordHash: true } });
+    const user = await db.user.findFirst({ where: { id: userId, status: "ACTIVE" }, select: { id: true, email: true, firstName: true, passwordHash: true, emailVerifiedAt: true } });
     if (!user) return signInRequired();
     if (newEmail === user.email) return Response.json({ error: "That’s already your email address.", code: "SAME_EMAIL" }, { status: 400 });
     // The password comes before anything that says whether another account uses the address.
@@ -70,8 +70,14 @@ export async function POST(request: Request) {
 
     const now = new Date();
     const token = await db.$transaction(async (tx) => {
-      const active = await tx.user.findFirst({ where: { id: user.id, status: "ACTIVE" }, select: { id: true } });
-      if (!active) return null;
+      // Locks the account's row and checks nothing changed since the password was checked: a password change, reset
+      // or deletion that committed meanwhile matches nothing here, so no link outlives it; one that starts now waits
+      // for this transaction, then retires the link as usual.
+      const unchanged = await tx.user.updateMany({
+        where: { id: user.id, status: "ACTIVE", email: user.email, passwordHash: user.passwordHash },
+        data: { updatedAt: now },
+      });
+      if (unchanged.count !== 1) return null;
       // Marks any earlier change link used, so only this one works.
       const issued = await issueAccountToken(tx, { userId: user.id, purpose: "EMAIL_CHANGE", email: newEmail, now });
       await writeAuditLog(tx, {
@@ -91,7 +97,10 @@ export async function POST(request: Request) {
       await sendEmail({ to: newEmail, purpose: "email-change", ...confirmEmailChange(null, link, newEmail) });
     });
     await afterResponse(async () => {
-      await sendEmail({ to: user.email, purpose: "email-change-requested", ...emailChangeRequestedNotice(user.firstName, maskEmail(newEmail)) });
+      // Names the new address only to a confirmed inbox: an unconfirmed one may belong to someone the account isn't.
+      const confirmed = Boolean(user.emailVerifiedAt);
+      const notice = emailChangeRequestedNotice(confirmedName(user), confirmed ? maskEmail(newEmail) : null);
+      await sendEmail({ to: user.email, purpose: "email-change-requested", toConfirmedAddress: confirmed, ...notice });
     });
     return Response.json({ pendingEmail: newEmail, pendingEmailExpiresAt: new Date(now.getTime() + TOKEN_TTL_MS.EMAIL_CHANGE), status: "sent" });
   } catch (error) {
