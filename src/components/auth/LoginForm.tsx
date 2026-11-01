@@ -203,14 +203,14 @@ function isInternalPath(value: unknown): value is string {
 
 type Exit = { greeting: string; destination: string; sources: PackSource[]; logo: PackSource | null };
 
-/** After the animation, how long router.replace gets before the destination is loaded outright. */
-const HARD_NAVIGATION_MS = 4000;
+/** After navigation starts, how long router.replace gets before the destination is loaded outright. */
+const HARD_NAVIGATION_MS = 3000;
 
 /**
  * The end of a successful sign-in or sign-up: <AuthSuccess> over the page, then the destination. Call leave() only
  * once the server has confirmed the sign-in, and only once: it measures the form there and then and keeps the result,
  * so the animation's props never change (it would restart if they did). Render `overlay`, and make the page under it
- * inert while `leaving`. The destination opens with router.replace; if this page is still here 4 seconds later (a
+ * inert while `leaving`. The destination opens with router.replace; if this page is still here 3 seconds later (a
  * slow or stuck navigation), it is loaded outright instead.
  */
 export function useAuthExit() {
@@ -219,8 +219,12 @@ export function useAuthExit() {
   const [navigatingTo, setNavigatingTo] = useState<string | null>(null);
   const destination = exit?.destination ?? "/";
 
-  // Stable once leave() has run, as AuthSuccess needs.
+  // Stable once leave() has run, as AuthSuccess needs. Called when everything has landed in the parcel (so the
+  // destination loads during the bounce) and again when the animation ends; only the first call navigates.
+  const navigated = useRef(false);
   const finish = useCallback(() => {
+    if (navigated.current) return;
+    navigated.current = true;
     router.replace(destination);
     setNavigatingTo(destination);
   }, [router, destination]);
@@ -236,6 +240,6 @@ export function useAuthExit() {
     setExit({ greeting, destination: to, sources: measurePackSources(form), logo: measureAuthLogo() });
   }, []);
 
-  const overlay = exit ? <AuthSuccess greeting={exit.greeting} sources={exit.sources} logoFrom={exit.logo} onFinish={finish} /> : null;
+  const overlay = exit ? <AuthSuccess greeting={exit.greeting} sources={exit.sources} logoFrom={exit.logo} onArrive={finish} onFinish={finish} /> : null;
   return { leaving: exit !== null, leave, overlay };
 }

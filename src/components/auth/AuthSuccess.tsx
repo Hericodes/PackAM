@@ -35,7 +35,7 @@ function prefersReducedMotion() {
   try { return window.matchMedia("(prefers-reduced-motion: reduce)").matches; } catch { return false; }
 }
 
-export function AuthSuccess({ greeting, sources, logoFrom, onFinish }: { greeting: string; sources: PackSource[]; logoFrom?: PackSource | null; onFinish: () => void }) {
+export function AuthSuccess({ greeting, sources, logoFrom, onFinish, onArrive }: { greeting: string; sources: PackSource[]; logoFrom?: PackSource | null; onFinish: () => void; onArrive?: () => void }) {
   const finished = useRef(false);
   const overlayRef = useRef<HTMLDivElement>(null);
   const logoRef = useRef<HTMLDivElement>(null);
@@ -115,6 +115,8 @@ export function AuthSuccess({ greeting, sources, logoFrom, onFinish }: { greetin
       // The parcel takes the delivery: the plain logo underneath loses its parcel so the moving one never doubles up.
       const popAt = 780;
       await new Promise((resolve) => window.setTimeout(resolve, popAt));
+      // Everything has landed: the destination can start loading behind the parcel's bounce instead of after it.
+      if (!cancelled) { try { onArrive?.(); } catch { /* navigation is the caller's */ } }
       const base = baseRef.current; const parcel = parcelRef.current;
       if (base && parcel) {
         base.style.setProperty("mask-image", LOGO_PARCEL_MASK);
@@ -146,7 +148,7 @@ export function AuthSuccess({ greeting, sources, logoFrom, onFinish }: { greetin
       window.clearTimeout(safety);
       document.body.style.overflow = previousOverflow;
     };
-  }, [logoFrom, onFinish, reduced, sources]);
+  }, [logoFrom, onArrive, onFinish, reduced, sources]);
 
   const logoSize = "min(260px, 58vw)";
   return (
