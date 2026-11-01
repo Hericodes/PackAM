@@ -1,60 +1,84 @@
 import { Prisma } from "@prisma/client";
 
-import { auth } from "../../../../../auth";
 import { db } from "../../../../../lib/db";
 import { writeAuditLog } from "../../../../../lib/audit";
 import { afterResponse } from "../../../../../lib/after-response";
-import { isSchemaBehindCode, accountSchemaBehindResponse } from "../../../../../lib/db-errors";
+import { isSchemaBehindCode, missingSchemaElement } from "../../../../../lib/db-errors";
 import { sendEmail } from "../../../../../lib/email";
 import { emailChangedNotice } from "../../../../../lib/email/templates";
 import { consumeAccountToken, revokeAccountTokens } from "../../../../../lib/account/account-tokens";
 import { hashToken, isWellFormedToken } from "../../../../../lib/account/tokens";
+import { rejectCrossSite, requireJson } from "../../../../../lib/request-guards";
 
-// The token is only ever in this request's address: never cached, and never passed on as a Referer.
+// The token is only ever in the link's own address: never cached, and never passed on as a Referer.
 const LINK_HEADERS = { "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" };
 
 type Outcome =
-  | { kind: "changed"; userId: string; previousEmail: string | null; firstName: string | null }
+  | { kind: "changed"; previousEmail: string | null; firstName: string | null }
   | { kind: "invalid" | "expired" | "used" | "taken" };
 
+/** What POST answers, as { status }. "error": nothing changed and the link wasn't used, so pressing again can work. */
+type ConfirmStatus = Outcome["kind"] | "error";
+
 /**
- * The link in the "confirm your new email" message (works signed out). Re-checks that no other account took the
- * address meanwhile, switches the account's email, marks it confirmed, retires every other link sent to the old
- * address and tells the old address. Then 303 to /settings?email=changed, or /login?emailChanged=1 when this
- * browser isn't signed in as that account; otherwise to /settings?email=invalid|expired|used|taken. A link that
- * was already used for this same change (a mail scanner may open it first) still answers "changed".
+ * The link in the "confirm your new email" message. Opening it changes nothing: mail scanners and link previews open
+ * links too, and one opening a link sent to a mistyped address must never hand that address (and with it, password
+ * resets) the account. It only leads, with a 303, to /confirm-email?token=…, a page that works signed in or out,
+ * shows the new address masked and asks for a press of "Confirm new email", which POSTs here. The token stays in the
+ * query string, as it arrived.
  */
-export async function GET(request: Request) {
+export function GET(request: Request) {
   const token = new URL(request.url).searchParams.get("token");
+  // Whatever arrived goes on as it is (encoded): the page explains a link that is incomplete or isn't one of ours.
+  return redirectTo(token ? `/confirm-email?${new URLSearchParams({ token })}` : "/confirm-email");
+}
+
+/** Link checkers often send HEAD first. It changes nothing, like GET, and doesn't even redirect. */
+export function HEAD() {
+  return new Response(null, { status: 200, headers: LINK_HEADERS });
+}
+
+/**
+ * The "Confirm new email" button on /confirm-email: { token }. Works signed in or out (the token is the proof).
+ * Re-checks that no other account took the address meanwhile, switches the account's email, marks it confirmed,
+ * retires every other link sent to the old address and tells the old address. Answers 200 { status: "changed" |
+ * "expired" | "used" | "invalid" | "taken" }, or { status: "error" } with 500 (503 while the database is behind the
+ * code). A link already used for this same change (pressed twice, or in two tabs) still answers "changed".
+ */
+export async function POST(request: Request) {
+  const blocked = rejectCrossSite(request) ?? requireJson(request);
+  if (blocked) return blocked;
+  const body = await readJsonObject(request);
+
   try {
-    const outcome = await applyEmailChange(token);
-    if (outcome.kind !== "changed") return redirectTo(`/settings?email=${outcome.kind}`);
-    const { previousEmail, firstName } = outcome;
-    if (previousEmail) {
+    const outcome = await applyEmailChange(body?.token ?? null);
+    if (outcome.kind === "changed" && outcome.previousEmail) {
+      const { previousEmail, firstName } = outcome;
       await afterResponse(async () => {
         await sendEmail({ to: previousEmail, purpose: "email-changed", ...emailChangedNotice(firstName) });
       });
     }
-    const session = await auth();
-    return redirectTo(session?.user?.id === outcome.userId ? "/settings?email=changed" : "/login?emailChanged=1");
+    return answer(outcome.kind);
   } catch (error) {
-    if (isSchemaBehindCode(error)) return accountSchemaBehindResponse(error, "GET /api/account/email/confirm");
+    // Nothing was changed and the link wasn't used up, so pressing the button again can still work.
+    if (isSchemaBehindCode(error)) {
+      console.error(`SCHEMA BEHIND CODE in POST /api/account/email/confirm: the database is missing ${missingSchemaElement(error)}. Apply the pending Prisma migrations (npx prisma migrate deploy) to this database.`);
+      return answer("error", 503);
+    }
     console.error("EMAIL CHANGE CONFIRM ERROR:", error instanceof Error ? error.name : "Unknown error");
-    // Nothing was changed and the link wasn't used up, so opening it again can still work.
-    return Response.json({ error: "We couldn’t confirm your new email just now. Please open the link again in a few minutes." }, { status: 500, headers: LINK_HEADERS });
+    return answer("error", 500);
   }
-}
-
-/** Link checkers often send HEAD first. Without this, Next would answer HEAD by running GET, using the link up. */
-export function HEAD() {
-  return new Response(null, { status: 200, headers: LINK_HEADERS });
 }
 
 function redirectTo(path: string) {
   return new Response(null, { status: 303, headers: { Location: path, ...LINK_HEADERS } });
 }
 
-async function applyEmailChange(token: string | null): Promise<Outcome> {
+function answer(status: ConfirmStatus, httpStatus = 200) {
+  return Response.json({ status }, { status: httpStatus, headers: { "Cache-Control": "no-store" } });
+}
+
+async function applyEmailChange(token: unknown): Promise<Outcome> {
   const now = new Date();
   try {
     return await db.$transaction(async (tx): Promise<Outcome> => {
@@ -77,7 +101,7 @@ async function applyEmailChange(token: string | null): Promise<Outcome> {
         newState: { emailVerified: true },
         details: "New email confirmed from the emailed link.",
       });
-      return { kind: "changed", userId: user.id, previousEmail: user.email === consumed.email ? null : user.email, firstName: user.firstName };
+      return { kind: "changed", previousEmail: user.email === consumed.email ? null : user.email, firstName: user.firstName };
     });
   } catch (error) {
     // Another account took the address between the check and the update. Nothing changed, and the link is unused.
@@ -87,14 +111,24 @@ async function applyEmailChange(token: string | null): Promise<Outcome> {
 }
 
 /** A used link whose new address is already the account's email: this change went through earlier. */
-async function alreadyConfirmed(tx: Prisma.TransactionClient, token: string | null): Promise<Outcome> {
+async function alreadyConfirmed(tx: Prisma.TransactionClient, token: unknown): Promise<Outcome> {
   if (!isWellFormedToken(token)) return { kind: "used" };
   const row = await tx.accountToken.findUnique({
     where: { tokenHash: hashToken(token) },
-    select: { purpose: true, email: true, user: { select: { id: true, email: true, status: true } } },
+    select: { purpose: true, email: true, user: { select: { email: true, status: true } } },
   });
   if (row?.purpose === "EMAIL_CHANGE" && row.user.status === "ACTIVE" && row.user.email === row.email) {
-    return { kind: "changed", userId: row.user.id, previousEmail: null, firstName: null };
+    return { kind: "changed", previousEmail: null, firstName: null };
   }
   return { kind: "used" };
+}
+
+/** The JSON body when it is an object, otherwise null. */
+async function readJsonObject(request: Request): Promise<Record<string, unknown> | null> {
+  try {
+    const body: unknown = await request.json();
+    return body && typeof body === "object" && !Array.isArray(body) ? (body as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
 }

@@ -14,6 +14,29 @@ export function normaliseEmail(value: unknown): string {
   return typeof value === "string" ? value.trim().toLowerCase() : "";
 }
 
+/** Gmail's two domains reach the same inboxes, and Gmail ignores dots in the name part. */
+const GMAIL_DOMAINS = new Set(["gmail.com", "googlemail.com"]);
+
+/**
+ * One key per inbox, for counting what PackAM sends to it: trimmed and lowercased, any "+tag" dropped from the name
+ * part, and for Gmail the dots too (with googlemail.com read as gmail.com), so "Ada.Obi+x@GoogleMail.com" and
+ * "adaobi@gmail.com" count as the same person. Only for rate limits: never stored, shown or sent to.
+ */
+export function canonicalEmailForLimits(value: string): string {
+  const email = value.trim().toLowerCase();
+  const at = email.lastIndexOf("@");
+  if (at === -1) return email;
+  let local = email.slice(0, at);
+  let domain = email.slice(at + 1);
+  const plus = local.indexOf("+");
+  if (plus !== -1) local = local.slice(0, plus);
+  if (GMAIL_DOMAINS.has(domain)) {
+    local = local.replace(/\./g, "");
+    domain = "gmail.com";
+  }
+  return `${local}@${domain}`;
+}
+
 const EMAIL_LOCAL = /^[a-z0-9!#$%&'*+/=?^_`{|}~.-]{1,64}$/i;
 const DOMAIN_LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i;
 

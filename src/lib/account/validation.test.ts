@@ -1,10 +1,25 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { isValidEmail, maskEmail, nameProblem, normaliseEmail, normaliseName, normalisePhone, phoneProblem } from "./validation";
+import { canonicalEmailForLimits, isValidEmail, maskEmail, nameProblem, normaliseEmail, normaliseName, normalisePhone, phoneProblem } from "./validation";
 
 test("emails are trimmed and lowercased, as they are stored", () => {
   assert.equal(normaliseEmail("  Ada.Okafor@Uni.EDU "), "ada.okafor@uni.edu");
   for (const junk of [undefined, null, 42, ["ada@uni.edu"]]) assert.equal(normaliseEmail(junk), "");
+});
+
+test("rate limits count one inbox once: +tags dropped everywhere, Gmail dots and googlemail.com too", () => {
+  assert.equal(canonicalEmailForLimits("  Ada.Okafor@Uni.EDU "), "ada.okafor@uni.edu", "trimmed and lowercased; dots kept outside Gmail");
+  for (const variant of ["ada.okafor+1@uni.edu", "Ada.Okafor+packam+x@UNI.edu", "ada.okafor+@uni.edu"]) {
+    assert.equal(canonicalEmailForLimits(variant), "ada.okafor@uni.edu", variant);
+  }
+  for (const variant of ["adaokafor@gmail.com", "Ada.Okafor@Gmail.com", "a.d.a.o.k.a.f.o.r+promo@gmail.com", "ada.okafor@googlemail.com", "ADAOKAFOR+1@GoogleMail.com"]) {
+    assert.equal(canonicalEmailForLimits(variant), "adaokafor@gmail.com", variant);
+  }
+  assert.equal(canonicalEmailForLimits("ada.okafor@gmail.com.ng"), "ada.okafor@gmail.com.ng", "only Gmail's own domains lose their dots");
+  assert.equal(canonicalEmailForLimits("ada.okafor@mail.gmail.com"), "ada.okafor@mail.gmail.com");
+  assert.notEqual(canonicalEmailForLimits("ada@uni.edu"), canonicalEmailForLimits("ada@uni.edu.ng"), "different domains stay apart");
+  assert.notEqual(canonicalEmailForLimits("ada-1@uni.edu"), canonicalEmailForLimits("ada@uni.edu"), "only + starts a tag");
+  assert.equal(canonicalEmailForLimits("no-at-sign"), "no-at-sign");
 });
 
 test("a sane email shape is required, without rejecting real addresses", () => {

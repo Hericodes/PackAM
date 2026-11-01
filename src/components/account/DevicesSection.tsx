@@ -9,7 +9,7 @@ import { Icon } from "../ui/Icon";
 import { SettingsNotice, type Notice } from "./SettingsNotice";
 import { SettingsSection } from "./SettingsSection";
 import { accountRequest, problemMessage } from "./account-requests";
-import { LOG_IN_AGAIN, signInAgain } from "./sign-in-again";
+import { LOG_IN_AGAIN, reauthEmail, signInAgain } from "./sign-in-again";
 
 type Scope = "others" | "all";
 
@@ -106,8 +106,9 @@ export function DevicesSection({ email }: { email: string }) {
           window.location.replace(SIGNED_OUT);
         }
       } else if (result.ok) {
-        // Every session just ended, this one too: sign back in with the same password to stay signed in here.
-        if (await signInAgain(email, password)) {
+        // Every session just ended, this one too: sign back in with the same password to stay signed in here, as the
+        // account's email is now (the server's answer; this page's copy may be older).
+        if (await signInAgain(reauthEmail(result.data, email), password)) {
           flushSync(() => {
             reset();
             setNotice({ tone: "success", title: "Other devices signed out", message: "Anyone using your account on another device will need your password to log in again. You’re still signed in here." });

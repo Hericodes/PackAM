@@ -84,13 +84,26 @@ async function userWithPassword(role: "STUDENT" | "RUNNER" | "ADMIN" = "STUDENT"
   return user;
 }
 
+/** call(), keeping the response headers callRoute drops (Retry-After). */
+async function callKeepingHeaders(user: User | null, handler: (request: Request) => Response | Promise<Response>, options: { method: string; body?: unknown; headers?: Record<string, string> }) {
+  signInAs(user);
+  const response = await handler(new Request("http://packam.test/", {
+    method: options.method,
+    headers: { "Content-Type": "application/json", "x-real-ip": testClientIp(), ...options.headers },
+    ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
+  }));
+  return { status: response.status, json: (await response.json()) as Record<string, unknown>, retryAfter: response.headers.get("retry-after") };
+}
+
 const account = (userId: string) => app.db.user.findUniqueOrThrow({ where: { id: userId } });
 const freshEmail = (label: string) => `${label}-${randomUUID()}@packam.test`;
 const freshPhone = () => `080${String(parseInt(randomUUID().replace(/-/g, "").slice(0, 10), 16) % 100_000_000).padStart(8, "0")}`;
 const mailTo = (address: string) => app.mail.testOutbox().filter((message) => message.to === address);
 const confirmLink = (token: string) => `http://packam.test/api/account/email/confirm?token=${token}`;
-const changeEmail = (user: User, newEmail: string, currentPassword = PASSWORD) =>
-  call(user, app.email.POST, { method: "POST", body: { newEmail, currentPassword } });
+const changeEmail = (user: User, newEmail: string, currentPassword = PASSWORD, headers: Record<string, string> = {}) =>
+  call(user, app.email.POST, { method: "POST", body: { newEmail, currentPassword }, headers });
+/** The token in an emailed link's query string, which /confirm-email receives and its button sends back. */
+const tokenIn = (link: string) => new URL(link).searchParams.get("token");
 
 /** Asks for an email change and returns the link from the confirmation email. */
 async function requestChange(user: User, newEmail: string) {
@@ -101,11 +114,25 @@ async function requestChange(user: User, newEmail: string) {
   return link;
 }
 
-/** Opens an emailed link in a browser signed in as `user` (callRoute drops headers, so the handler is called directly). */
-async function openLink(user: User | null, link: string) {
-  signInAs(user);
+/**
+ * Opens an emailed link as a browser, mail scanner or link preview would (callRoute drops headers, so the handler is
+ * called directly). It only ever leads to /confirm-email.
+ */
+async function openLink(link: string) {
   const response = await app.confirm.GET(new Request(link));
   return { status: response.status, location: response.headers.get("location") };
+}
+
+/** Sends `token` the way /confirm-email's button does, from a browser signed in as `user` (null = signed out). */
+function confirmWith(user: User | null, token: unknown, headers: Record<string, string> = {}) {
+  return call(user, app.confirm.POST, { method: "POST", path: "/api/account/email/confirm", body: { token }, headers });
+}
+
+/** Presses "Confirm new email" for an emailed link; returns the status the page shows. */
+async function pressConfirm(user: User | null, link: string, headers: Record<string, string> = {}) {
+  const response = await confirmWith(user, tokenIn(link), headers);
+  assert.equal(response.status, 200, JSON.stringify(response.json));
+  return response.json.status;
 }
 
 test("every account route needs a signed-in, active account and a same-site JSON request", { skip }, async () => {
@@ -274,6 +301,9 @@ test("email change: refused for a wrong password, a taken, same or invalid addre
   assert.equal(confirmation.purpose, "email-change");
   assert.ok(confirmation.text.includes(newEmail), "the new address sees itself in full");
   assert.match(confirmation.text, /http:\/\/packam\.test\/api\/account\/email\/confirm\?token=[A-Za-z0-9_-]{43}/);
+  const askerName = (await account(asker.userId)).firstName ?? "";
+  assert.match(confirmation.text, /^Hi there,\n\n/, "an address nobody has confirmed gets no name the account chose");
+  assert.ok(askerName && !confirmation.text.includes(askerName) && !confirmation.html.includes(askerName));
   const notices = mailTo(askerEmail);
   assert.equal(notices.length, 1);
   assert.equal(notices[0].purpose, "email-change-requested");
@@ -292,7 +322,59 @@ test("email change: refused for a wrong password, a taken, same or invalid addre
   assert.equal(limited.json.code, "RATE_LIMITED");
 });
 
-test("confirming switches the email, marks it confirmed, retires old links and tells the old address; replaced or junk links do nothing", { skip }, async () => {
+test("an address nobody has confirmed gets at most 3 change links an hour, whichever accounts ask for it", { skip }, async () => {
+  const first = await userWithPassword();
+  const second = await userWithPassword();
+  const target = freshEmail("inbox");
+  const [name, domain] = target.split("@");
+
+  const asked: number[] = [];
+  for (const asker of [first, second, first]) asked.push((await changeEmail(asker, target)).status);
+  assert.deepEqual(asked, [200, 200, 200]);
+  const limited = await callKeepingHeaders(second, app.email.POST, { method: "POST", body: { newEmail: target, currentPassword: PASSWORD } });
+  assert.equal(limited.status, 429, JSON.stringify(limited.json));
+  assert.equal(limited.json.code, "RATE_LIMITED");
+  assert.match(String(limited.json.error), /several confirmation links to that address/);
+  assert.ok(Number(limited.retryAfter) >= 1, "Retry-After says when to try again");
+  // The same inbox with a +tag (and capitals) is the same inbox.
+  const tagged = `${name}+again@${domain}`;
+  const taggedAnswer = await changeEmail(first, tagged.toUpperCase());
+  assert.deepEqual([taggedAnswer.status, taggedAnswer.json.code], [429, "RATE_LIMITED"]);
+
+  const links = mailTo(target).filter((message) => message.purpose === "email-change");
+  assert.equal(links.length, 3, "exactly 3 links reached the inbox");
+  assert.equal(mailTo(tagged).length, 0);
+  const names = await Promise.all([first, second].map(async (asker) => (await account(asker.userId)).firstName ?? ""));
+  for (const message of links) {
+    assert.match(message.text, /^Hi there,\n\n/);
+    for (const askerName of names) assert.ok(askerName && !message.text.includes(askerName) && !message.html.includes(askerName), "no account-chosen text");
+  }
+});
+
+test("each network gets 20 email change requests an hour across its accounts, counted before the password or the taken check", { skip }, async () => {
+  const network = { "x-real-ip": testClientIp() };
+  const askers = await Promise.all(Array.from({ length: 5 }, () => userWithPassword()));
+  const owner = await createTestUser("STUDENT");
+  const ownerEmail = (await account(owner.userId)).email;
+
+  // Four accounts, five requests each (their own hourly limit), all with a wrong password: they still count.
+  for (let i = 0; i < 20; i += 1) {
+    const refused = await changeEmail(askers[Math.floor(i / 5)], ownerEmail, "Wrong-pass-1", network);
+    assert.equal(refused.json.code, "WRONG_PASSWORD", `request ${i + 1}`);
+  }
+  // A fifth account on the same network can no longer ask whether an address is taken.
+  const limited = await callKeepingHeaders(askers[4], app.email.POST, { method: "POST", body: { newEmail: ownerEmail, currentPassword: PASSWORD }, headers: network });
+  assert.equal(limited.status, 429, "not 409: the network has used its requests up");
+  assert.equal(limited.json.code, "RATE_LIMITED");
+  assert.match(String(limited.json.error), /this network/);
+  assert.ok(Number(limited.retryAfter) >= 1, "Retry-After says when to try again");
+
+  const elsewhere = await changeEmail(askers[4], ownerEmail);
+  assert.deepEqual([elsewhere.status, elsewhere.json.code], [409, "EMAIL_TAKEN"], "another network isn't affected");
+  assert.equal(mailTo(ownerEmail).length, 0, "nothing was sent to the address");
+});
+
+test("opening a link changes nothing; pressing Confirm switches the email, marks it confirmed, retires old links and tells the old address; replaced or junk links do nothing", { skip }, async () => {
   const { db, tokens } = app;
   const student = await userWithPassword();
   const oldEmail = (await account(student.userId)).email;
@@ -304,11 +386,26 @@ test("confirming switches the email, marks it confirmed, retires old links and t
   // A reset link sent to the old address earlier must stop working with the change.
   const resetToken = await db.$transaction((tx) => tokens.issueAccountToken(tx, { userId: student.userId, purpose: "PASSWORD_RESET", email: oldEmail }));
 
-  assert.deepEqual(await openLink(student, replaced), { status: 303, location: "/settings?email=used" }, "asking again replaced the first link");
-  assert.equal((await account(student.userId)).email, oldEmail);
-  assert.equal(app.confirm.HEAD().status, 200, "a link checker's HEAD request doesn't use the link up");
+  // A person, a mail scanner or a link preview opening the link, signed in or out, only gets the page with the button.
+  for (const opener of [null, student]) {
+    signInAs(opener);
+    assert.deepEqual(await openLink(link), { status: 303, location: `/confirm-email?token=${tokenIn(link)}` });
+  }
+  assert.equal(app.confirm.HEAD().status, 200, "a link checker's HEAD request changes nothing either");
+  const untouched = await account(student.userId);
+  assert.deepEqual([untouched.email, untouched.emailVerifiedAt], [oldEmail, null], "opening the link changed nothing");
+  assert.equal((await tokens.peekAccountToken(db, { token: tokenIn(link), purpose: "EMAIL_CHANGE" })).ok, true, "and didn't use it up");
+  assert.equal(mailTo(oldEmail).filter((message) => message.purpose === "email-changed").length, 0);
+  const opened = await app.confirm.GET(new Request(link));
+  assert.equal(opened.headers.get("cache-control"), "no-store", "the token stays out of caches");
+  assert.equal(opened.headers.get("referrer-policy"), "no-referrer", "and out of referrers");
+  assert.deepEqual(await openLink("http://packam.test/api/account/email/confirm"), { status: 303, location: "/confirm-email" }, "no token: the page asks for the link");
+  assert.deepEqual(await openLink(confirmLink("nope")), { status: 303, location: "/confirm-email?token=nope" }, "a broken one: the page says it isn't valid");
 
-  assert.deepEqual(await openLink(student, link), { status: 303, location: "/settings?email=changed" });
+  assert.equal(await pressConfirm(student, replaced), "used", "asking again replaced the first link");
+  assert.equal((await account(student.userId)).email, oldEmail);
+
+  assert.equal(await pressConfirm(student, link), "changed");
   const changed = await account(student.userId);
   assert.equal(changed.email, finalChoice);
   assert.ok(changed.emailVerifiedAt, "the new address is confirmed by the link");
@@ -319,30 +416,37 @@ test("confirming switches the email, marks it confirmed, retires old links and t
   assert.equal(await db.accountToken.count({ where: { userId: student.userId, usedAt: null } }), 0);
   assert.equal(await db.auditLog.count({ where: { actorId: student.userId, action: "ACCOUNT_EMAIL_CHANGED" } }), 1);
 
-  // Opened again (or after a mail scanner opened it first): it reads as done, and nothing happens twice.
-  assert.deepEqual(await openLink(student, link), { status: 303, location: "/settings?email=changed" });
+  // Pressed again (a double tap, a second tab): it reads as done, and nothing happens twice.
+  assert.equal(await pressConfirm(student, link), "changed");
   assert.equal(mailTo(oldEmail).filter((message) => message.purpose === "email-changed").length, 1);
   assert.equal(await db.auditLog.count({ where: { actorId: student.userId, action: "ACCOUNT_EMAIL_CHANGED" } }), 1);
 
-  for (const junk of ["http://packam.test/api/account/email/confirm", confirmLink("nope"), confirmLink("A".repeat(43)), confirmLink(resetToken)]) {
-    assert.deepEqual(await openLink(student, junk), { status: 303, location: "/settings?email=invalid" }, junk);
+  for (const junk of [undefined, null, "", "nope", 42, "A".repeat(43), resetToken]) {
+    const answer = await confirmWith(student, junk);
+    assert.deepEqual([answer.status, answer.json], [200, { status: "invalid" }], String(junk));
   }
+  const unreadable = await call(student, app.confirm.POST, { method: "POST", body: [tokenIn(link)] });
+  assert.deepEqual([unreadable.status, unreadable.json], [200, { status: "invalid" }], "a body that isn't an object");
   const stale = await db.$transaction((tx) => tokens.issueAccountToken(tx, { userId: student.userId, purpose: "EMAIL_CHANGE", email: freshEmail("stale"), now: new Date(Date.now() - 25 * HOUR) }));
-  assert.deepEqual(await openLink(student, confirmLink(stale)), { status: 303, location: "/settings?email=expired" });
+  assert.equal(await pressConfirm(student, confirmLink(stale)), "expired");
   assert.equal((await account(student.userId)).email, finalChoice);
 });
 
-test("a link opened while signed out goes to login; an address taken meanwhile is refused and changes nothing", { skip }, async () => {
+test("Confirm works signed out or in another account's browser and only changes the link's own account; an address taken meanwhile is refused", { skip }, async () => {
   const { db } = app;
   const student = await userWithPassword();
   const newEmail = freshEmail("signed-out");
   const link = await requestChange(student, newEmail);
-  assert.deepEqual(await openLink(null, link), { status: 303, location: "/login?emailChanged=1" });
+  assert.equal(await pressConfirm(null, link), "changed");
   assert.equal((await account(student.userId)).email, newEmail);
 
   const someoneElse = await userWithPassword();
-  const anotherLink = await requestChange(student, freshEmail("other-browser"));
-  assert.deepEqual(await openLink(someoneElse, anotherLink), { status: 303, location: "/login?emailChanged=1" }, "another account's browser isn't sent to its own settings");
+  const theirEmail = (await account(someoneElse.userId)).email;
+  const otherBrowser = freshEmail("other-browser");
+  const anotherLink = await requestChange(student, otherBrowser);
+  assert.equal(await pressConfirm(someoneElse, anotherLink), "changed");
+  assert.equal((await account(student.userId)).email, otherBrowser, "the link's own account changed");
+  assert.equal((await account(someoneElse.userId)).email, theirEmail, "never the browser's");
 
   const contested = freshEmail("contested");
   const rival = await userWithPassword();
@@ -350,10 +454,29 @@ test("a link opened while signed out goes to login; an address taken meanwhile i
   const rivalLink = await requestChange(rival, contested);
   const squatter = await createTestUser("STUDENT");
   await db.user.update({ where: { id: squatter.userId }, data: { email: contested } });
-  assert.deepEqual(await openLink(rival, rivalLink), { status: 303, location: "/settings?email=taken" });
+  assert.equal(await pressConfirm(rival, rivalLink), "taken");
   const kept = await account(rival.userId);
   assert.deepEqual([kept.email, kept.emailVerifiedAt], [rivalEmail, null]);
   assert.equal(mailTo(rivalEmail).filter((message) => message.purpose === "email-changed").length, 0);
+});
+
+test("pressing Confirm needs a same-site JSON request; a refused one leaves the link unused", { skip }, async () => {
+  const { db, tokens } = app;
+  const student = await userWithPassword();
+  const oldEmail = (await account(student.userId)).email;
+  const link = await requestChange(student, freshEmail("guarded"));
+
+  const otherSites: Array<Record<string, string>> = [{ Origin: "https://evil.example" }, { Origin: "null" }, { "Sec-Fetch-Site": "cross-site" }, { "Sec-Fetch-Site": "same-site" }];
+  for (const headers of otherSites) {
+    const refused = await confirmWith(null, tokenIn(link), headers);
+    assert.deepEqual([refused.status, refused.json.code], [403, "CROSS_SITE_REQUEST"], JSON.stringify(headers));
+  }
+  const notJson = await confirmWith(null, tokenIn(link), { "Content-Type": "text/plain;charset=UTF-8" });
+  assert.deepEqual([notJson.status, notJson.json.code], [415, "JSON_REQUIRED"]);
+  assert.equal((await account(student.userId)).email, oldEmail);
+  assert.equal((await tokens.peekAccountToken(db, { token: tokenIn(link), purpose: "EMAIL_CHANGE" })).ok, true, "the link is untouched");
+
+  assert.equal(await pressConfirm(null, link, { Origin: "http://packam.test", "Sec-Fetch-Site": "same-origin" }), "changed", "PackAM's own page passes");
 });
 
 test("cancelling a pending email change retires its link", { skip }, async () => {
@@ -366,7 +489,7 @@ test("cancelling a pending email change retires its link", { skip }, async () =>
   assert.equal(cancelled.status, 200, JSON.stringify(cancelled.json));
   assert.deepEqual(cancelled.json, { ok: true, cancelled: true });
   assert.equal((await call(student, app.account.GET)).json.pendingEmail, null);
-  assert.deepEqual(await openLink(student, link), { status: 303, location: "/settings?email=used" });
+  assert.equal(await pressConfirm(student, link), "used");
   assert.equal((await account(student.userId)).email, oldEmail);
   assert.deepEqual((await call(student, app.email.DELETE, { method: "DELETE" })).json, { ok: true, cancelled: false });
   assert.equal(await db.auditLog.count({ where: { actorId: student.userId, action: "ACCOUNT_EMAIL_CHANGE_CANCELLED" } }), 1);
@@ -399,7 +522,7 @@ test("password change: a wrong current or weak new password changes nothing; suc
 
   const done = await change({ currentPassword: PASSWORD, newPassword: NEW_PASSWORD });
   assert.equal(done.status, 200, JSON.stringify(done.json));
-  assert.deepEqual(done.json, { ok: true, reauth: true });
+  assert.deepEqual(done.json, { ok: true, reauth: true, email: before.email }, "this browser signs back in with the account's email");
   const after = await account(student.userId);
   assert.ok(after.passwordHash && (await bcrypt.compare(NEW_PASSWORD, after.passwordHash)), "the new password works");
   assert.equal(await bcrypt.compare(PASSWORD, after.passwordHash ?? ""), false, "the old one doesn't");
@@ -420,6 +543,7 @@ test("signing out other devices or every device bumps the session version", { sk
   const student = await userWithPassword();
   const signOut = (body: unknown) => call(student, app.sessions.POST, { method: "POST", body });
   const version = async () => (await account(student.userId)).sessionVersion;
+  const { email } = await account(student.userId);
 
   assert.equal((await signOut({ action: "others", currentPassword: "Wrong-pass-1" })).json.code, "WRONG_PASSWORD");
   for (const action of ["everyone", undefined, 1]) {
@@ -431,13 +555,29 @@ test("signing out other devices or every device bumps the session version", { sk
 
   const others = await signOut({ action: "others", currentPassword: PASSWORD });
   assert.equal(others.status, 200, JSON.stringify(others.json));
-  assert.deepEqual(others.json, { ok: true, reauth: true }, "this browser signs back in");
+  assert.deepEqual(others.json, { ok: true, reauth: true, email }, "this browser signs back in, with the account's email");
   assert.equal(await version(), 1);
   const everywhere = await signOut({ action: "all", currentPassword: PASSWORD });
-  assert.deepEqual(everywhere.json, { ok: true, reauth: false }, "this browser signs out too");
+  assert.deepEqual(everywhere.json, { ok: true, reauth: false, email }, "this browser signs out too");
   assert.equal(await version(), 2);
   const audits = await db.auditLog.findMany({ where: { actorId: student.userId, action: "ACCOUNT_SESSIONS_REVOKED" }, select: { newState: true } });
   assert.deepEqual(audits.map((row) => (row.newState as { scope?: string } | null)?.scope).sort(), ["all", "others"]);
+});
+
+test("after an email change confirmed elsewhere, signing out other devices or changing the password answers the new email to sign back in with", { skip }, async () => {
+  const student = await userWithPassword();
+  const shownOnPage = (await account(student.userId)).email;
+  // Settings was open in this tab when the new address was confirmed from another one.
+  const moved = freshEmail("moved");
+  assert.equal(await pressConfirm(null, await requestChange(student, moved)), "changed");
+
+  const others = await call(student, app.sessions.POST, { method: "POST", body: { action: "others", currentPassword: PASSWORD } });
+  assert.equal(others.status, 200, JSON.stringify(others.json));
+  assert.deepEqual(others.json, { ok: true, reauth: true, email: moved });
+  const changed = await call(student, app.password.POST, { method: "POST", body: { currentPassword: PASSWORD, newPassword: NEW_PASSWORD } });
+  assert.equal(changed.status, 200, JSON.stringify(changed.json));
+  assert.deepEqual(changed.json, { ok: true, reauth: true, email: moved });
+  assert.notEqual(shownOnPage, moved, "the page's copy would no longer sign in");
 });
 
 test("only a student can delete their account, with their current password and the typed confirmation", { skip }, async () => {

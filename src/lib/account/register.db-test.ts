@@ -2,7 +2,8 @@
  * Sign-up through the real route against a disposable database: the account it makes (an active student with a
  * profile and a cart, stored the way login looks it up), the confirmation email and the link in it, the checks it
  * shares with the form, emails and phone numbers already in use (also when two sign-ups race for one), the
- * cross-site guard and the per-network limit. Emails land in the in-memory test outbox; nothing is sent.
+ * cross-site guard, the per-network limit and the per-inbox email limit. Emails land in the in-memory test outbox;
+ * nothing is sent.
  * Run with `npm run test:db` (see src/test-support/db-harness.ts for the safety rules).
  *
  * Names, addresses, phone numbers and passwords below are test fixtures only.
@@ -303,6 +304,24 @@ test("each network gets 5 sign-up attempts an hour; refused and invalid requests
   assert.equal(await accountsWith({ email: late.email }), 0);
 
   assert.equal((await signUp(late)).status, 201, "another network isn't affected");
+});
+
+test("+tag sign-ups can't flood one inbox: 8 emails an hour reach it, then nothing more is sent, logged by purpose only", { skip }, async (t) => {
+  const logged: string[] = [];
+  const capture = (...args: unknown[]) => { logged.push(args.map(String).join(" ")); };
+  t.mock.method(console, "error", capture);
+  t.mock.method(console, "warn", capture);
+  const inbox = `flood-${randomUUID()}`;
+  // Every address is new to PackAM, so each sign-up is accepted, but all of them land in one person's inbox.
+  const answers = [];
+  for (let i = 1; i <= 9; i += 1) answers.push(await signUp(details({ email: `${i % 2 ? inbox : inbox.toUpperCase()}+${i}@packam.test` })));
+
+  assert.deepEqual(answers.map((answer) => answer.status), Array(9).fill(201), "every account is still made");
+  assert.deepEqual(answers.map((answer) => answer.json.verificationEmail), [...Array(8).fill("sent"), "failed"]);
+  const delivered = app.email.testOutbox().filter((message) => message.to.startsWith(`${inbox}+`));
+  assert.equal(delivered.length, 8, "the 9th email to the same inbox in the hour isn't sent");
+  assert.ok(logged.some((line) => line.includes("EMAIL RATE LIMITED") && line.includes("email-verification")), "it's logged by purpose");
+  assert.ok(!logged.some((line) => line.toLowerCase().includes(inbox) || line.includes("token=")), "never with the address or the link");
 });
 
 test("when email can't go out, the account is still made and the answer says so, never logging the address", { skip }, async (t) => {

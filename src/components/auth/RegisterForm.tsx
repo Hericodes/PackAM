@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { signIn, type SignInResponse } from "next-auth/react";
 import { useRef, useState, type FormEvent } from "react";
 import { flushSync } from "react-dom";
+import { loginErrorMessage } from "../../lib/account/login-errors";
 import { passwordProblem } from "../../lib/account/password-policy";
 import { isValidEmail, nameProblem, normaliseEmail, normaliseName, phoneProblem } from "../../lib/account/validation";
 import { AuthShell, authLinkClass } from "./AuthShell";
@@ -12,13 +13,17 @@ import { FormAlert } from "./FormAlert";
 import { authHref, loginDestination, useAuthExit } from "./LoginForm";
 import { PasswordChecklist } from "./PasswordChecklist";
 import { PasswordField } from "./PasswordField";
+import { canSignIn } from "./sign-in-reachable";
 import { SubmitButton } from "./SubmitButton";
 import { TextField } from "./TextField";
 
 type Field = "firstName" | "lastName" | "email" | "phone" | "password" | "confirmPassword";
 type FieldErrors = Partial<Record<Field, string>>;
-/** A problem with the form as a whole. `taken` marks a 409, which offers ways into the account that already exists. */
-type Problem = { message: string; taken?: "email" | "phone" };
+/**
+ * A problem with the form as a whole. `taken` marks a 409, which offers ways into the account that already exists;
+ * `created` marks an account that was made but couldn't be signed into from here, which offers "Log in".
+ */
+type Problem = { message: string; taken?: "email" | "phone"; created?: boolean };
 /** How a submit ended without an account: problems under the fields, or one for the whole form. */
 type Outcome = { fields: FieldErrors } | { problem: Problem };
 /** The parts of an /api/register refusal this form reads. */
@@ -36,8 +41,9 @@ const UPDATING = "PackAM is being updated, so we couldn’t create your account 
  * under its field, and the password gets a live checklist that knows the person's names and email. Once the account
  * exists, it signs in with what was just typed and plays the "Packed" animation on the way to the destination (the
  * callbackUrl when the role may go there, otherwise home). If that automatic sign-in fails, the account is still
- * there, so it goes to /login?registered=true, keeping the callbackUrl. A taken email or phone number offers
- * "Log in" and "Reset your password" instead.
+ * there, so it goes to /login?registered=true, keeping the callbackUrl; when PackAM can't be reached for it (offline),
+ * the form says so and offers "Log in" instead of leaving. A taken email or phone number offers "Log in" and
+ * "Reset your password" instead.
  *
  * Like every auth form it has no method, action or field names, and its button waits for hydration.
  */
@@ -120,6 +126,11 @@ export function RegisterForm({ callbackUrl, emailConfirmation }: { callbackUrl?:
 
     // The account exists. Sign in with exactly what was typed; the form stays busy until the next page takes over.
     setPhase("signing-in");
+    // Offline (or with PackAM out of reach) signIn() would leave for /api/auth/error: say so here, with "Log in".
+    if (!(await canSignIn())) {
+      stop({ problem: { message: loginErrorMessage(undefined, undefined), created: true } });
+      return;
+    }
     let result: SignInResponse | undefined;
     try {
       // A clean redirectTo: next-auth/react decides success by reading `error` and `code` from the URL it returns.
@@ -235,6 +246,10 @@ export function RegisterForm({ callbackUrl, emailConfirmation }: { callbackUrl?:
               <FormAlert ref={alertRef} id={PROBLEM_ID} tone="error" title={problem.message} message="Log in instead, or reset your password if you’ve forgotten it.">
                 <Link href={authHref("/login", callbackUrl)} className={authLinkClass}>Log in</Link>
                 <Link href={authHref("/forgot-password", callbackUrl)} className={authLinkClass}>Reset your password</Link>
+              </FormAlert>
+            ) : problem?.created ? (
+              <FormAlert ref={alertRef} id={PROBLEM_ID} tone="error" title="Your account is ready, but you’re not logged in yet" message={problem.message}>
+                <Link href={authHref("/login", callbackUrl, { registered: "true" })} className={authLinkClass}>Log in</Link>
               </FormAlert>
             ) : problem ? (
               <FormAlert ref={alertRef} id={PROBLEM_ID} tone="error">{problem.message}</FormAlert>

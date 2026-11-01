@@ -15,9 +15,10 @@ import { rejectCrossSite, requireJson } from "../../../../lib/request-guards";
 /**
  * Changes the signed-in person's password: { currentPassword, newPassword }. The current password is checked
  * exactly as typed; the new one must pass the password policy. Every device is signed out (session version bump),
- * including this one, which signs straight back in with the new password (hence reauth: true). Password-reset
- * links and a pending email change made before this stop working, and the account's email gets a notice.
- * 10 attempts an hour per account, wrong passwords included.
+ * including this one, which signs straight back in with the new password (hence reauth: true) and the account's
+ * email as it is now (`email`: the page may show an older one, say after a change confirmed in another tab).
+ * Password-reset links and a pending email change made before this stop working, and the account's email gets a
+ * notice. 10 attempts an hour per account, wrong passwords included. Answers { ok: true, reauth: true, email }.
  */
 export async function POST(request: Request) {
   const blocked = rejectCrossSite(request) ?? requireJson(request);
@@ -72,7 +73,7 @@ export async function POST(request: Request) {
     await afterResponse(async () => {
       await sendEmail({ to: user.email, purpose: "password-changed", ...passwordChangedNotice(user.firstName) });
     });
-    return Response.json({ ok: true, reauth: true });
+    return Response.json({ ok: true, reauth: true, email: user.email });
   } catch (error) {
     if (isSchemaBehindCode(error)) return accountSchemaBehindResponse(error, "POST /api/account/password");
     console.error("ACCOUNT PASSWORD ERROR:", error instanceof Error ? error.name : "Unknown error");

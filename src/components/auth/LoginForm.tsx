@@ -11,6 +11,7 @@ import { AuthSuccess, type PackSource } from "./AuthSuccess";
 import { FormAlert, type FormAlertTone } from "./FormAlert";
 import { measureAuthLogo, measurePackSources } from "./pack-sources";
 import { PasswordField } from "./PasswordField";
+import { canSignIn } from "./sign-in-reachable";
 import { SubmitButton } from "./SubmitButton";
 import { TextField } from "./TextField";
 
@@ -91,6 +92,11 @@ export function LoginForm({ callbackUrl, notice }: { callbackUrl?: string; notic
     submitting.current = true;
     setErrors({});
     setLoading(true);
+    // Offline (or with PackAM out of reach) signIn() would leave for /api/auth/error: say so here instead.
+    if (!(await canSignIn())) {
+      fail(loginErrorMessage(undefined, undefined));
+      return;
+    }
     let result: SignInResponse | undefined;
     try {
       // A clean redirectTo: next-auth/react decides success by reading `error` and `code` from the URL it returns.

@@ -107,9 +107,12 @@ export function linkExpiryLabel(value: unknown): string | null {
   return Number.isNaN(date.getTime()) ? null : formatCampusTime(date);
 }
 
-// ---- The result of opening a "confirm your new email" link ----
+// ---- The result of confirming a new email ----
 
-/** The statuses GET /api/account/email/confirm sends back to /settings?email=…. */
+/**
+ * The statuses POST /api/account/email/confirm answers (shown on /confirm-email). /settings?email=… still shows them
+ * too: the link used to send people there.
+ */
 export const EMAIL_CHANGE_STATUSES = ["changed", "invalid", "expired", "used", "taken"] as const;
 export type EmailChangeStatus = (typeof EMAIL_CHANGE_STATUSES)[number];
 

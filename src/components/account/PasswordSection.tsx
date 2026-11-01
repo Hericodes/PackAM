@@ -11,7 +11,7 @@ import { SubmitButton } from "../auth/SubmitButton";
 import { SettingsNotice, type Notice } from "./SettingsNotice";
 import { SettingsSection } from "./SettingsSection";
 import { accountRequest, problemMessage } from "./account-requests";
-import { LOG_IN_WITH_NEW_PASSWORD, signInAgain } from "./sign-in-again";
+import { LOG_IN_WITH_NEW_PASSWORD, reauthEmail, signInAgain } from "./sign-in-again";
 
 type FieldErrors = { current?: string; next?: string; confirm?: string };
 
@@ -102,9 +102,10 @@ export function PasswordSection({ email, names, lastChanged, resetAvailable }: P
     try {
       const result = await accountRequest("/api/account/password", "POST", { currentPassword: current, newPassword: next });
       if (result.ok) {
-        // Every session just ended, this one too: sign back in with the new password to stay signed in here.
+        // Every session just ended, this one too: sign back in with the new password to stay signed in here, as the
+        // account's email is now (the server's answer; this page's copy may be older).
         setLoadingLabel("Keeping you signed in…");
-        if (await signInAgain(email, next)) {
+        if (await signInAgain(reauthEmail(result.data, email), next)) {
           flushSync(() => {
             reset();
             setNotice({ tone: "success", title: "Password changed", message: "You’re still signed in on this device, and we’ve signed you out everywhere else. Use your new password next time you log in." });

@@ -1,4 +1,5 @@
 import bcrypt from "bcryptjs";
+import { createHash } from "node:crypto";
 
 import { auth } from "../../../../auth";
 import { db } from "../../../../lib/db";
@@ -9,15 +10,28 @@ import { isSchemaBehindCode, accountSchemaBehindResponse } from "../../../../lib
 import { isEmailConfigured, sendEmail } from "../../../../lib/email";
 import { confirmEmailChange, emailChangeRequestedNotice } from "../../../../lib/email/templates";
 import { TOKEN_TTL_MS, findPendingEmailChange, issueAccountToken, revokeAccountTokens } from "../../../../lib/account/account-tokens";
-import { isValidEmail, maskEmail, normaliseEmail } from "../../../../lib/account/validation";
-import { consumeRateLimit } from "../../../../lib/rate-limit";
+import { canonicalEmailForLimits, isValidEmail, maskEmail, normaliseEmail } from "../../../../lib/account/validation";
+import { clientAddress, consumeRateLimit } from "../../../../lib/rate-limit";
 import { rejectCrossSite, requireJson } from "../../../../lib/request-guards";
+
+const HOUR_MS = 60 * 60 * 1000;
+/** Per account, wrong passwords and refusals included. */
+const REQUESTS_PER_ACCOUNT_PER_HOUR = 5;
+/**
+ * Per network, every account on it together, counted before anything is checked: one person with many accounts
+ * can't send links to many outside inboxes, or keep asking which addresses already have an account.
+ */
+const REQUESTS_PER_NETWORK_PER_HOUR = 20;
+/** Confirmation links to one inbox, whichever accounts ask ("+tag" and Gmail dot variants count as one inbox). */
+const LINKS_PER_INBOX_PER_HOUR = 3;
 
 /**
  * Starts an email change for the signed-in person: { newEmail, currentPassword }. The current email keeps working
- * until the new one is confirmed from the link emailed to it (GET /api/account/email/confirm); the current address
- * gets a notice showing the new one masked. Asking again replaces the earlier link. 5 requests an hour per account,
- * wrong passwords included. Answers { pendingEmail, pendingEmailExpiresAt, status: "sent" }.
+ * until the new one is confirmed from the link emailed to it (GET /api/account/email/confirm leads to /confirm-email,
+ * where the person presses the button); the current address gets a notice showing the new one masked. Asking again
+ * replaces the earlier link. Limits, each answered 429 RATE_LIMITED with Retry-After: 5 requests an hour per account
+ * and 20 per network (wrong passwords included), and 3 links an hour to any one new address. Answers
+ * { pendingEmail, pendingEmailExpiresAt, status: "sent" }.
  */
 export async function POST(request: Request) {
   const blocked = rejectCrossSite(request) ?? requireJson(request);
@@ -28,10 +42,11 @@ export async function POST(request: Request) {
   if (!emailLinksAvailable()) {
     return Response.json({ error: "PackAM can’t send emails right now, so your email can’t be changed yet. Please try again later.", code: "EMAIL_NOT_CONFIGURED" }, { status: 503 });
   }
-  const rate = await consumeRateLimit(`account-email-change:${userId}`, 5, 60 * 60 * 1000);
-  if (!rate.allowed) {
-    return Response.json({ error: "You’ve asked to change your email a few times already. Please wait a while, then try again.", code: "RATE_LIMITED" }, { status: 429, headers: { "Retry-After": String(rate.retryAfterSeconds) } });
-  }
+  const rate = await consumeRateLimit(`account-email-change:${userId}`, REQUESTS_PER_ACCOUNT_PER_HOUR, HOUR_MS);
+  if (!rate.allowed) return rateLimited(rate.retryAfterSeconds, "You’ve asked to change your email a few times already. Please wait a while, then try again.");
+  // Before the password and "already in use" checks, so they can't be tried endlessly from one network.
+  const network = await consumeRateLimit(`account-email-change-ip:${clientAddress(request)}`, REQUESTS_PER_NETWORK_PER_HOUR, HOUR_MS);
+  if (!network.allowed) return rateLimited(network.retryAfterSeconds, "Too many email change requests from this network. Please wait a while, then try again.");
   const body = await readJsonObject(request);
   if (!body) return invalidRequest();
   const newEmail = normaliseEmail(body.newEmail);
@@ -45,6 +60,13 @@ export async function POST(request: Request) {
     if (!(await currentPasswordMatches(body.currentPassword, user.passwordHash))) return wrongPassword();
     const taken = await db.user.findFirst({ where: { email: newEmail }, select: { id: true } });
     if (taken) return Response.json({ error: "Another PackAM account already uses that email.", code: "EMAIL_TAKEN" }, { status: 409 });
+    // However many accounts ask for it, an address nobody has confirmed yet gets few links. The key holds a hash of
+    // the inbox, never the address.
+    const inbox = createHash("sha256").update(canonicalEmailForLimits(newEmail)).digest("hex");
+    const perInbox = await consumeRateLimit(`account-email-change-to:${inbox}`, LINKS_PER_INBOX_PER_HOUR, HOUR_MS);
+    if (!perInbox.allowed) {
+      return rateLimited(perInbox.retryAfterSeconds, "We’ve already sent several confirmation links to that address in the last hour. Check its inbox and spam folder, or wait a while and try again.");
+    }
 
     const now = new Date();
     const token = await db.$transaction(async (tx) => {
@@ -65,7 +87,8 @@ export async function POST(request: Request) {
 
     const link = appUrl(`/api/account/email/confirm?token=${token}`);
     await afterResponse(async () => {
-      await sendEmail({ to: newEmail, purpose: "email-change", ...confirmEmailChange(user.firstName, link, newEmail) });
+      // "Hi there,": the address isn't confirmed yet, so its owner may be a stranger, and gets no text the account chose.
+      await sendEmail({ to: newEmail, purpose: "email-change", ...confirmEmailChange(null, link, newEmail) });
     });
     await afterResponse(async () => {
       await sendEmail({ to: user.email, purpose: "email-change-requested", ...emailChangeRequestedNotice(user.firstName, maskEmail(newEmail)) });
@@ -114,6 +137,10 @@ function invalidRequest() {
 
 function wrongPassword() {
   return Response.json({ error: "That isn’t your current password. Check it and try again.", code: "WRONG_PASSWORD" }, { status: 400 });
+}
+
+function rateLimited(retryAfterSeconds: number, error: string) {
+  return Response.json({ error, code: "RATE_LIMITED", retryAfterSeconds }, { status: 429, headers: { "Retry-After": String(retryAfterSeconds) } });
 }
 
 /** The current password exactly as typed: never trimmed or policy-checked, since older passwords weren't held to either. */

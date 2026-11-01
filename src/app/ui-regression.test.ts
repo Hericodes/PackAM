@@ -64,6 +64,24 @@ test("signup name fields use neutral placeholders, never a real person's name", 
   assert.match(form, /firstName: "",\s*lastName: "",/, "fields still start empty: no prefill was added or removed");
 });
 
+test("pages that receive emailed tokens keep them private: no Referer, no index, no cache, and the address bar is cleaned", () => {
+  const tokenPaths = source("../../next.config.ts").match(/\.\.\.\[([^\]]+)\]\.map\(\(source\)/)?.[1] ?? "";
+  for (const path of ["/reset-password", "/verify-email", "/confirm-email", "/api/account/verify-email", "/api/account/email/confirm"]) {
+    assert.ok(tokenPaths.includes(`"${path}"`), `${path} gets the no-referrer, noindex, no-store headers`);
+  }
+  assert.match(source("./confirm-email/page.tsx"), /referrer: "no-referrer"/);
+  assert.match(source("../components/account/ConfirmEmailForm.tsx"), /searchParams\.delete\("token"\);\s*window\.history\.replaceState/);
+});
+
+test("signing in checks PackAM can be reached first, so an offline submit never lands on /api/auth/error", () => {
+  for (const path of ["../components/auth/LoginForm.tsx", "../components/auth/RegisterForm.tsx", "../components/account/sign-in-again.ts"]) {
+    const file = source(path);
+    const check = file.indexOf("await canSignIn()");
+    const signIn = file.indexOf("signIn(\"credentials\"");
+    assert.ok(check > 0 && signIn > check, `${path}: canSignIn() runs before signIn()`);
+  }
+});
+
 test("the homepage offers Order Stuff, Food and Printing, in that order, and no Student Verification", () => {
   const page = source("./page.tsx");
   const order = [/id: "order"[^}]*href: "\/search"/, /id: "food"[^}]*href: "\/food"/, /id: "printing"[^}]*href: "\/printing"/].map((pattern) => page.search(pattern));

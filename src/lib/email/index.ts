@@ -1,15 +1,20 @@
 import "server-only";
 
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { isValidEmail } from "../account/validation";
+import { canonicalEmailForLimits, isValidEmail } from "../account/validation";
+import { consumeRateLimit } from "../rate-limit";
 import { EmailConfigError, parseEmailConfig, type EmailConfig } from "./config";
 
 /**
  * Sending account email through whichever transport is configured (see config.ts). sendEmail() never throws and
  * never logs an address, subject, body, link or provider response: only the message's purpose and an error name
  * or HTTP status. A failed send changes nothing else; callers let the person ask again.
+ *
+ * Every message counts against its inbox first: at most 8 an hour, whatever they're for, with "+tag" and Gmail dot
+ * variants of an address counted as one inbox. Making accounts with such variants can't multiply what reaches one
+ * person; over the limit nothing is sent and the answer is "failed", like any other failed send.
  */
 
 export type EmailMessage = {
@@ -26,6 +31,9 @@ export type TestEmailMode = "memory" | "not-configured" | "failing";
 
 const RESEND_URL = "https://api.resend.com/emails";
 const TIMEOUT_MS = 15_000;
+const HOUR_MS = 60 * 60 * 1000;
+/** Emails one inbox (canonicalEmailForLimits) can get in an hour, for every purpose together. */
+const EMAILS_PER_INBOX_PER_HOUR = 8;
 /** Reserved names (RFC 2606/6761) that can never receive mail, e.g. seeded @packam.test staff. Real sends skip them. */
 const UNDELIVERABLE = /\.(?:test|example|invalid|localhost)$/i;
 
@@ -50,6 +58,14 @@ export async function sendEmail(message: EmailMessage): Promise<SendEmailResult>
     return { status: "failed" };
   }
   try {
+    // Counted before any transport (the test outbox too), whether or not the send then works. The key holds a hash
+    // of the inbox, never the address.
+    const inbox = createHash("sha256").update(canonicalEmailForLimits(message.to)).digest("hex");
+    const rate = await consumeRateLimit(`email-to:${inbox}`, EMAILS_PER_INBOX_PER_HOUR, HOUR_MS);
+    if (!rate.allowed) {
+      console.warn("EMAIL RATE LIMITED:", purpose);
+      return { status: "failed" };
+    }
     if (config.mode === "memory") {
       if (testMode() === "failing") throw new TestEmailFailure();
       store.__PACKAM_TEST_OUTBOX__ = [...(store.__PACKAM_TEST_OUTBOX__ ?? []), { ...message, sentAt: new Date() }];

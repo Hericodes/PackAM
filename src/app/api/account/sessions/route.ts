@@ -10,8 +10,9 @@ import { rejectCrossSite, requireJson } from "../../../../lib/request-guards";
 /**
  * Signs the account out on other devices: { action: "others" | "all", currentPassword }. Session cookies can't be
  * listed one by one (they are stateless), so both bump the account's session version, which ends every session.
- * "others": this browser then signs straight back in with the password just typed (reauth: true), so only the
- * other devices stay signed out. "all": this browser signs out too. 10 attempts an hour per account.
+ * "others": this browser then signs straight back in with the password just typed (reauth: true) and the account's
+ * email as it is now (`email`: the page may show an older one), so only the other devices stay signed out. "all":
+ * this browser signs out too. 10 attempts an hour per account. Answers { ok: true, reauth, email }.
  */
 export async function POST(request: Request) {
   const blocked = rejectCrossSite(request) ?? requireJson(request);
@@ -30,7 +31,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const user = await db.user.findFirst({ where: { id: userId, status: "ACTIVE" }, select: { id: true, passwordHash: true } });
+    const user = await db.user.findFirst({ where: { id: userId, status: "ACTIVE" }, select: { id: true, email: true, passwordHash: true } });
     if (!user) return signInRequired();
     if (!(await currentPasswordMatches(body?.currentPassword, user.passwordHash))) {
       return Response.json({ error: "That isn’t your current password. Check it and try again.", code: "WRONG_PASSWORD" }, { status: 400 });
@@ -49,7 +50,7 @@ export async function POST(request: Request) {
       return true;
     });
     if (!revoked) return signInRequired();
-    return Response.json({ ok: true, reauth: action === "others" });
+    return Response.json({ ok: true, reauth: action === "others", email: user.email });
   } catch (error) {
     if (isSchemaBehindCode(error)) return accountSchemaBehindResponse(error, "POST /api/account/sessions");
     console.error("ACCOUNT SESSIONS ERROR:", error instanceof Error ? error.name : "Unknown error");
