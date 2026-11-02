@@ -28,7 +28,7 @@ The `20261003130000_fulfilment_engine` migration adds fulfilment and sourcing fi
 
 ## Student requests and operations
 
-Students can request an item at `/product-requests` or from search. Admins use `/admin` for live database counts and `/admin/orders`, `/admin/requests`, `/admin/payments`, `/admin/vendors`, `/admin/runners`, and `/admin/exceptions` to review current work. Lists are capped or paginated to keep queries bounded. Runner delivery starts only after the assigned runner's order is in `SOURCING_PRODUCT` and every ordered unit has been sourced or approved; the runner then records `OUT_FOR_DELIVERY` and `DELIVERED` through the existing order transition service.
+Students can request an item at `/product-requests` or from search. Admins use `/admin` for live database counts and `/admin/orders`, `/admin/requests`, `/admin/payments`, `/admin/vendors`, `/admin/runners`, and `/admin/exceptions` to review current work. `/admin/delivery-tiers` sets the fee and on/off switch of each marketplace and food delivery speed (Cruise Mode, Sharp Sharp, Oya Now!); delivery windows and descriptions are fixed, at least one speed always stays on, and every change is written to the audit log. Printing keeps its own fixed delivery fee. Until migration `20261101150000_delivery_tiers` is applied the page explains this and refuses edits, and checkout offers Cruise Mode only. Lists are capped or paginated to keep queries bounded. Runner delivery starts only after the assigned runner's order is in `SOURCING_PRODUCT` and every ordered unit has been sourced or approved; the runner then records `OUT_FOR_DELIVERY` and `DELIVERED` through the existing order transition service.
 
 ## Getting Started
 

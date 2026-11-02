@@ -2,6 +2,8 @@ import Link from "next/link";
 import { requireRole } from "../../../lib/auth-guard";
 import { OrderStatus } from "@prisma/client";
 import { db } from "../../../lib/db";
+import { loadOrderDeliveryTiers } from "../../../lib/delivery-tier-store";
+import { deliveryTierTone, describeOrderDelivery } from "../../../lib/delivery-tiers";
 import { ORDER_STATUS_GROUPS, adminListHref, orderListWhere } from "../../../lib/admin-list-filters";
 import { orderStatusDisplay, paymentStatusDisplay } from "../../../lib/ops-status";
 import { formatCampusTime, shortReference } from "../../../lib/student-copy";
@@ -20,6 +22,8 @@ export default async function AdminOrdersPage({ searchParams }: { searchParams: 
     db.order.findMany({ where, orderBy: { createdAt: "desc" }, skip: (page - 1) * take, take, select: { id: true, status: true, total: true, createdAt: true, deliveryLocation: { select: { label: true } }, user: { select: { firstName: true, lastName: true, email: true } }, payment: { select: { status: true } }, assignedRunner: { select: { user: { select: { firstName: true } } } }, _count: { select: { items: true } } } }),
     db.order.count({ where }),
   ]);
+  // Delivery speeds for this page, in one query of their own (no row: "Standard delivery").
+  const tiers = await loadOrderDeliveryTiers(db, orders.map((o) => o.id));
   const pages = Math.max(1, Math.ceil(total / take));
   const chip = (value: string, label: string) => <Link key={value || "all"} href={adminListHref("/admin/orders", { status: value, q })} aria-current={status === value ? "page" : undefined} className={`inline-flex min-h-10 items-center whitespace-nowrap rounded-full px-4 text-sm font-bold ${status === value ? "bg-black text-white" : "bg-white hover:ring-1 hover:ring-black/15"}`}>{label}</Link>;
 
@@ -45,9 +49,10 @@ export default async function AdminOrdersPage({ searchParams }: { searchParams: 
       <ul className="divide-y divide-black/5">{orders.map((order) => {
         const orderDisplay = orderStatusDisplay(order.status);
         const paymentDisplay = paymentStatusDisplay(order.payment?.status);
+        const delivery = describeOrderDelivery(tiers.get(order.id));
         return <li key={order.id}><Link href={`/admin/orders/${order.id}`} className="grid gap-2 p-4 hover:bg-black/2 md:grid-cols-[1.4fr_1fr_1fr_1fr_auto] md:items-center md:gap-3">
           <div className="min-w-0"><p className="truncate font-black">{order.user.firstName} {order.user.lastName}</p><p className="truncate text-xs text-black/45">#{shortReference(order.id)} · {order._count.items} {order._count.items === 1 ? "item" : "items"} · {order.deliveryLocation?.label ?? "Campus delivery"}{order.assignedRunner ? ` · Runner: ${order.assignedRunner.user.firstName ?? "—"}` : ""}</p></div>
-          <div className="flex flex-wrap gap-2 md:block"><StatusBadge label={orderDisplay.label} tone={orderDisplay.tone} /><span className="md:hidden"><StatusBadge label={paymentDisplay.label} tone={paymentDisplay.tone} /></span></div>
+          <div className="flex flex-wrap gap-2 md:flex-col md:items-start md:gap-1.5"><StatusBadge label={orderDisplay.label} tone={orderDisplay.tone} /><StatusBadge label={delivery.label} tone={deliveryTierTone(delivery.tier)} /><span className="md:hidden"><StatusBadge label={paymentDisplay.label} tone={paymentDisplay.tone} /></span></div>
           <div className="hidden md:block"><StatusBadge label={paymentDisplay.label} tone={paymentDisplay.tone} /></div>
           <p className="text-xs text-black/55 md:text-sm">{formatCampusTime(order.createdAt)}</p>
           <p className="text-sm font-black md:text-right">₦{order.total.toLocaleString()}</p>

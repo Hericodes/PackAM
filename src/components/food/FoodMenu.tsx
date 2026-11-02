@@ -39,7 +39,11 @@ function bySection(items: PublicMenuItem[], fallback: string) {
   return [...groups];
 }
 
-export function FoodMenu({ shop, menu, deliveryFee }: { shop: Shop; menu: PublicMenuItem[]; deliveryFee: number }) {
+/**
+ * `delivery`: the cheapest delivery speed on sale and how many speeds there are (deliveryPriceSummary), or null when
+ * none is on sale. The student picks the speed, and pays its fee, at checkout.
+ */
+export function FoodMenu({ shop, menu, delivery }: { shop: Shop; menu: PublicMenuItem[]; delivery: { fromFee: number; options: number } | null }) {
   const router = useRouter();
   const { setSummary } = useCartExperience();
   const meals = menu.filter((item) => item.role === "MEAL");
@@ -102,7 +106,7 @@ export function FoodMenu({ shop, menu, deliveryFee }: { shop: Shop; menu: Public
           <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-black/60 sm:text-sm">
             <span className={`rounded-full px-2 py-0.5 text-[0.6875rem] font-black ${shop.isOpen ? "bg-[#e9f8ee] text-[#16803c]" : "bg-black/6 text-black/60"}`}>{shop.isOpen ? "Open" : "Closed"}</span>
             {shop.location && <span>{shop.location}</span>}
-            <span>Delivery {naira(deliveryFee)}</span>
+            {delivery && <span>Delivery {delivery.options > 1 ? "from " : ""}{naira(delivery.fromFee)}</span>}
           </p>
           {shop.description && <p className="mt-1.5 text-sm leading-5 text-black/70">{shop.description}</p>}
         </div>
@@ -211,7 +215,7 @@ export function FoodMenu({ shop, menu, deliveryFee }: { shop: Shop; menu: Public
                       <dt className="font-black">Plate {naira(platePreview.line.unitPrice)}{plates > 1 ? ` × ${plates}` : ""}</dt>
                       <dd className="text-lg font-black">{naira(platePreview.line.total)}</dd>
                     </div>
-                    <p className="text-xs text-black/55">+ {naira(deliveryFee)} delivery, shown at checkout.</p>
+                    <p className="text-xs text-black/55">{!delivery ? "+ delivery, shown at checkout." : delivery.options > 1 ? `+ delivery from ${naira(delivery.fromFee)}, chosen at checkout.` : `+ ${naira(delivery.fromFee)} delivery, shown at checkout.`}</p>
                   </dl>
                 ) : (
                   <p className="text-sm text-black/60">{platePreview && !platePreview.ok ? platePreview.error : "Choose a base to see your plate’s price."}</p>

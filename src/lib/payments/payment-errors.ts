@@ -94,12 +94,36 @@ export class CartNotPayableError extends Error {
   }
 }
 
+/** The chosen delivery speed can't be bought right now (off, unpriced, or not set up). Nothing was created; the speed is never switched. */
+export class DeliveryTierUnavailableError extends Error {
+  constructor(readonly tier: string, readonly label: string) {
+    super(`${label} isn’t available right now.`);
+    this.name = "DeliveryTierUnavailableError";
+  }
+}
+
+/** An idempotency key was reused for a checkout with another delivery speed. Nothing was created or reused. */
+export class CheckoutAttemptMismatchError extends Error {
+  constructor() {
+    super("This payment attempt was started for a different checkout.");
+    this.name = "CheckoutAttemptMismatchError";
+  }
+}
+
 export type RevisedCheckout = {
   subtotal: number;
+  /** The chosen speed's fee as the server prices it now. */
   deliveryFee: number;
   total: number;
   /** The total the student had reviewed. */
   reviewedTotal: number;
+  /** The delivery fee the student had reviewed; null when the request sent none (a checkout tab from before delivery tiers). */
+  reviewedDeliveryFee?: number | null;
+  /** The speed this breakdown is for: always the one the student chose, never another. A local union keeps this module pure. */
+  deliveryTier?: "OYA" | "SHARP" | "CRUISE";
+  deliveryTierLabel?: string;
+  deliveryEtaMinMinutes?: number;
+  deliveryEtaMaxMinutes?: number;
   lines: Array<{ cartItemId: string; name: string; quantity: number; unitPrice: number; total: number }>;
 };
 

@@ -1,5 +1,5 @@
-import { CHECKOUT_CURRENCY, CHECKOUT_DELIVERY_FEE } from "../checkout-pricing";
-import { PRINTING_LIMITS, PRINTING_PRICING_VERSION, PRINTING_PRICES } from "./pricing";
+import { CHECKOUT_CURRENCY } from "../checkout-pricing";
+import { PRINT_DELIVERY_FEE, PRINTING_LIMITS, PRINTING_PRICING_VERSION, PRINTING_PRICES } from "./pricing";
 import { parsePageSelection } from "./page-selection";
 import { MAX_PRINT_DOCUMENT_BYTES } from "./upload-validation";
 import { isPrintJobPastPayment } from "./status-machine";
@@ -89,7 +89,7 @@ export function parsePrintCheckoutSnapshot(
     !isSafePositiveInteger(value.pricePerPage) ||
     value.pricingVersion !== PRINTING_PRICING_VERSION ||
     !isSafePositiveInteger(value.printSubtotal) ||
-    value.deliveryFee !== CHECKOUT_DELIVERY_FEE ||
+    value.deliveryFee !== PRINT_DELIVERY_FEE ||
     !isSafePositiveInteger(value.total) ||
     value.currency !== CHECKOUT_CURRENCY ||
     (value.deliveryInstructions !== null && typeof value.deliveryInstructions !== "string")
@@ -112,7 +112,7 @@ export function parsePrintCheckoutSnapshot(
   const expectedRate = PRINTING_PRICES[paperSize][colorMode];
   const selection = parsePageSelection(pageSelection, documentPageCount);
   const expectedSubtotal = selection.selectedPageCount * copies * expectedRate;
-  const expectedTotal = expectedSubtotal + CHECKOUT_DELIVERY_FEE;
+  const expectedTotal = expectedSubtotal + PRINT_DELIVERY_FEE;
   if (
     selection.canonical !== pageSelection ||
     selection.selectedPageCount !== selectedPageCount ||
@@ -141,7 +141,7 @@ export function parsePrintCheckoutSnapshot(
     pricePerPage,
     pricingVersion,
     printSubtotal,
-    deliveryFee: CHECKOUT_DELIVERY_FEE,
+    deliveryFee: PRINT_DELIVERY_FEE,
     total,
     currency,
     deliveryLocationId: value.deliveryLocationId as string,

@@ -3,21 +3,25 @@ import Image from "next/image";
 import Link from "next/link";
 import { StudentNavbar } from "../../components/student/StudentNavbar";
 import { listFoodShops } from "../../lib/food/shops";
-import { CHECKOUT_DELIVERY_FEE } from "../../lib/checkout-pricing";
+import { db } from "../../lib/db";
+import { readDeliveryTierQuotes } from "../../lib/delivery-tier-store";
+import { deliveryPriceSummary } from "../../lib/delivery-tiers";
 import { productImageDeliveryUrl } from "../../lib/cloudinary-url";
 
 export const metadata: Metadata = { title: "Food" };
 export const dynamic = "force-dynamic";
 
 export default async function FoodPage() {
-  const shops = await listFoodShops();
+  const [shops, quotes] = await Promise.all([listFoodShops(), readDeliveryTierQuotes(db)]);
+  // The cheapest delivery speed on sale right now, and how many there are (the student picks one at checkout).
+  const delivery = deliveryPriceSummary(quotes.quotes);
   return (
     <main className="min-h-screen pb-10">
       <StudentNavbar />
       <div className="packam-container pt-3 sm:pt-8">
         <p className="pk-eyebrow">Food</p>
         <h1 className="pk-page-title mt-1 max-sm:text-[1.625rem] sm:mt-2">Wetin you wan chop?</h1>
-        <p className="pk-muted mt-1.5 text-[0.8125rem] leading-5 sm:text-base sm:leading-6">Pick a shop, choose your food, and your runner brings it. Delivery is ₦{CHECKOUT_DELIVERY_FEE.toLocaleString()}.</p>
+        <p className="pk-muted mt-1.5 text-[0.8125rem] leading-5 sm:text-base sm:leading-6">Pick a shop, choose your food, and your runner brings it. {!delivery ? "Delivery is added at checkout." : delivery.options > 1 ? `Delivery from ₦${delivery.fromFee.toLocaleString()}, depending on how fast you want it.` : `Delivery is ₦${delivery.fromFee.toLocaleString()}.`}</p>
 
         {shops.length === 0 ? (
           <div className="pk-empty mt-5 px-4 py-8">

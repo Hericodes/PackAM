@@ -5,6 +5,8 @@ import {
   buildPrintMissionOffers,
   canOfferFindingOrder,
   canOfferFindingPrintJob,
+  eligibleAvailableRunnerWhere,
+  idleEligibleAvailableRunnerWhere,
   isEligibleAvailableRunner,
   planPrintMissionOffersAfterPayment,
   planPrintOffersWhenRunnerBecomesAvailable,
@@ -138,4 +140,10 @@ test("marketplace runner offering still uses Order-backed assignments", () => {
   assert.equal(offers.notifications[0]?.orderId, "order-1");
   assert.equal(offers.notifications[0]?.idempotencyKey, "mission-offer:order-1:runner-1");
   assert.notEqual(offers.notifications[0]?.idempotencyKey, "print-mission-offer:print-job-1:runner-1");
+});
+
+test("urgent orders before escalation go only to eligible runners with no accepted mission", () => {
+  // Existing tables only (RunnerAssignment), so it works the same with or without the delivery-tier migration.
+  assert.deepEqual(idleEligibleAvailableRunnerWhere, { ...eligibleAvailableRunnerWhere, assignments: { none: { status: "ACCEPTED" } } });
+  assert.deepEqual(eligibleAvailableRunnerWhere, { isAvailable: true, isVerified: true, user: { role: "RUNNER", status: "ACTIVE" } }, "the shared filter is unchanged");
 });

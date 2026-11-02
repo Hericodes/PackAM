@@ -70,3 +70,8 @@ export function schemaBehindCodeResponse(error: unknown, where: string, message 
 export function accountSchemaBehindResponse(error: unknown, where: string) {
   return schemaBehindCodeResponse(error, where, "PackAM is being updated. Please try again in a few minutes.");
 }
+
+/** The migration that creates the delivery-tier tables; named in admin messages and logs. */
+export const DELIVERY_TIER_MIGRATION = "20261101150000_delivery_tiers";
+export const DELIVERY_TIER_SETTINGS_TABLE = "DeliveryTierSetting";
+export const ORDER_DELIVERY_TIER_TABLE = "OrderDeliveryTier";

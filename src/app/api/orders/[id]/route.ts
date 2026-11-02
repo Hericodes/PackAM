@@ -1,5 +1,7 @@
 import { auth } from "../../../../auth";
 import { db } from "../../../../lib/db";
+import { loadOrderDeliveryTiers } from "../../../../lib/delivery-tier-store";
+import { describeOrderDelivery } from "../../../../lib/delivery-tiers";
 import { decidePriceChange } from "../../../../lib/orders/runner-service";
 
 type Context = { params: Promise<{ id: string }> };
@@ -46,7 +48,10 @@ export async function GET(_request: Request, context: Context) {
     },
   });
   if (!order) return Response.json({ error: "Order not found." }, { status: 404 });
-  return Response.json({ order });
+  // The paid speed, read on its own; no row (paid before delivery tiers) is "Standard delivery" with no window.
+  const row = (await loadOrderDeliveryTiers(db, [order.id])).get(order.id);
+  const d = describeOrderDelivery(row);
+  return Response.json({ order: { ...order, delivery: { tier: d.tier, label: d.label, etaMinMinutes: row?.etaMinMinutes ?? null, etaMaxMinutes: row?.etaMaxMinutes ?? null, dueAt: d.dueAt?.toISOString() ?? null } } });
 }
 
 export async function POST(request: Request, context: Context) {

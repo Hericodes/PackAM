@@ -6,13 +6,15 @@ import { ProductVisual } from "../../../../components/products/ProductVisual";
 import { SaveProductButton } from "../../../../components/products/SaveProductButton";
 import { VariantPicker } from "../../../../components/products/VariantPicker";
 import { priceRange, type ShopOption, type ShopVariant } from "../../../../lib/products/variants";
-import { STUDENT_DELIVERY_FEE, studentCatalogueProductWhere } from "../../../../lib/products/catalogue";
+import { studentCatalogueProductWhere } from "../../../../lib/products/catalogue";
+import { readDeliveryTierQuotes } from "../../../../lib/delivery-tier-store";
+import { deliveryPriceSummary } from "../../../../lib/delivery-tiers";
 
 type ProductPageProps = { params: Promise<{ id: string }> };
 
 export default async function ProductPage({ params }: ProductPageProps) {
   const { id } = await params;
-  const product = await db.product.findFirst({
+  const [product, tierQuotes] = await Promise.all([db.product.findFirst({
     where: { id, ...studentCatalogueProductWhere },
     select: {
       id: true,
@@ -28,8 +30,10 @@ export default async function ProductPage({ params }: ProductPageProps) {
       variants: { select: { id: true, price: true, stockQuantity: true, status: true, imageUrl: true, values: { select: { optionValueId: true } } } },
       sources: { where: { vendor: { status: "ACTIVE" } }, select: { availability: true } },
     },
-  });
+  }), readDeliveryTierQuotes(db)]);
   if (!product) notFound();
+  // The cheapest delivery speed on sale right now, and how many there are (the student picks one at checkout).
+  const delivery = deliveryPriceSummary(tierQuotes.quotes);
 
   const confirmedInStock = product.sources.some((source) => source.availability === "AVAILABLE");
   const variants: ShopVariant[] = product.variants.map((variant) => ({ id: variant.id, price: variant.price, stockQuantity: variant.stockQuantity, active: variant.status === "ACTIVE", imageUrl: variant.imageUrl, valueIds: variant.values.map((value) => value.optionValueId) }));
@@ -96,7 +100,7 @@ export default async function ProductPage({ params }: ProductPageProps) {
             <dl className="mt-5 grid gap-3 text-sm sm:grid-cols-2">
               <div className="pk-card p-4">
                 <dt className="font-extrabold">Delivery</dt>
-                <dd className="pk-muted mt-1 leading-6">₦{STUDENT_DELIVERY_FEE.toLocaleString()} flat per order, added once at checkout.</dd>
+                <dd className="pk-muted mt-1 leading-6">{!delivery ? "Added once at checkout." : delivery.options > 1 ? `From ₦${delivery.fromFee.toLocaleString()} per order, added once at checkout, where you choose how fast it comes.` : `₦${delivery.fromFee.toLocaleString()} per order, added once at checkout.`}</dd>
               </div>
               <div className="pk-card p-4">
                 <dt className="font-extrabold">If the shop price changes</dt>

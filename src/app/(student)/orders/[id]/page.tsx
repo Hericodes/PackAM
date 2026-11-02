@@ -2,6 +2,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireRole } from "../../../../lib/auth-guard";
 import { db } from "../../../../lib/db";
+import { loadOrderDeliveryTiers } from "../../../../lib/delivery-tier-store";
+import { describeOrderDelivery, formatCampusClock } from "../../../../lib/delivery-tiers";
 import { PriceDecision } from "../../../../components/orders/PriceDecision";
 import { ReorderButton } from "../../../../components/orders/ReorderButton";
 import { PrintTrackingRefresher } from "../../../../components/student/PrintTrackingRefresher";
@@ -39,6 +41,9 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
     },
   });
   if (!order) notFound();
+  // The paid speed, read on its own (never through the order query) so the page works without the tier tables.
+  // No row: "Standard delivery". The fee always comes from the order itself.
+  const delivery = describeOrderDelivery((await loadOrderDeliveryTiers(db, [order.id])).get(order.id));
 
   const progress = orderProgress(order.status);
   const timeline = orderTimeline(order.statusHistory);
@@ -135,7 +140,7 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
               <h2 id="summary-heading" className="text-sm font-black">Payment summary</h2>
               <dl className="mt-3 space-y-2 text-sm">
                 <div className="flex justify-between"><dt className="pk-muted">Items</dt><dd className="font-semibold">₦{order.subtotal.toLocaleString()}</dd></div>
-                <div className="flex justify-between"><dt className="pk-muted">Delivery</dt><dd className="font-semibold">₦{order.deliveryFee.toLocaleString()}</dd></div>
+                <div className="flex justify-between"><dt className="pk-muted">Delivery · {delivery.label}</dt><dd className="font-semibold">₦{order.deliveryFee.toLocaleString()}</dd></div>
                 <div className="flex justify-between border-t border-black/10 pt-3 text-base font-black"><dt>Total paid</dt><dd>₦{order.total.toLocaleString()}</dd></div>
               </dl>
             </section>
@@ -144,6 +149,8 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
               <h2 id="delivery-heading" className="flex items-center gap-2 text-sm font-black"><Icon name="mapPin" className="h-4 w-4 text-[#875a00]" /> Delivering to</h2>
               <p className="mt-2 break-words text-sm leading-5">{order.deliveryAddress}</p>
               {order.deliveryInstructions && <p className="pk-muted mt-1 break-words text-sm leading-5">{order.deliveryInstructions}</p>}
+              <p className="mt-3 text-sm"><strong>{delivery.label}</strong>{delivery.kind === "tier" && <> · Estimated delivery {delivery.eta}</>}</p>
+              {delivery.kind === "tier" && !isFinalOrderStatus(order.status) && <p className="pk-muted text-sm">Estimated arrival: about {formatCampusClock(delivery.dueAt)}</p>}
               {order.assignedRunner && <p className="mt-3 text-sm">Runner: <strong>{order.assignedRunner.user.firstName}</strong></p>}
             </section>
 

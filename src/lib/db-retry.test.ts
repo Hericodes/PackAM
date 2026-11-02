@@ -29,3 +29,20 @@ test("other errors are never retried", async () => {
   assert.equal(isSerializationFailure(Object.assign(new Error("dup"), { code: "P2002" })), false);
   assert.equal(isSerializationFailure(null), false);
 });
+
+test("a conflict found at COMMIT (the pg adapter's raw error, no P2034) is retried too", async () => {
+  const atCommit = Object.assign(new Error("could not serialize access due to read/write dependencies among transactions"), {
+    name: "DriverAdapterError",
+    cause: { kind: "TransactionWriteConflict", originalCode: "40001" },
+  });
+  assert.equal(isSerializationFailure(atCommit), true);
+  assert.equal(isSerializationFailure(Object.assign(new Error("deadlock detected"), { name: "DriverAdapterError", cause: { kind: "Unknown", originalCode: "40P01" } })), true);
+  let calls = 0;
+  assert.equal(await retrySerializable(async () => { calls += 1; if (calls < 3) throw atCommit; return "saved"; }, { sleep: noSleep }), "saved");
+  assert.equal(calls, 3);
+  for (const other of [
+    Object.assign(new Error("duplicate key"), { name: "DriverAdapterError", cause: { kind: "UniqueConstraintViolation", originalCode: "23505" } }),
+    Object.assign(new Error("no cause"), { name: "DriverAdapterError" }),
+    { name: "DriverAdapterError", cause: "TransactionWriteConflict" },
+  ]) assert.equal(isSerializationFailure(other), false, JSON.stringify(other));
+});

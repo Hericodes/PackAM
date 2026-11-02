@@ -31,6 +31,7 @@ export const ADMIN_NAV: AdminNavGroup[] = [
   ] },
   { label: "Management", items: [
     { href: "/admin/runners", label: "Runners", icon: "truck" },
+    { href: "/admin/delivery-tiers", label: "Delivery tiers", icon: "clock" },
     { href: "/admin/support", label: "Support", icon: "message" },
     { href: "/admin/finance", label: "Finance", icon: "wallet" },
     { href: "/admin/audit", label: "Audit log", icon: "history" },

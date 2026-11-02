@@ -5,7 +5,8 @@ How a paid order or print job reaches a runner, and what happens when nobody tak
 ## Lifecycle
 
 1. **Payment verified** → the mission moves to `FINDING_RUNNER` and is offered to every runner who is
-   verified, available and active at that moment.
+   verified, available and active at that moment (Oya Now! and Sharp Sharp orders: only those with no active
+   mission at first, see [Delivery tiers](#delivery-tiers)).
 2. **A runner goes available later** → every mission still `FINDING_RUNNER` that they haven't been offered
    is offered to them straight away (no age limit).
 3. **Each offer has its own window** (`RUNNER_ACCEPTANCE_TIMEOUT_MINUTES`, default **30**), counted from
@@ -24,6 +25,32 @@ How a paid order or print job reaches a runner, and what happens when nobody tak
 
 Operations can also click **Redispatch to runners** on an admin order or print-job page to run step 5 for
 that one mission immediately.
+
+## Delivery tiers
+
+Marketplace and food orders carry the delivery speed the student paid for (`OrderDeliveryTier`, frozen at
+payment). Print jobs have no tier.
+
+- **Priority:** Oya Now!, then Sharp Sharp, then Cruise Mode. Orders paid before delivery tiers ("Standard
+  delivery") and print jobs rank with Cruise Mode. Each scheduled pass handles Oya Now! and Sharp Sharp orders
+  first (oldest first), then everything else by how long it has waited; the runner board sorts the same way.
+- **Idle-runner rule:** an Oya Now! or Sharp Sharp order is offered to, and can be accepted by, only runners
+  with **no active mission** (no accepted, unfinished order or print job) until it escalates. Busy runners still
+  get Cruise Mode and print offers.
+- **One urgent mission at a time:** a runner holding an accepted Oya Now! or Sharp Sharp order can't accept any
+  other mission (order or print job) until they deliver it. They still see offers; the board says why they
+  can't take them. Cruise Mode orders batch as before, with no limit.
+- **Escalation:** an urgent order still waiting for a runner **5 minutes** (Oya Now!) or **10 minutes** (Sharp
+  Sharp) after payment is escalated by the next dispatch step (scheduled pass, a decline, or **Redispatch to
+  runners**): `escalatedAt` is set once and every admin gets **one** "Urgent delivery not accepted" alert in
+  Updates, however many passes run at once. The same step offers the order to every untried eligible runner.
+- **Time-based lift:** the idle-runner rule ends at the threshold even if no pass has run yet, so a late
+  scheduler never keeps an urgent order from busy runners for longer than promised.
+- **Newly idle runners:** when a runner delivers their last mission (order or print job), waiting orders they
+  haven't been offered, including urgent ones held back for idle runners, are offered to them straight away.
+- An urgent order never goes to refund review before its idle-runner rule has lifted.
+- **Before migration `20261101150000_delivery_tiers`:** no order has a tier, so dispatch, offers and acceptance
+  behave exactly as described above without this section.
 
 ## Configuration
 

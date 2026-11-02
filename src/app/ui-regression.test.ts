@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { test } from "node:test";
 
 const source = (path: string) => readFileSync(new URL(path, import.meta.url), "utf8");
@@ -80,6 +80,47 @@ test("signing in checks PackAM can be reached first, so an offline submit never 
     const signIn = file.indexOf("signIn(\"credentials\"");
     assert.ok(check > 0 && signIn > check, `${path}: canSignIn() runs before signIn()`);
   }
+});
+
+test("checkout sends only the chosen speed and what the student reviewed, and never switches the speed itself", () => {
+  const client = source("../components/checkout/CheckoutClient.tsx");
+  // The server prices the speed; the browser never sends a fee, amount or total to charge.
+  assert.ok(client.includes("body: JSON.stringify({ deliveryLocationId: selectedLocation.id, deliveryInstructions, deliveryTier: selectedTier, reviewedTotal, reviewedDeliveryFee })"), "the payment request body");
+  for (const text of ["deliveryTier: selectedTier", "reviewedDeliveryFee", "paymentAttemptStorageKey(", '"DELIVERY_TIER_UNAVAILABLE"', '"CHECKOUT_CHANGED"', '"INVALID_DELIVERY_TIER"', "handlePayment(confirmed, confirmedFee)"]) {
+    assert.ok(client.includes(text), text);
+  }
+  assert.equal(client.split("setSelectedTier(").length - 1, 1, "only the student's own choice sets the speed");
+  assert.doesNotMatch(client, /packam-payment-attempt:/, "the attempt key comes from paymentAttemptStorageKey, which covers the speed and fee");
+  assert.ok(client.indexOf('focusStep("checkout-speed")') > 0, "speed problems take the student to the speed step");
+  // Client components get prices from props, never from the server-only store, the database or the Prisma runtime.
+  for (const path of ["../components/checkout/CheckoutClient.tsx", "../components/checkout/DeliveryTierSelector.tsx", "../components/food/FoodMenu.tsx"]) {
+    const file = source(path);
+    assert.match(file, /^"use client";/, path);
+    assert.doesNotMatch(file, /delivery-tier-store|lib\/db"|from "@prisma\/client"|server-only/, path);
+  }
+  const page = source("./(student)/checkout/page.tsx");
+  assert.match(page, /readDeliveryTierQuotes\(db\)/);
+  assert.match(page, /tiers=\{tierQuotes\.quotes\}/);
+  assert.doesNotMatch(page, /cart\.deliveryFee|deliveryFee=/, "delivery fees come from the speed quotes, not the cart");
+});
+
+test("delivery prices outside checkout come from the speeds on sale, never the old flat fee", () => {
+  assert.doesNotMatch(source("./(student)/products/[id]/page.tsx"), /flat per order|STUDENT_DELIVERY_FEE/);
+  assert.doesNotMatch(source("../lib/products/catalogue.ts"), /STUDENT_DELIVERY_FEE/);
+  for (const path of ["./food/page.tsx", "./food/[shop]/page.tsx", "../components/food/FoodMenu.tsx", "./(student)/checkout/page.tsx", "../lib/cart-pricing.ts", "./(student)/products/[id]/page.tsx"]) {
+    assert.doesNotMatch(source(path), /CHECKOUT_DELIVERY_FEE/, path);
+  }
+  for (const path of ["./food/page.tsx", "./food/[shop]/page.tsx", "./(student)/products/[id]/page.tsx"]) {
+    const page = source(path);
+    assert.match(page, /readDeliveryTierQuotes\(db\)/, path);
+    assert.match(page, /deliveryPriceSummary\(/, path);
+  }
+  // The legacy ₦200 is Cruise Mode's price only while the delivery-tier tables don't exist yet (fallbackQuoteSet).
+  const files = (readdirSync(new URL("..", import.meta.url), { recursive: true }) as string[])
+    .map((file) => file.replaceAll("\\", "/"))
+    .filter((file) => /\.tsx?$/.test(file) && !file.endsWith(".test.ts") && !file.endsWith(".db-test.ts"));
+  assert.ok(files.length > 100, `scanned ${files.length} files`);
+  assert.deepEqual(files.filter((file) => source(`../${file}`).includes("CHECKOUT_DELIVERY_FEE")).sort(), ["lib/checkout-pricing.ts", "lib/delivery-tiers.ts"]);
 });
 
 test("the homepage offers Order Stuff, Food and Printing, in that order, and no Student Verification", () => {

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { HOLDS_URGENT_MISSION_MESSAGE } from "../delivery-tiers";
 import {
   decidePrintAcceptance,
   isPrintMissionIssueAction,
@@ -61,6 +62,22 @@ test("expired, cancelled and stale offers cannot be accepted", () => {
 
 test("an unavailable runner cannot accept", () => {
   assert.match((accept({ runner: { id: "runner-1", isAvailable: false } }) as { message: string }).message, /available/i);
+});
+
+test("a runner holding an Oya Now! or Sharp Sharp order can't accept a print mission until they finish it", () => {
+  assert.deepEqual(accept({ holdsUrgentMission: true }), { kind: "rejected", message: HOLDS_URGENT_MISSION_MESSAGE, status: 409 });
+  // The runner route filter forwards only messages that mention a mission.
+  assert.match(HOLDS_URGENT_MISSION_MESSAGE, /mission/);
+  assert.deepEqual(accept({ holdsUrgentMission: false }), { kind: "accept" });
+  // Idempotent repeats and lost races keep their own answers.
+  assert.deepEqual(accept({
+    holdsUrgentMission: true,
+    assignment: { status: "ACCEPTED", offeredAt: now },
+    job: { ...openJob, status: "RUNNER_ASSIGNED", assignedRunnerId: "runner-1" },
+  }), { kind: "already-accepted" });
+  const lost = accept({ holdsUrgentMission: true, job: { ...openJob, status: "RUNNER_ASSIGNED", assignedRunnerId: "runner-2" } });
+  assert.equal(lost.kind === "rejected" && lost.status, 409);
+  assert.match(lost.kind === "rejected" ? lost.message : "", /already picked/i);
 });
 
 test("print lifecycle steps follow the PrintJob status machine in order", () => {

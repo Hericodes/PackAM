@@ -4,6 +4,7 @@ import { db } from "../../../lib/db";
 import { redirect } from "next/navigation";
 import { CheckoutClient } from "../../../components/checkout/CheckoutClient";
 import { priceCart } from "../../../lib/cart-pricing";
+import { readDeliveryTierQuotes } from "../../../lib/delivery-tier-store";
 import { describeDetails } from "../../../lib/food/plate";
 import { describeOptions } from "../../../lib/products/variants";
 import { lastLocationFor } from "../../../lib/checkout-location-step";
@@ -28,7 +29,7 @@ function findUnconfirmedPayment(userId: string) {
 
 export default async function CheckoutPage() {
   const session = await requireRole("STUDENT", "/checkout");
-  const [cart, savedLocations, unconfirmedPayment, lastOrder] = await Promise.all([
+  const [cart, savedLocations, unconfirmedPayment, lastOrder, tierQuotes] = await Promise.all([
     // Every price here is the server's: product prices, and plates priced as base + soup + extras.
     priceCart(db, session.user.id),
     db.savedLocation.findMany({
@@ -46,6 +47,9 @@ export default async function CheckoutPage() {
     findUnconfirmedPayment(session.user.id),
     // Where the student's last order went: preselected, so a returning student usually just pays.
     db.order.findFirst({ where: { userId: session.user.id, deliveryLocationId: { not: null } }, orderBy: { createdAt: "desc" }, select: { deliveryLocationId: true } }),
+    // Every delivery speed with its current server price and window, read fresh for each visit (never cached).
+    // Before the delivery-tier migration this is Cruise Mode only, at ₦200.
+    readDeliveryTierQuotes(db),
   ]);
   // Only this student's own saved locations are ever loaded (queried by their user id above).
   const lastLocation = lastLocationFor(savedLocations, lastOrder?.deliveryLocationId);
@@ -59,7 +63,7 @@ export default async function CheckoutPage() {
         <div className="mt-4 max-w-2xl">
           <p className="pk-eyebrow">Secure checkout</p>
           <h1 className="pk-page-title mt-2">Checkout</h1>
-          <p className="pk-muted mt-2 text-sm leading-6">Choose where to deliver, check your items, then pay securely with {payWith}. You’ll see the full total, including delivery, before paying.</p>
+          <p className="pk-muted mt-2 text-sm leading-6">Choose where to deliver and how fast, check your items, then pay securely with {payWith}. You’ll see the full total, including delivery, before paying.</p>
         </div>
         {unconfirmedPayment?.transactionReference && (
           <section role="status" className="mt-5 max-w-2xl rounded-2xl border border-[#e8c238] bg-[#fff8df] p-4 text-sm leading-6">
@@ -84,7 +88,7 @@ export default async function CheckoutPage() {
             }))}
             shopName={cart.context.kind === "food" ? cart.shop?.name ?? cart.context.shopName : null}
             problems={cart.problems}
-            deliveryFee={cart.deliveryFee}
+            tiers={tierQuotes.quotes}
             lastLocation={lastLocation}
           />
         </div>

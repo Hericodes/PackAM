@@ -30,6 +30,3 @@ export const studentCatalogueCategoryWhere = {
   isActive: true,
   slug: { notIn: [...DEDICATED_WORKFLOW_CATEGORY_SLUGS] },
 };
-
-/** Flat delivery fee per order, shown wherever students see prices. Mirrors checkout-pricing. */
-export { CHECKOUT_DELIVERY_FEE as STUDENT_DELIVERY_FEE } from "../checkout-pricing";

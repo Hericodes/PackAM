@@ -4,6 +4,9 @@ export const eligibleAvailableRunnerWhere = {
   user: { role: "RUNNER" as const, status: "ACTIVE" as const },
 };
 
+/** Eligible runners with no accepted, unfinished mission (orders or print jobs): who may take an urgent order before it escalates. */
+export const idleEligibleAvailableRunnerWhere = { ...eligibleAvailableRunnerWhere, assignments: { none: { status: "ACCEPTED" as const } } };
+
 export function isEligibleAvailableRunner(runner: {
   isAvailable: boolean;
   isVerified: boolean;

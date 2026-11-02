@@ -4,18 +4,21 @@ import { Prisma } from "@prisma/client";
 import { db } from "../db";
 import { isValidReportedShopPrice } from "../catalogue-permissions";
 import { retrySerializable } from "../db-retry";
+import { orderDeliveryTierInTransaction, runnerMissionLoadInTransaction } from "../delivery-tier-store";
+import { decideTierAcceptance, idleRunnerRuleApplies } from "../delivery-tiers";
 import { isPriceIncreaseWithinConfiguredTolerance } from "./price-policy";
 import { getRunnerAcceptanceTimeoutMinutes } from "./price-policy";
 import { offerStillAcceptable } from "./dispatch-policy";
 import { dispatchOrderInTransaction } from "./dispatch";
-import { offerFindingOrdersToRunner, offerFindingPrintJobsToRunner } from "./runner-assignments";
+import { offerFindingOrdersToRunner, offerFindingPrintJobsToRunner, offerWaitingOrdersToIdleRunner } from "./runner-assignments";
 import { startRefundWorkflow } from "./refunds";
 import { transitionOrderInTransaction } from "./transition";
 import { hasCompleteSourcing, hasUnresolvedUnavailableItems } from "./sourcing-completion";
 import { createNotification, notifyAdmins } from "../notifications";
 
 export async function setRunnerAvailability(userId: string, available: boolean) {
-  return db.$transaction(async (tx) => {
+  // Idempotent, so a conflict with a concurrent offer or dispatch pass is simply run again.
+  return retrySerializable(() => db.$transaction(async (tx) => {
     const runner = await tx.runnerProfile.findFirst({
       where: { userId, isVerified: true, user: { role: "RUNNER", status: "ACTIVE" } },
       select: { id: true },
@@ -26,7 +29,7 @@ export async function setRunnerAvailability(userId: string, available: boolean) 
       ? (await offerFindingOrdersToRunner(tx, runner.id)) + (await offerFindingPrintJobsToRunner(tx, runner.id))
       : 0;
     return { available, offered };
-  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }), { attempts: 4, baseDelayMs: 25 });
 }
 
 export async function acceptRunnerMission(userId: string, orderId: string) {
@@ -51,6 +54,19 @@ export async function acceptRunnerMission(userId: string, orderId: string) {
     if (!offerStillAcceptable(assignment, new Date(), getRunnerAcceptanceTimeoutMinutes())) {
       throw new Error("This mission has expired.");
     }
+    // Delivery tiers, read one after the other (each in its own savepoint). Nobody holding an Oya Now!/Sharp Sharp
+    // order takes another mission, and an urgent order goes to a runner with no missions until it escalates. Two
+    // accepts by the same runner conflict under Serializable, so the retry re-reads their missions.
+    const tier = await orderDeliveryTierInTransaction(tx, orderId);
+    const load = await runnerMissionLoadInTransaction(tx, runner.id);
+    const now = new Date();
+    const decision = decideTierAcceptance({
+      orderTier: tier?.tier,
+      activeMissions: load.activeMissions,
+      holdsUrgent: load.holdsUrgent,
+      idleRuleActive: idleRunnerRuleApplies({ tier: tier?.tier, startedAt: order.findingRunnerAt ?? tier?.createdAt ?? now, escalatedAt: tier?.escalatedAt ?? null, now }),
+    });
+    if (!decision.ok) throw new Error(decision.message);
 
     await transitionOrderInTransaction(tx, {
       orderId,
@@ -292,7 +308,7 @@ export async function reportDeliveryIssue(userId: string, orderId: string, type:
 }
 
 export async function markOrderDelivered(userId: string, orderId: string) {
-  return db.$transaction(async (tx) => {
+  const result = await db.$transaction(async (tx) => {
     const { runner, order } = await getAssignedOrder(tx, userId, orderId);
     if (order.status !== "OUT_FOR_DELIVERY") throw new Error("Finish sourcing and start delivery before marking delivered.");
     await transitionOrderInTransaction(tx, {
@@ -313,8 +329,11 @@ export async function markOrderDelivered(userId: string, orderId: string) {
       data: { totalDeliveries: { increment: 1 }, completedDeliveries: { increment: 1 } },
     });
     await notifyStudent(tx, order.userId, orderId, "Your package don land 🎒", "Your order has been delivered.");
-    return { status: "DELIVERED" as const };
+    return { status: "DELIVERED" as const, runnerId: runner.id };
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  // Best effort, after the delivery committed: a runner who is now free gets waiting urgent orders straight away.
+  await offerWaitingOrdersToIdleRunner(result.runnerId);
+  return { status: result.status };
 }
 
 async function getAssignedOrder(tx: Prisma.TransactionClient, userId: string, orderId: string) {

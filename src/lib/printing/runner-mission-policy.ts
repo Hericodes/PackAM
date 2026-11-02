@@ -1,4 +1,5 @@
 import type { PrintJobStatus } from "@prisma/client";
+import { HOLDS_URGENT_MISSION_MESSAGE } from "../delivery-tiers";
 import { canTransitionPrintJob } from "./status-machine";
 
 /** Pure rules for print missions. The transactional service applies them under database guards. */
@@ -38,6 +39,8 @@ export function decidePrintAcceptance(input: {
   job: { status: string; assignedRunnerId: string | null; findingRunnerAt: Date | null } | null;
   now: Date;
   timeoutMinutes: number;
+  /** The runner has an accepted Oya Now! or Sharp Sharp order: they finish it before taking anything else. */
+  holdsUrgentMission?: boolean;
 }): PrintAcceptanceDecision {
   const { runner, assignment, job } = input;
   // An unrelated runner learns nothing about whether the job exists.
@@ -47,6 +50,7 @@ export function decidePrintAcceptance(input: {
     return { kind: "rejected", message: "Someone already picked this mission 🫡", status: 409 };
   }
   if (assignment.status !== "OFFERED") return { kind: "rejected", message: "This mission is no longer available.", status: 409 };
+  if (input.holdsUrgentMission) return { kind: "rejected", message: HOLDS_URGENT_MISSION_MESSAGE, status: 409 };
   if (!runner.isAvailable) return { kind: "rejected", message: "Go available before accepting a mission.", status: 409 };
   // Each offer has its own window from when it was made (redispatched offers are fresh), not the job's age.
   if (input.now.getTime() - assignment.offeredAt.getTime() > input.timeoutMinutes * 60_000) {

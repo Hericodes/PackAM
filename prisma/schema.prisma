@@ -755,6 +755,9 @@ model Order {
   refunds       Refund[]
   statusHistory OrderStatusHistory[]
   incidents     Incident[]
+  /// Delivery tier snapshot (1:1). Never include or select it on existing Order queries: load it with its own
+  /// query (src/lib/delivery-tier-store.ts) so pages keep working on a database without the tier migration.
+  deliveryTier  OrderDeliveryTier?
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -1273,4 +1276,67 @@ model PaymentReviewCase {
   updatedAt            DateTime            @updatedAt
 
   @@index([status, updatedAt])
+}
+
+// ---------------------------------------------------------------------------
+// DELIVERY TIERS
+// ---------------------------------------------------------------------------
+
+/// The delivery speed a student picks at checkout for a marketplace or food order (never printing).
+/// Declaration order is the dispatch priority: Postgres sorts enum values in declaration order, so
+/// `orderBy: { tier: "asc" }` puts Oya Now! first. Checkout lists them the other way round (Cruise Mode
+/// first) from DISPLAY_ORDER in src/lib/delivery-tiers.ts.
+enum DeliveryTier {
+  OYA
+  SHARP
+  CRUISE
+}
+
+/// Current price, switch and delivery window of one delivery tier: one row per tier, seeded by migration
+/// 20261101150000 with the approved prices, all on. Only the admin "Delivery tiers" page changes `fee` and
+/// `enabled`, and every change is written to AuditLog (DELIVERY_TIER_UPDATED) with the admin and the previous
+/// and new values. Labels and descriptions are code constants (src/lib/delivery-tiers.ts). Checkout reads these
+/// rows inside the payment transaction and freezes fee, window and version into Payment.checkoutSnapshot, so a
+/// paid order never changes when a row does.
+/// Database CHECK constraints (not expressible in Prisma), see migration 20261101150000:
+///   DeliveryTierSetting_enabled_requires_fee_check: a tier that is on has a fee.
+///   DeliveryTierSetting_fee_check: a fee is at least 1 (whole naira).
+///   DeliveryTierSetting_eta_check: 1 <= etaMinMinutes <= etaMaxMinutes <= 1440.
+///   DeliveryTierSetting_version_check: version >= 1.
+model DeliveryTierSetting {
+  tier          DeliveryTier @id
+  /// Whole naira. Null = no price set; the tier must then be off.
+  fee           Int?
+  enabled       Boolean      @default(false)
+  etaMinMinutes Int
+  etaMaxMinutes Int
+  /// Bumped on every admin change. An edit made against an older version is refused (optimistic concurrency).
+  version       Int          @default(1)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+}
+
+/// The delivery speed frozen onto one paid marketplace or food order (1:1), written in the transaction that
+/// creates the order and copied only from the payment's checkout snapshot, never from current settings.
+/// Orders paid before delivery tiers (or while this table was missing) have no row: they show as
+/// "Standard delivery" and dispatch with Cruise priority. Never backfilled or edited, except `escalatedAt`,
+/// which dispatch sets once when an urgent order wasn't accepted in time and admins were alerted.
+/// Read it with its own query (src/lib/delivery-tier-store.ts), never through Order include/select.
+/// Database CHECK constraint (not expressible in Prisma), see migration 20261101150000:
+///   OrderDeliveryTier_eta_check: 1 <= etaMinMinutes <= etaMaxMinutes <= 1440.
+model OrderDeliveryTier {
+  orderId         String       @id
+  tier            DeliveryTier
+  etaMinMinutes   Int
+  etaMaxMinutes   Int
+  /// Payment confirmation time + etaMaxMinutes.
+  dueAt           DateTime
+  /// DeliveryTierSetting.version the student was quoted; null when priced without the settings table.
+  settingsVersion Int?
+  escalatedAt     DateTime?
+  createdAt       DateTime     @default(now())
+
+  order           Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([tier, createdAt])
 }

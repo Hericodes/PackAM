@@ -15,6 +15,8 @@ import {
   createTestLocation,
   createTestUser,
   dbTestSkip as skip,
+  deliveryTierTablesMigrated,
+  restoreApprovedDeliveryTiers,
   signInAs,
   testDb,
   trustedTestVerifiedPayment,
@@ -130,6 +132,26 @@ test("print pricing is computed by the server and the browser cannot change the 
   await db.printJob.update({ where: { id: printJobId }, data: { total: 5 } });
   await assert.rejects(app.payments.completeVerifiedPayment(trustedTestVerifiedPayment(attempt)));
   assert.equal((await db.printJob.findUniqueOrThrow({ where: { id: printJobId }, select: { status: true } })).status, "READY_FOR_PAYMENT", "unverifiable payment never starts fulfilment");
+});
+
+test("delivery tier settings never change what printing costs, and paid print jobs get no tier row", { skip }, async (t) => {
+  if (!(await deliveryTierTablesMigrated())) return t.skip("delivery-tier migration not applied to this test database");
+  const { db, service, payments } = app;
+  const student = await createTestUser("STUDENT");
+  try {
+    // Marketplace delivery gets dearer and the urgent speeds are switched off: printing keeps its own ₦200.
+    await db.deliveryTierSetting.update({ where: { tier: "CRUISE" }, data: { fee: 250 } });
+    await db.deliveryTierSetting.updateMany({ where: { tier: { in: ["SHARP", "OYA"] } }, data: { enabled: false } });
+    const { printJobId, prepared } = await preparedPrintJob(student);
+    assert.deepEqual([prepared.printSubtotal, prepared.deliveryFee, prepared.total], [1_000, 200, 1_200]);
+    const attempt = await service.createPrintPaymentAttempt("OPAY", student.userId, printJobId, randomUUID());
+    assert.equal(attempt.amount, 1_200);
+    await payments.completeVerifiedPayment(trustedTestVerifiedPayment(attempt));
+    assert.deepEqual(await db.printJob.findUniqueOrThrow({ where: { id: printJobId }, select: { status: true, orderId: true } }), { status: "FINDING_RUNNER", orderId: null });
+    assert.equal(await db.orderDeliveryTier.count({ where: { order: { userId: student.userId } } }), 0, "printing never creates an order, so never a tier row");
+  } finally {
+    await restoreApprovedDeliveryTiers();
+  }
 });
 
 test("paid print job: offers, competing acceptance, private document access, lifecycle and tracking", { skip }, async () => {

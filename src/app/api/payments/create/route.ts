@@ -3,12 +3,15 @@ import { db } from "../../../../lib/db";
 import { createPaymentAttempt } from "../../../../lib/payments/payment-lifecycle";
 import { checkoutProvider, createHostedCheckout } from "../../../../lib/payments/gateways";
 import { consumeRateLimit } from "../../../../lib/rate-limit";
-import { CartNotPayableError, PriceChangedError } from "../../../../lib/payments/payment-errors";
+import { CartNotPayableError, CheckoutAttemptMismatchError, DeliveryTierUnavailableError, PriceChangedError } from "../../../../lib/payments/payment-errors";
+import { isSchemaBehindCode, schemaBehindCodeResponse } from "../../../../lib/db-errors";
+import { parseCheckoutDeliveryRequest } from "../../../../lib/delivery-tiers";
 
 /**
  * Starts (or resumes) payment for the student's current cart. New attempts use the active provider
  * (PAYMENT_PROVIDER); an attempt reused through its idempotency key keeps the provider it was created
- * with, so one attempt never has two checkouts.
+ * with, so one attempt never has two checkouts. The browser sends only the delivery speed (deliveryTier;
+ * none means Cruise Mode) and the fee it showed (reviewedDeliveryFee); the fee charged is the server's.
  */
 export async function POST(request: Request) {
   const session = await auth();
@@ -33,9 +36,12 @@ export async function POST(request: Request) {
   if (typeof reviewedTotal !== "number" || !Number.isSafeInteger(reviewedTotal) || reviewedTotal < 0) {
     return Response.json({ error: "Refresh checkout to see your total, then pay." }, { status: 400 });
   }
+  // The delivery speed, and the fee the student saw for it (compared, never charged). No money field is read.
+  const delivery = parseCheckoutDeliveryRequest(body);
+  if (!delivery.ok) return Response.json({ error: delivery.error, code: delivery.code }, { status: 400 });
 
   try {
-    const attempt = await createPaymentAttempt(checkoutProvider(), deliveryLocationId, idempotencyKey, typeof deliveryInstructions === "string" ? deliveryInstructions.trim() || null : undefined, reviewedTotal);
+    const attempt = await createPaymentAttempt(checkoutProvider(), deliveryLocationId, idempotencyKey, typeof deliveryInstructions === "string" ? deliveryInstructions.trim() || null : undefined, reviewedTotal, { tier: delivery.tier, reviewedDeliveryFee: delivery.reviewedDeliveryFee });
     if (attempt.status === "SUCCESS" || attempt.status === "FAILED") {
       return Response.json({ error: "Start a new payment attempt from checkout." }, { status: 409 });
     }
@@ -85,6 +91,14 @@ export async function POST(request: Request) {
     if (error instanceof CartNotPayableError) {
       return Response.json({ error: `${error.problems[0]} Update your cart, then try again.`, code: "CART_NOT_PAYABLE", problems: error.problems }, { status: 409 });
     }
+    // Older checkout tabs show only `error`, so it says what to do on its own. The speed is never switched for them.
+    if (error instanceof DeliveryTierUnavailableError) {
+      return Response.json({ error: `${error.label} isn’t available right now. Refresh checkout and choose another delivery speed. Nothing has been charged.`, code: "DELIVERY_TIER_UNAVAILABLE", tier: error.tier }, { status: 409 });
+    }
+    if (error instanceof CheckoutAttemptMismatchError) {
+      return Response.json({ error: "Your checkout changed since this payment was started. Refresh checkout, then pay. Nothing has been charged.", code: "CHECKOUT_CHANGED" }, { status: 409 });
+    }
+    if (isSchemaBehindCode(error)) return schemaBehindCodeResponse(error, "POST /api/payments/create");
     console.error("PAYMENT CREATE ERROR:", error instanceof Error ? error.name : "Unknown error");
     const message = error instanceof Error && /cart is empty|delivery location|no longer available|invalid quantity|not active/i.test(error.message)
       ? error.message

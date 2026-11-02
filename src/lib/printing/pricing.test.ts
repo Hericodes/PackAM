@@ -60,3 +60,17 @@ test("invalid page counts and copy quantities are rejected", () => {
     }));
   }
 });
+
+import { readFileSync } from "node:fs";
+import { PRINT_DELIVERY_FEE } from "./pricing";
+
+test("printing keeps its own ₦200 delivery fee, independent of delivery tiers", () => {
+  assert.equal(PRINT_DELIVERY_FEE, 200);
+  const price = calculatePrintPrice({ selectedPageCount: 5, copies: 2, paperSize: "A4", colorMode: "BLACK_AND_WHITE", sides: "DOUBLE" });
+  assert.equal(price.deliveryFee, PRINT_DELIVERY_FEE);
+  assert.equal(price.total, 1_000 + PRINT_DELIVERY_FEE);
+  for (const path of ["./pricing.ts", "./payment-snapshot.ts", "../../app/printing/page.tsx"]) {
+    const source = readFileSync(new URL(path, import.meta.url), "utf8");
+    assert.doesNotMatch(source, /CHECKOUT_DELIVERY_FEE|DeliveryTier|deliveryTier/, `${path} must not read marketplace delivery pricing`);
+  }
+});

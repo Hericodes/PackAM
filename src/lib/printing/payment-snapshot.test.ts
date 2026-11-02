@@ -276,3 +276,11 @@ test("a verified success arriving after the job was cancelled is never finalised
     assert.equal(result.duplicate, true, `${status}: recorded for review, not finalised`);
   }
 });
+
+test("a tier fee is never valid in a print snapshot, even with a consistent total", () => {
+  for (const fee of [0, 300, 400]) {
+    assert.throws(() => parsePrintCheckoutSnapshot({ ...snapshot, deliveryFee: fee, total: snapshot.printSubtotal + fee }), String(fee));
+  }
+  // Historical snapshots (₦200, pricing version 2026-10-04) keep validating unchanged.
+  assert.deepEqual(parsePrintCheckoutSnapshot(snapshot), { ...snapshot });
+});

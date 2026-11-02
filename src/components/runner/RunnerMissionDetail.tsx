@@ -4,12 +4,14 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { DeliveryDestination } from "./DeliveryDestination";
+import { deliveryTierTone, formatCampusClock } from "../../lib/delivery-tiers";
 import { orderStatusDisplay, runnerOrderNextStep } from "../../lib/ops-status";
 import { StatusBadge } from "../ui/StatusBadge";
 
 type Source = { id: string; status: string; quantity: number; catalogueUnitPrice: number; actualUnitPrice: number | null; orderSource: { vendor: { name: string } } };
 type Item = { id: string; productName: string; quantity: number; unitPrice: number; sourcing: Source[]; plate?: string | null; options?: string | null };
-type Mission = { assignmentStatus: string; id: string; status: string; items: Item[]; deliveryLocationLabel: string; deliveryAddress?: string; deliveryInstructions?: string | null; deliveryPoint?: { latitude: number; longitude: number; mapsUrl: string } | null; total?: number; student?: { firstName: string | null; phone: string | null }; shop?: { id: string; name: string; location: string | null } | null };
+type Delivery = { tier: string | null; label: string; urgent: boolean; eta: string | null; dueAt: string | null };
+type Mission = { assignmentStatus: string; id: string; status: string; delivery?: Delivery | null; acceptance?: { allowed: boolean; reason: string | null }; items: Item[]; deliveryLocationLabel: string; deliveryAddress?: string; deliveryInstructions?: string | null; deliveryPoint?: { latitude: number; longitude: number; mapsUrl: string } | null; total?: number; student?: { firstName: string | null; phone: string | null }; shop?: { id: string; name: string; location: string | null } | null };
 type Vendor = { id: string; name: string; location: string | null };
 type IssueType = "CUSTOMER_UNAVAILABLE" | "DELIVERY_ISSUE" | "WRONG_ITEM" | "MISSING_ITEM" | "DAMAGED_ITEM" | "OTHER";
 
@@ -86,16 +88,21 @@ export function RunnerMissionDetail({ orderId }: { orderId: string }) {
 
   const display = mission.assignmentStatus === "OFFERED" ? { label: "New offer", tone: "warning" as const } : orderStatusDisplay(mission.status);
   const nextStep = runnerOrderNextStep(mission.status, mission.assignmentStatus);
+  // Delivery speed (Oya Now!, Sharp Sharp, Cruise Mode, or Standard delivery for orders paid before tiers).
+  const due = mission.delivery?.dueAt ? formatCampusClock(new Date(mission.delivery.dueAt)) : null;
+  const blockedReason = mission.acceptance?.allowed === false ? mission.acceptance.reason : null;
 
   return <>
     <Link href="/runner" className="mt-4 inline-flex min-h-11 items-center text-sm font-bold text-black/60">← Missions</Link>
     <div className="mt-2 rounded-3xl border border-black/5 bg-white p-5 sm:p-7">
       <p className="text-xs font-bold uppercase tracking-wider text-black/40">📍 {mission.deliveryLocationLabel}</p>
-      <div className="mt-2 flex flex-wrap items-center gap-2"><h1 className="text-2xl font-black">{display.label}</h1><StatusBadge label={mission.assignmentStatus === "OFFERED" ? "Not yet accepted" : "Your mission"} tone={mission.assignmentStatus === "OFFERED" ? "neutral" : "success"} /></div>
+      <div className="mt-2 flex flex-wrap items-center gap-2"><h1 className="text-2xl font-black">{display.label}</h1><StatusBadge label={mission.assignmentStatus === "OFFERED" ? "Not yet accepted" : "Your mission"} tone={mission.assignmentStatus === "OFFERED" ? "neutral" : "success"} />{mission.delivery && <StatusBadge label={mission.delivery.label} tone={deliveryTierTone(mission.delivery.tier)} />}</div>
+      {due && <p className="mt-1 text-sm font-bold text-[#a15c00]">Due by {due}</p>}
       {nextStep && <p className="mt-3 rounded-xl bg-[#fffdf7] px-3 py-2 text-sm"><span className="font-black">Next: </span>{nextStep}</p>}
       {mission.assignmentStatus === "OFFERED" ? <>
         <p className="mt-3 text-sm text-black/60">{mission.items.map((item) => `${item.productName} × ${item.quantity}`).join(", ")}</p>
-        <button disabled={busy} onClick={() => void act({ action: "accept" })} className="mt-5 min-h-12 w-full rounded-full bg-black px-6 py-3 text-sm font-black text-white disabled:opacity-50 sm:w-auto">{busy ? "Accepting…" : "Accept mission"}</button>
+        {blockedReason && <p role="status" className="mt-4 rounded-xl bg-[#fff3d6] px-3 py-2 text-sm font-semibold text-[#6b4700]">{blockedReason}</p>}
+        <button disabled={busy || mission.acceptance?.allowed === false} onClick={() => void act({ action: "accept" })} className="mt-5 min-h-12 w-full rounded-full bg-black px-6 py-3 text-sm font-black text-white disabled:opacity-50 sm:w-auto">{busy ? "Accepting…" : "Accept mission"}</button>
         <button disabled={busy} onClick={() => void act({ action: "decline" })} className="mt-2 min-h-12 w-full rounded-full border border-black/15 px-6 py-3 text-sm font-bold disabled:opacity-50 sm:ml-2 sm:mt-5 sm:w-auto">Decline</button>
       </> : mission.status === "REFUND_PROCESSING" ? <p className="mt-3 text-sm text-black/60">PackAM operations will handle the refund request.</p> : <>
         {mission.status === "OUT_FOR_DELIVERY" && <div className="mt-4 rounded-2xl bg-[#fff8df] p-4"><p className="font-black">DELIVERY 🚴</p><DeliveryDestination label={mission.deliveryLocationLabel} address={mission.deliveryAddress} instructions={mission.deliveryInstructions} point={mission.deliveryPoint} />{mission.student?.phone && <p className="mt-2 text-sm"><strong>Contact:</strong> <a className="underline" href={`tel:${mission.student.phone}`}>{mission.student.firstName || "Student"} · {mission.student.phone}</a></p>}<ul className="mt-3 text-sm">{mission.items.map((item) => <li key={item.id}>{item.productName} × {item.quantity}</li>)}</ul><p className="mt-3 text-sm font-black">Total: ₦{mission.total?.toLocaleString()}</p></div>}

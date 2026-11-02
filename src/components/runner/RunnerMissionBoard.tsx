@@ -2,11 +2,15 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { orderStatusDisplay, printStatusDisplay, runnerOrderNextStep, runnerPrintNextStep } from "../../lib/ops-status";
+import { compareMissionPriority, deliveryTierTone, formatCampusClock, tierRank } from "../../lib/delivery-tiers";
+import { orderStatusDisplay, printStatusDisplay, runnerOrderNextStep, runnerPrintNextStep, type StatusTone } from "../../lib/ops-status";
 import { StatusBadge } from "../ui/StatusBadge";
 
-type Mission = { id: string; status: string; order: { id: string; status: string; items: { id: string; productName: string; quantity: number }[]; deliveryLocationLabel: string; deliveryAddress?: string; deliveryInstructions?: string | null } };
-type PrintMission = { assignmentId: string; id: string; reference: string; assignmentStatus: string; status: string; colorMode: string | null; sides: string | null; copies: number; selectedPageCount: number | null; deliveryLocationLabel: string };
+/** Whether this runner can accept an offer right now (delivery-tier rules); the accept action checks it again. */
+type Acceptance = { allowed: boolean; reason: string | null };
+type Delivery = { tier: string | null; label: string; urgent: boolean; eta: string | null; dueAt: string | null };
+type Mission = { id: string; status: string; delivery?: Delivery | null; acceptance?: Acceptance; order: { id: string; status: string; findingRunnerAt?: string | null; items: { id: string; productName: string; quantity: number }[]; deliveryLocationLabel: string; deliveryAddress?: string; deliveryInstructions?: string | null } };
+type PrintMission = { assignmentId: string; id: string; reference: string; assignmentStatus: string; status: string; colorMode: string | null; sides: string | null; copies: number; selectedPageCount: number | null; deliveryLocationLabel: string; offeredAt?: string; acceptance?: Acceptance };
 
 const REFRESH_MS = 30_000;
 
@@ -22,20 +26,31 @@ function printSummary(mission: PrintMission) {
 type Card = {
   key: string; href: string; kind: "order" | "print"; accepted: boolean; status: string; badge: { label: string; tone: Parameters<typeof StatusBadge>[0]["tone"] };
   title: string; summary: string; location: string; address?: string; instructions?: string | null; nextStep: string | null; cta: string;
+  /** Delivery priority (0 = Oya Now!) and since when it has waited, for sorting; print jobs rank with Cruise Mode. */
+  rank: number; waitingSince: number;
+  tier: { label: string; tone: StatusTone } | null; due: string | null; blockedReason: string | null;
 };
 
 function MissionCard({ card }: { card: Card }) {
   return <li><Link href={card.href} className={`block rounded-2xl border bg-white p-4 transition hover:border-black/20 sm:p-5 ${card.accepted ? "border-black/10" : "border-[#feb80a]/60 shadow-[0_8px_24px_-18px_rgba(135,90,0,0.7)]"}`}>
     <div className="flex flex-wrap items-center gap-2">
       <span className="inline-flex rounded-full bg-black/6 px-2.5 py-1 text-xs font-black">{card.kind === "print" ? "🖨️ Print" : "🛒 Order"}</span>
+      {card.tier && <StatusBadge label={card.tier.label} tone={card.tier.tone} />}
       <StatusBadge label={card.badge.label} tone={card.badge.tone} />
     </div>
     <p className="mt-2 font-black">{card.title}</p>
+    {card.due && <p className="mt-0.5 text-sm font-bold text-[#a15c00]">Due by {card.due}</p>}
     <p className="mt-1 text-sm text-black/70">{card.summary}</p>
     <p className="mt-2 text-sm"><span className="font-bold">📍 {card.location}</span>{card.address && <span className="block text-black/65">{card.address}</span>}{card.instructions && <span className="block text-xs text-black/55">Note: {card.instructions}</span>}</p>
     {card.nextStep && <p className="mt-3 rounded-xl bg-[#fffdf7] px-3 py-2 text-sm"><span className="font-black">Next: </span>{card.nextStep}</p>}
+    {card.blockedReason && <p className="mt-3 rounded-xl bg-[#fff3d6] px-3 py-2 text-sm font-semibold text-[#6b4700]">{card.blockedReason}</p>}
     <span className="mt-3 inline-flex min-h-11 w-full items-center justify-center rounded-full bg-black px-5 text-sm font-black text-white sm:w-auto">{card.cta} →</span>
   </Link></li>;
+}
+
+/** Milliseconds for sorting; missing or unreadable times sort last. */
+function waitingSince(iso: string | null | undefined) {
+  return Date.parse(iso ?? "") || Number.MAX_SAFE_INTEGER;
 }
 
 export function RunnerMissionBoard({ adminView = false }: { adminView?: boolean }) {
@@ -115,9 +130,11 @@ export function RunnerMissionBoard({ adminView = false }: { adminView?: boolean 
         summary: printSummary(mission), location: mission.deliveryLocationLabel,
         nextStep: adminView ? null : runnerPrintNextStep(mission.status, mission.assignmentStatus),
         cta: adminView ? "Open print job" : accepted ? "Continue" : "Review & accept",
+        rank: tierRank(null), waitingSince: waitingSince(mission.offeredAt), tier: null, due: null,
+        blockedReason: !accepted && mission.acceptance?.allowed === false ? mission.acceptance.reason : null,
       };
     }),
-    ...missions.map(({ id, status, order }): Card => {
+    ...missions.map(({ id, status, order, delivery, acceptance }): Card => {
       const accepted = status === "ACCEPTED";
       const display = orderStatusDisplay(order.status);
       return {
@@ -129,11 +146,16 @@ export function RunnerMissionBoard({ adminView = false }: { adminView?: boolean 
         location: order.deliveryLocationLabel, address: order.deliveryAddress, instructions: order.deliveryInstructions,
         nextStep: adminView ? null : runnerOrderNextStep(order.status, status),
         cta: adminView ? "Open order" : accepted ? "Continue" : "Review & accept",
+        rank: tierRank(delivery?.tier), waitingSince: waitingSince(order.findingRunnerAt),
+        tier: delivery ? { label: delivery.label, tone: deliveryTierTone(delivery.tier) } : null,
+        due: delivery?.dueAt ? formatCampusClock(new Date(delivery.dueAt)) : null,
+        blockedReason: !accepted && acceptance?.allowed === false ? acceptance.reason : null,
       };
     }),
   ];
-  const active = cards.filter((card) => card.accepted).sort((a, b) => urgency(a.status) - urgency(b.status));
-  const offers = cards.filter((card) => !card.accepted);
+  // Oya Now! first, then Sharp Sharp, then Cruise Mode, orders without a tier and print jobs.
+  const active = cards.filter((card) => card.accepted).sort((a, b) => a.rank - b.rank || urgency(a.status) - urgency(b.status) || a.waitingSince - b.waitingSince);
+  const offers = cards.filter((card) => !card.accepted).sort(compareMissionPriority);
 
   return <>
     <section className="mt-6 flex flex-wrap items-center justify-between gap-4 rounded-2xl bg-white p-5">
@@ -159,7 +181,7 @@ export function RunnerMissionBoard({ adminView = false }: { adminView?: boolean 
 
       <section aria-labelledby="mission-offers" className="mt-8">
         <h2 id="mission-offers" className="flex items-center gap-2 text-xl font-black">{adminView ? "Offered" : "New offers"} <span className={`rounded-full px-2 py-0.5 text-xs ${offers.length ? "bg-[#feb80a] text-black" : "bg-black/10 text-black/60"}`}>{offers.length}</span></h2>
-        {!adminView && offers.length > 0 && <p className="mt-1 text-xs text-black/55">Offers go to every available runner — the first to accept gets the mission.</p>}
+        {!adminView && offers.length > 0 && <p className="mt-1 text-xs text-black/55">Offers go to every available runner — the first to accept gets the mission. Oya Now! and Sharp Sharp go first to runners with no active missions.</p>}
         {offers.length ? <ul className="mt-3 grid gap-3 lg:grid-cols-2">{offers.map((card) => <MissionCard key={card.key} card={card} />)}</ul>
           : !error && <p className="mt-3 rounded-2xl bg-white p-5 text-sm text-black/65">{adminView ? "No open offers." : available ? "No new missions right now. Stay available — new ones show up here automatically 🛵" : "You’re offline, so no missions will be offered. Go available when you’re ready."}</p>}
       </section>

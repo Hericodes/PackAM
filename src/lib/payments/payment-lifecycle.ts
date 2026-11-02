@@ -11,9 +11,22 @@ import { createNotification, notifyAdmins } from "../notifications";
 import { completeVerifiedPrintPayment } from "../printing/payment-lifecycle";
 import { retrySerializable } from "../db-retry";
 import { priceCart } from "../cart-pricing";
+import {
+  DELIVERY_TIER_LABELS,
+  deliveryDueAt,
+  isUrgentTier,
+  parseDeliveryTier,
+  parseSnapshotDeliveryTier,
+  quoteFor,
+  snapshotDeliveryTierFields,
+  snapshotTierForReuse,
+  type DeliveryTierCode,
+  type SnapshotDeliveryTierFields,
+} from "../delivery-tiers";
+import { readDeliveryTierQuotesInTransaction, writeOrderDeliveryTierInTransaction } from "../delivery-tier-store";
 import { describeDetails, parseLineDetails, type LineDetails } from "../food/plate";
 import { describeOptions, parseVariantDetails, type VariantDetails } from "../products/variants";
-import { CartNotPayableError, PaymentFinalizationMismatchError, PriceChangedError } from "./payment-errors";
+import { CartNotPayableError, CheckoutAttemptMismatchError, DeliveryTierUnavailableError, PaymentFinalizationMismatchError, PriceChangedError } from "./payment-errors";
 
 type SnapshotItem = {
   cartItemId: string;
@@ -28,12 +41,18 @@ type SnapshotItem = {
   variantId?: string;
 };
 
+/**
+ * The tier fields (deliveryTier, its window and settings version) record the delivery speed paid for. They are absent
+ * on attempts started before delivery tiers; read them only with parseSnapshotDeliveryTier. deliveryFee stays the
+ * one fee that is charged.
+ */
 type CheckoutSnapshot = {
   cartId: string;
   /** Food orders: the shop the runner must buy from. Absent for Order Stuff. */
   shopId?: string;
   items: SnapshotItem[];
   subtotal: number;
+  /** The chosen delivery speed's fee when the attempt was created. */
   deliveryFee: number;
   deliveryLocationId: string;
   deliveryAddress: string;
@@ -46,7 +65,7 @@ type CheckoutSnapshot = {
   deliveryLocationLabel?: string;
   deliveryLatitude?: number;
   deliveryLongitude?: number;
-};
+} & Partial<SnapshotDeliveryTierFields>;
 
 export type VerifiedProviderPayment = {
   /** PackAM reference returned by createPaymentAttempt. */
@@ -59,9 +78,19 @@ export type VerifiedProviderPayment = {
   status: "SUCCESS";
 };
 
+const ATTEMPT_FIELDS = { id: true, transactionReference: true, provider: true, status: true, amount: true, currency: true, orderId: true } as const;
+const ATTEMPT_WITH_SNAPSHOT = { ...ATTEMPT_FIELDS, checkoutSnapshot: true } as const;
+
+/** An existing attempt is resumed only for the speed it was created with (none recorded = Cruise Mode). */
+function resumable(attempt: Prisma.PaymentGetPayload<{ select: typeof ATTEMPT_WITH_SNAPSHOT }>, tier: DeliveryTierCode) {
+  if (snapshotTierForReuse(attempt.checkoutSnapshot) !== tier) throw new CheckoutAttemptMismatchError();
+  return { id: attempt.id, transactionReference: attempt.transactionReference, provider: attempt.provider, status: attempt.status, amount: attempt.amount, currency: attempt.currency, orderId: attempt.orderId };
+}
+
 /**
  * Creates a PENDING attempt from the authenticated student's current database cart.
- * The provider must be selected by server code, never copied from browser input.
+ * The provider must be selected by server code, never copied from browser input. Only the delivery
+ * speed comes from the browser: its fee is the speed's current price, read in the same transaction.
  */
 export async function createPaymentAttempt(
   provider: PaymentProvider,
@@ -70,6 +99,8 @@ export async function createPaymentAttempt(
   deliveryInstructions?: string | null,
   /** The total the student last reviewed. If the server's total differs, nothing is created (PriceChangedError). */
   reviewedTotal?: number,
+  /** The delivery speed chosen (none = Cruise Mode, all that tabs opened before tiers showed) and the fee the student reviewed. */
+  delivery: { tier?: DeliveryTierCode; reviewedDeliveryFee?: number } = {},
 ) {
   const session = await auth();
   if (!session?.user || session.user.role !== "STUDENT") {
@@ -86,9 +117,18 @@ export async function createPaymentAttempt(
   if (deliveryInstructions !== undefined && deliveryInstructions !== null && deliveryInstructions.length > 500) {
     throw new Error("Delivery instructions must be 500 characters or fewer.");
   }
+  // The route has checked both already; never trust a caller to have done so.
+  const tier = delivery.tier === undefined ? "CRUISE" : parseDeliveryTier(delivery.tier);
+  if (!tier) throw new Error("Choose a delivery speed.");
+  const reviewedDeliveryFee = delivery.reviewedDeliveryFee;
+  if (reviewedDeliveryFee !== undefined && (!Number.isSafeInteger(reviewedDeliveryFee) || reviewedDeliveryFee < 0)) {
+    throw new Error("The reviewed delivery fee is invalid.");
+  }
 
   try {
-    return await db.$transaction(async (tx) => {
+    // Retried on a serialization conflict (e.g. an admin changing a delivery price at the same moment): each retry
+    // reads the attempt, the cart and the price again, and nothing is written until the last statement.
+    return await retrySerializable(() => db.$transaction(async (tx) => {
       const existing = await tx.payment.findUnique({
         where: {
           userId_idempotencyKey: {
@@ -96,17 +136,10 @@ export async function createPaymentAttempt(
             idempotencyKey: key,
           },
         },
-        select: {
-          id: true,
-          transactionReference: true,
-          provider: true,
-          status: true,
-          amount: true,
-          currency: true,
-          orderId: true,
-        },
+        select: ATTEMPT_WITH_SNAPSHOT,
       });
-      if (existing) return existing;
+      // Before any pricing, so an attempt started while its speed was on sale can still be resumed after it's turned off.
+      if (existing) return resumable(existing, tier);
 
       const student = await tx.user.findFirst({
         where: { id: session.user.id, role: "STUDENT", status: "ACTIVE" },
@@ -114,7 +147,7 @@ export async function createPaymentAttempt(
       });
       if (!student) throw new Error("This student account is not active.");
 
-      // Prices, availability, open shops and the delivery fee, all from the database right now.
+      // Prices, availability and open shops, all from the database right now (the delivery fee follows below).
       const [cart, location] = await Promise.all([
         priceCart(tx, student.id),
         tx.savedLocation.findFirst({
@@ -127,6 +160,12 @@ export async function createPaymentAttempt(
       if (!location) throw new Error("Choose one of your saved delivery locations.");
       // Closed shop, hidden or unavailable items, or a mixed cart: nothing is charged until the student fixes it.
       if (cart.problems.length) throw new CartNotPayableError(cart.problems);
+
+      // The chosen speed's price, read in this transaction on its own (never inside the Promise.all above).
+      // A speed that is off or unpriced is refused: nothing is created, and it is never swapped for another speed.
+      const quote = quoteFor(await readDeliveryTierQuotesInTransaction(tx), tier);
+      if (!quote.available || quote.fee === null) throw new DeliveryTierUnavailableError(tier, quote.label);
+      const deliveryFee = quote.fee;
 
       const items: SnapshotItem[] = cart.lines.map((line) => {
         if (!Number.isInteger(line.quantity) || line.quantity < 1 || line.quantity > 99) {
@@ -145,17 +184,23 @@ export async function createPaymentAttempt(
       });
 
       const subtotal = items.reduce((sum, item) => sum + item.totalPrice, 0);
-      const amount = subtotal + cart.deliveryFee;
+      const amount = subtotal + deliveryFee;
       if (!Number.isSafeInteger(amount) || amount <= 0) {
         throw new Error("The checkout amount is invalid.");
       }
-      // Never charge a total the student hasn't seen: show them the new breakdown and let them confirm.
-      if (reviewedTotal !== undefined && reviewedTotal !== amount) {
+      // Never charge a total or a delivery fee the student hasn't seen: show them the new breakdown, for the speed
+      // they chose, and let them confirm.
+      if ((reviewedTotal !== undefined && reviewedTotal !== amount) || (reviewedDeliveryFee !== undefined && reviewedDeliveryFee !== deliveryFee)) {
         throw new PriceChangedError({
           subtotal,
-          deliveryFee: cart.deliveryFee,
+          deliveryFee,
           total: amount,
-          reviewedTotal,
+          reviewedTotal: reviewedTotal ?? amount,
+          reviewedDeliveryFee: reviewedDeliveryFee ?? null,
+          deliveryTier: tier,
+          deliveryTierLabel: quote.label,
+          deliveryEtaMinMinutes: quote.etaMinMinutes,
+          deliveryEtaMaxMinutes: quote.etaMaxMinutes,
           lines: cart.lines.map((line) => ({ cartItemId: line.cartItemId, name: line.details?.kind === "PLATE" ? `Plate: ${describeDetails(line.details)}` : line.details?.kind === "VARIANT" ? `${line.name} (${describeOptions(line.details.options)})` : line.name, quantity: line.quantity, unitPrice: line.unitPrice, total: line.unitPrice * line.quantity })),
         });
       }
@@ -165,7 +210,10 @@ export async function createPaymentAttempt(
         ...(cart.context.kind === "food" ? { shopId: cart.context.shopId } : {}),
         items,
         subtotal,
-        deliveryFee: cart.deliveryFee,
+        deliveryFee,
+        // The speed, window and settings version quoted (version null without the settings table). Completion copies
+        // them from here, never from current settings, so later price or switch changes never touch this payment.
+        ...snapshotDeliveryTierFields(quote),
         deliveryLocationId: location.id,
         deliveryAddress: location.address,
         deliveryInstructions: deliveryInstructions === undefined ? location.instructions : deliveryInstructions,
@@ -184,19 +232,11 @@ export async function createPaymentAttempt(
           idempotencyKey: key,
           checkoutSnapshot: snapshot as unknown as Prisma.InputJsonValue,
         },
-        select: {
-          id: true,
-          transactionReference: true,
-          provider: true,
-          status: true,
-          amount: true,
-          currency: true,
-          orderId: true,
-        },
+        select: ATTEMPT_FIELDS,
       });
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }), { attempts: 4, baseDelayMs: 25 });
   } catch (error) {
-    // If two retries race with the same key, return the attempt created by the winner.
+    // If two retries race with the same key, return the attempt created by the winner (for the same speed only).
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
       const existing = await db.payment.findUnique({
         where: {
@@ -205,17 +245,9 @@ export async function createPaymentAttempt(
             idempotencyKey: key,
           },
         },
-        select: {
-          id: true,
-          transactionReference: true,
-          provider: true,
-          status: true,
-          amount: true,
-          currency: true,
-          orderId: true,
-        },
+        select: ATTEMPT_WITH_SNAPSHOT,
       });
-      if (existing) return existing;
+      if (existing) return resumable(existing, tier);
     }
     throw error;
   }
@@ -340,6 +372,30 @@ export async function removeCheckoutItemsFromCart(tx: Prisma.TransactionClient, 
 }
 
 /**
+ * Freezes the paid speed onto the new order, copied from the attempt's snapshot only (never current settings, so a
+ * speed turned off or repriced after payment started is still honoured). Never blocks the order: when the row can't
+ * be written (tables missing, or a damaged snapshot) an Oya Now!/Sharp Sharp order alerts admins to dispatch it by hand.
+ */
+async function recordOrderDeliveryTier(tx: Prisma.TransactionClient, orderId: string, checkoutSnapshot: Prisma.JsonValue | null, confirmedAt: Date) {
+  const paid = parseSnapshotDeliveryTier(checkoutSnapshot);
+  if (paid.kind === "legacy") return; // paid before delivery tiers: "Standard delivery", Cruise priority
+  const written = paid.kind === "tier" && await writeOrderDeliveryTierInTransaction(tx, {
+    orderId, tier: paid.tier, etaMinMinutes: paid.etaMinMinutes, etaMaxMinutes: paid.etaMaxMinutes,
+    dueAt: deliveryDueAt(confirmedAt, paid.etaMaxMinutes), settingsVersion: paid.settingsVersion,
+  });
+  if (written || (paid.kind === "tier" && !isUrgentTier(paid.tier))) return;
+  await notifyAdmins(tx, {
+    type: "ORDER",
+    title: "Delivery speed not recorded",
+    message: paid.kind === "tier"
+      ? `Order ${orderId} was paid for ${DELIVERY_TIER_LABELS[paid.tier]} but its delivery speed couldn’t be saved. Dispatch it as urgent by hand.`
+      : `Order ${orderId} was paid with an unreadable delivery speed. Check its payment snapshot and dispatch it by hand.`,
+    orderId,
+    idempotencyKey: `delivery-tier-unrecorded:${orderId}`,
+  });
+}
+
+/**
  * Call only after a provider adapter has verified the webhook signature and
  * independently confirmed the transaction with the provider. Never expose this
  * function through a browser-facing route.
@@ -395,7 +451,8 @@ export async function completeVerifiedPayment(verified: VerifiedProviderPayment)
       data: {
         userId: attempt.userId,
         status: "PAYMENT_CONFIRMED",
-        findingRunnerAt: new Date(),
+        // One clock for the order: dispatch, urgent escalation and the delivery due time all start here.
+        findingRunnerAt: confirmedAt,
         subtotal: snapshot.subtotal,
         deliveryFee: snapshot.deliveryFee,
         total: attempt.amount,
@@ -427,6 +484,8 @@ export async function completeVerifiedPayment(verified: VerifiedProviderPayment)
       },
       select: { id: true },
     });
+    // The paid speed goes on the order before it is offered to runners, so the offers can follow its priority.
+    await recordOrderDeliveryTier(tx, order.id, attempt.checkoutSnapshot, confirmedAt);
 
     await transitionOrderInTransaction(tx, {
       orderId: order.id,

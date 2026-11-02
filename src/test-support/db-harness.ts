@@ -245,3 +245,31 @@ async function deleteCreatedRows(db: Db) {
   await db.vendor.deleteMany({ where: { id: { in: created.vendors } } });
   await db.user.deleteMany({ where: { id: users } });
 }
+
+// ---- Delivery tiers ----
+
+/** The owner-approved delivery tiers, as seeded by migration 20261101150000_delivery_tiers. */
+export const APPROVED_DELIVERY_TIERS = [
+  { tier: "CRUISE", fee: 200, enabled: true, etaMinMinutes: 20, etaMaxMinutes: 30 },
+  { tier: "SHARP", fee: 300, enabled: true, etaMinMinutes: 15, etaMaxMinutes: 25 },
+  { tier: "OYA", fee: 400, enabled: true, etaMinMinutes: 10, etaMaxMinutes: 15 },
+] as const;
+
+/** True when this test database has the delivery-tier tables. Tier tests skip otherwise; lag tests run only then. */
+export async function deliveryTierTablesMigrated() {
+  const db = await testDb();
+  const [row] = await db.$queryRaw<Array<{ ready: boolean | null }>>`SELECT (to_regclass('public."DeliveryTierSetting"') IS NOT NULL AND to_regclass('public."OrderDeliveryTier"') IS NOT NULL) AS "ready"`;
+  return row?.ready === true;
+}
+
+/** DeliveryTierSetting is global and cleanup never touches it: tests that edit it call this in finally/after. */
+export async function restoreApprovedDeliveryTiers() {
+  if (!(await deliveryTierTablesMigrated())) return;
+  const db = await testDb();
+  for (const row of APPROVED_DELIVERY_TIERS) {
+    await db.deliveryTierSetting.update({
+      where: { tier: row.tier },
+      data: { fee: row.fee, enabled: row.enabled, etaMinMinutes: row.etaMinMinutes, etaMaxMinutes: row.etaMaxMinutes },
+    });
+  }
+}

@@ -6,10 +6,13 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { DeliveryLocation, hasPin } from "./LocationSelector";
 import { CheckoutLocationStep } from "./CheckoutLocationStep";
+import { DeliveryTierSelector } from "./DeliveryTierSelector";
 import { Icon } from "../ui/Icon";
 import { useCartExperience } from "../cart/CartExperience";
 import { productImageDeliveryUrl } from "../../lib/cloudinary-url";
 import { productGlyph } from "../../lib/products/category-display";
+import { DELIVERY_TIER_LABELS, checkoutDeliveryFee, formatEta, parseDeliveryTier, type DeliveryTierCode, type DeliveryTierQuote } from "../../lib/delivery-tiers";
+import { deliveryTierProblem, initialDeliveryTier, paymentAttemptStorageKey } from "../../lib/checkout-delivery-step";
 
 
 type CheckoutItem = {
@@ -28,11 +31,25 @@ type CheckoutItem = {
   problem: string | null;
 };
 
-type Revised = { subtotal: number; deliveryFee: number; total: number; reviewedTotal: number; lines: Array<{ cartItemId: string; name: string; quantity: number; unitPrice: number; total: number }> };
+type Revised = {
+  subtotal: number;
+  deliveryFee: number;
+  total: number;
+  reviewedTotal: number;
+  /** The delivery fee the student had reviewed (null when the request sent none). */
+  reviewedDeliveryFee?: number | null;
+  /** The speed the server priced. Missing from a server without delivery tiers. */
+  deliveryTier?: DeliveryTierCode;
+  deliveryTierLabel?: string;
+  deliveryEtaMinMinutes?: number;
+  deliveryEtaMaxMinutes?: number;
+  lines: Array<{ cartItemId: string; name: string; quantity: number; unitPrice: number; total: number }>;
+};
 
 type CheckoutClientProps = {
   items: CheckoutItem[];
-  deliveryFee: number;
+  /** Every delivery speed with its server price and window, in display order. */
+  tiers: DeliveryTierQuote[];
   /** The student's own most recent delivery location, offered as "Use my last location". */
   lastLocation: DeliveryLocation | null;
   /** Display name of the provider new checkouts use, e.g. "Paystack". */
@@ -45,7 +62,7 @@ type CheckoutClientProps = {
 
 const money = (amount: number) => `₦${amount.toLocaleString()}`;
 
-export function CheckoutClient({ items: initialItems, deliveryFee, lastLocation, providerName = "our payment partner", shopName = null, problems = [] }: CheckoutClientProps) {
+export function CheckoutClient({ items: initialItems, tiers, lastLocation, providerName = "our payment partner", shopName = null, problems = [] }: CheckoutClientProps) {
   const router = useRouter();
   const { setSummary } = useCartExperience();
   // The server's revised breakdown when prices changed; payment waits for the student to confirm it.
@@ -54,12 +71,20 @@ export function CheckoutClient({ items: initialItems, deliveryFee, lastLocation,
   // Nothing is preselected: every checkout starts with the three location options.
   const [selectedLocation, setSelectedLocation] = useState<DeliveryLocation | null>(null);
   const [deliveryInstructions, setDeliveryInstructions] = useState("");
+  // Chosen once when checkout opens (Cruise Mode when it's on sale). After that only the student changes it: a refresh
+  // or a refused payment never switches it, it just shows the problem.
+  const [selectedTier, setSelectedTier] = useState<DeliveryTierCode | null>(() => initialDeliveryTier(tiers));
+  // Read out politely when the student picks a speed: its fee and the new total.
+  const [tierAnnouncement, setTierAnnouncement] = useState("");
   const [busyItem, setBusyItem] = useState<string | null>(null);
   const [paymentBusy, setPaymentBusy] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const subtotal = items.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
-  const currentDeliveryFee = items.length ? deliveryFee : 0;
+  // The chosen speed's fee comes from the server's quotes on every render, so a refresh shows a changed price at once.
+  const selectedQuote = tiers.find((tier) => tier.tier === selectedTier) ?? null;
+  const deliveryProblem = deliveryTierProblem(tiers, selectedTier);
+  const currentDeliveryFee = checkoutDeliveryFee(selectedQuote, items.length);
   const total = subtotal + currentDeliveryFee;
 
   // A refresh (after a price change or an unavailable item) brings new server prices: show them.
@@ -105,24 +130,48 @@ export function CheckoutClient({ items: initialItems, deliveryFee, lastLocation,
     }
   }
 
-  async function handlePayment(confirmedTotal?: number) {
+  /** Takes the student straight to the step that needs attention. */
+  function focusStep(id: "checkout-delivery" | "checkout-speed") {
+    const section = document.getElementById(id);
+    section?.scrollIntoView({ behavior: "smooth", block: "start" });
+    section?.focus({ preventScroll: true });
+  }
+
+  function chooseTier(tier: DeliveryTierCode) {
+    const quote = tiers.find((candidate) => candidate.tier === tier);
+    setSelectedTier(tier);
+    setError("");
+    if (quote?.available && quote.fee !== null) {
+      const fee = checkoutDeliveryFee(quote, items.length);
+      setTierAnnouncement(`${quote.label} selected. Delivery ${money(fee)}. Total ${money(subtotal + fee)}.`);
+    }
+  }
+
+  /** confirmedTotal and confirmedDeliveryFee: what the student accepted in the "Prices changed" dialog. */
+  async function handlePayment(confirmedTotal?: number, confirmedDeliveryFee?: number) {
     setError("");
     setMessage("");
     if (!items.length) return;
     if (!selectedLocation) {
       setError("Choose a delivery location to continue.");
-      // Take the student straight to the step that needs attention.
-      const section = document.getElementById("checkout-delivery");
-      section?.scrollIntoView({ behavior: "smooth", block: "start" });
-      section?.focus({ preventScroll: true });
+      focusStep("checkout-delivery");
+      return;
+    }
+    if (deliveryProblem || !selectedTier) {
+      setError(deliveryProblem ?? "Choose a delivery speed to continue.");
+      focusStep("checkout-speed");
       return;
     }
     if (busyItem || paymentBusy) return;
     setPaymentBusy(true);
+    // What the student is looking at. The server compares both with its own prices and never charges a different
+    // amount silently; it prices the speed itself and never reads a fee or total from the browser.
+    const reviewedDeliveryFee = confirmedDeliveryFee ?? currentDeliveryFee;
+    const reviewedTotal = confirmedTotal ?? total;
     try {
-      // The key covers the exact cart, so a changed cart can never reuse an attempt for an older amount.
-      const cartFingerprint = items.map((item) => `${item.id}x${item.quantity}`).sort().join(",");
-      const storageKey = `packam-payment-attempt:${selectedLocation.id}:${deliveryInstructions.trim()}:${cartFingerprint}:${confirmedTotal ?? total}`;
+      // The key covers the exact cart, place, speed, delivery fee and total, so changing any of them (another speed,
+      // or a confirmed new price) starts a new attempt instead of reusing one made for different terms.
+      const storageKey = paymentAttemptStorageKey({ locationId: selectedLocation.id, instructions: deliveryInstructions, items, tier: selectedTier, deliveryFee: reviewedDeliveryFee, total: reviewedTotal });
       let idempotencyKey = window.sessionStorage.getItem(storageKey);
       if (!idempotencyKey) {
         idempotencyKey = crypto.randomUUID();
@@ -134,14 +183,34 @@ export function CheckoutClient({ items: initialItems, deliveryFee, lastLocation,
           "Content-Type": "application/json",
           "Idempotency-Key": idempotencyKey,
         },
-        // The total the student is looking at. The server compares it with its own and never charges a different one silently.
-        body: JSON.stringify({ deliveryLocationId: selectedLocation.id, deliveryInstructions, reviewedTotal: confirmedTotal ?? total }),
+        body: JSON.stringify({ deliveryLocationId: selectedLocation.id, deliveryInstructions, deliveryTier: selectedTier, reviewedTotal, reviewedDeliveryFee }),
       });
       const data = await response.json();
       if (response.status === 409 && data.code === "PRICE_CHANGED" && data.revised) {
         window.sessionStorage.removeItem(storageKey);
-        setRevised(data.revised as Revised);
         setPaymentBusy(false);
+        // Only ever offer to confirm a breakdown for the speed the student chose (an older server prices none).
+        if ((data.revised as Revised).deliveryTier !== selectedTier) {
+          setError("Delivery options changed. Check your delivery speed, then pay.");
+          router.refresh();
+          focusStep("checkout-speed");
+          return;
+        }
+        setRevised(data.revised as Revised);
+        return;
+      }
+      if ((response.status === 409 && (data.code === "DELIVERY_TIER_UNAVAILABLE" || data.code === "CHECKOUT_CHANGED")) || (response.status === 400 && data.code === "INVALID_DELIVERY_TIER")) {
+        // Nothing was created or charged. The refresh brings the current speeds (a speed that went off shows as
+        // unavailable, still chosen); the choice is never switched for the student.
+        window.sessionStorage.removeItem(storageKey);
+        setError(data.code === "DELIVERY_TIER_UNAVAILABLE"
+          ? `${DELIVERY_TIER_LABELS[parseDeliveryTier(data.tier) ?? selectedTier]} isn’t available right now. Choose another delivery speed. Nothing has been charged.`
+          : data.code === "CHECKOUT_CHANGED"
+            ? "Your checkout changed since this payment was started. Check your delivery speed, then pay again. Nothing has been charged."
+            : typeof data.error === "string" ? data.error : "Delivery options changed. Check your delivery speed, then pay.");
+        setPaymentBusy(false);
+        router.refresh();
+        focusStep("checkout-speed");
         return;
       }
       if (response.status === 409 && data.code === "CART_NOT_PAYABLE") {
@@ -160,7 +229,7 @@ export function CheckoutClient({ items: initialItems, deliveryFee, lastLocation,
   }
 
   const paymentButton = (
-    <button type="button" onClick={() => void handlePayment()} disabled={!items.length || paymentBusy || busyItem !== null || problems.length > 0 || revised !== null} aria-busy={paymentBusy} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-black px-5 text-sm font-black text-white transition hover:bg-[#262626] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black disabled:cursor-not-allowed disabled:opacity-40">
+    <button type="button" onClick={() => void handlePayment()} disabled={!items.length || paymentBusy || busyItem !== null || problems.length > 0 || revised !== null || deliveryProblem !== null} aria-busy={paymentBusy} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-black px-5 text-sm font-black text-white transition hover:bg-[#262626] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black disabled:cursor-not-allowed disabled:opacity-40">
       {paymentBusy ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-r-transparent" aria-hidden="true" /> : <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#feb80a] text-black"><Icon name="arrowRight" className="h-3 w-3" strokeWidth={3} /></span>}
       {paymentBusy ? `Opening ${providerName}…` : `Pay ${money(total)}`}
     </button>
@@ -181,7 +250,10 @@ export function CheckoutClient({ items: initialItems, deliveryFee, lastLocation,
   const totals = (
     <dl className="space-y-2.5 text-sm">
       <div className="flex justify-between"><dt className="text-black/60">Items ({items.reduce((sum, item) => sum + item.quantity, 0)})</dt><dd className="font-bold">{money(subtotal)}</dd></div>
-      <div className="flex justify-between"><dt className="text-black/60">Delivery</dt><dd className="font-bold">{money(currentDeliveryFee)}</dd></div>
+      <div className="flex justify-between gap-3">
+        <dt className="text-black/60">Delivery{selectedQuote?.available && <span className="block text-xs">{selectedQuote.label} · {formatEta(selectedQuote.etaMinMinutes, selectedQuote.etaMaxMinutes)}</span>}</dt>
+        <dd className="shrink-0 font-bold">{deliveryProblem ? (tiers.some((tier) => tier.available) ? "Choose a speed" : "Not available") : money(currentDeliveryFee)}</dd>
+      </div>
       <div className="flex items-baseline justify-between border-t border-black/10 pt-3"><dt className="font-black">Total</dt><dd className="text-xl font-black">{money(total)}</dd></div>
     </dl>
   );
@@ -202,7 +274,7 @@ export function CheckoutClient({ items: initialItems, deliveryFee, lastLocation,
             confirmed={selectedLocation}
             onConfirm={(location) => { setSelectedLocation(location); setDeliveryInstructions(location.instructions ?? ""); setError(""); }}
             onChange={() => setSelectedLocation(null)}
-            onContinue={() => { const items = document.getElementById("checkout-items"); items?.scrollIntoView({ behavior: "smooth", block: "start" }); items?.focus({ preventScroll: true }); }}
+            onContinue={() => focusStep("checkout-speed")}
           />
           {selectedLocation && <div className="mt-5">
             <label htmlFor="checkout-delivery-instructions" className="block text-sm font-black">Instructions for this order <span className="font-medium text-black/50">(optional)</span></label>
@@ -211,10 +283,23 @@ export function CheckoutClient({ items: initialItems, deliveryFee, lastLocation,
           </div>}
         </section>
 
+        <section id="checkout-speed" tabIndex={-1} aria-labelledby="checkout-speed-heading" className="pk-card scroll-mt-24 p-4 outline-none focus-visible:ring-2 focus-visible:ring-black sm:p-6">
+          <div className="mb-4 flex items-center gap-3">
+            <span className="flex h-8 w-8 items-center justify-center rounded-full bg-black text-sm font-black text-[#feb80a]" aria-hidden="true">2</span>
+            <div>
+              <h2 id="checkout-speed-heading" className="text-lg font-black">Delivery speed</h2>
+              <p className="text-xs text-black/55">Each speed has its own delivery fee.</p>
+            </div>
+          </div>
+          <DeliveryTierSelector tiers={tiers} selected={selectedTier} disabled={paymentBusy || revised !== null} onSelect={chooseTier} />
+          {selectedTier === null && deliveryProblem && tiers.some((tier) => tier.available) && <p className="mt-3 rounded-xl bg-[#fff3d6] px-3 py-2 text-sm font-semibold text-[#6b4700]">{deliveryProblem}</p>}
+          <p className="sr-only" aria-live="polite">{tierAnnouncement}</p>
+        </section>
+
         <section id="checkout-items" tabIndex={-1} aria-labelledby="checkout-items-heading" className="pk-card scroll-mt-24 p-4 outline-none sm:p-6">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-3">
-              <span className="flex h-8 w-8 items-center justify-center rounded-full bg-black text-sm font-black text-[#feb80a]" aria-hidden="true">2</span>
+              <span className="flex h-8 w-8 items-center justify-center rounded-full bg-black text-sm font-black text-[#feb80a]" aria-hidden="true">3</span>
               <div>
                 <h2 id="checkout-items-heading" className="text-lg font-black">{shopName ? "Your food" : "Your items"}</h2>
                 {shopName && <p className="text-xs text-black/55">From {shopName}</p>}
@@ -291,16 +376,19 @@ export function CheckoutClient({ items: initialItems, deliveryFee, lastLocation,
         <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/40 p-3 sm:items-center">
           <div role="alertdialog" aria-modal="true" aria-labelledby="revised-title" className="max-h-[90svh] w-full max-w-md overflow-y-auto rounded-3xl bg-white p-5 shadow-xl">
             <h2 id="revised-title" className="text-lg font-black">Prices changed</h2>
-            <p className="mt-1 text-sm text-black/65">Something changed since you looked: your total is now <strong>{money(revised.total)}</strong>, not {money(revised.reviewedTotal)}. Nothing has been charged.</p>
+            <p className="mt-1 text-sm text-black/65">{revised.total === revised.reviewedTotal
+              ? <>Something changed since you looked. Your total is still <strong>{money(revised.total)}</strong>, but how it’s made up changed. Nothing has been charged.</>
+              : <>Something changed since you looked: your total is now <strong>{money(revised.total)}</strong>, not {money(revised.reviewedTotal)}. Nothing has been charged.</>}</p>
             <dl className="mt-3 space-y-1.5 text-sm">
               {revised.lines.map((line) => (
                 <div key={line.cartItemId} className="flex justify-between gap-3"><dt className="min-w-0 truncate">{line.name} × {line.quantity}</dt><dd className="shrink-0 font-bold">{money(line.total)}</dd></div>
               ))}
-              <div className="flex justify-between border-t border-black/10 pt-2"><dt className="text-black/60">Delivery</dt><dd className="font-bold">{money(revised.deliveryFee)}</dd></div>
+              <div className="flex justify-between gap-3 border-t border-black/10 pt-2"><dt className="text-black/60">Delivery{revised.deliveryTierLabel ? ` · ${revised.deliveryTierLabel}` : ""}</dt><dd className="shrink-0 font-bold">{money(revised.deliveryFee)}</dd></div>
               <div className="flex items-baseline justify-between"><dt className="font-black">New total</dt><dd className="text-xl font-black">{money(revised.total)}</dd></div>
             </dl>
             <div className="mt-4 grid gap-2">
-              <button type="button" onClick={() => { const confirmed = revised.total; const prices = new Map(revised.lines.map((line) => [line.cartItemId, line.unitPrice])); setItems((current) => current.map((item) => ({ ...item, unitPrice: prices.get(item.id) ?? item.unitPrice }))); setRevised(null); void handlePayment(confirmed); }} className="pk-btn pk-btn-primary pk-btn-lg">Pay the new total · {money(revised.total)}</button>
+              {/* Confirms the fee too, so the retry can't loop on PRICE_CHANGED; the refresh brings the new fee into the totals. */}
+              <button type="button" onClick={() => { const confirmed = revised.total; const confirmedFee = revised.deliveryFee; const prices = new Map(revised.lines.map((line) => [line.cartItemId, line.unitPrice])); setItems((current) => current.map((item) => ({ ...item, unitPrice: prices.get(item.id) ?? item.unitPrice }))); setRevised(null); router.refresh(); void handlePayment(confirmed, confirmedFee); }} className="pk-btn pk-btn-primary pk-btn-lg">Pay the new total · {money(revised.total)}</button>
               <button type="button" onClick={() => { const prices = new Map(revised.lines.map((line) => [line.cartItemId, line.unitPrice])); setItems((current) => current.map((item) => ({ ...item, unitPrice: prices.get(item.id) ?? item.unitPrice }))); setRevised(null); router.refresh(); }} className="pk-btn pk-btn-secondary">Review my order</button>
             </div>
           </div>

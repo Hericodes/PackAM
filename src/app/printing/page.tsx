@@ -4,8 +4,7 @@ import { StudentNavbar } from "../../components/student/StudentNavbar";
 import { PrintStudio } from "../../components/student/PrintStudio";
 import { db } from "../../lib/db";
 import Link from "next/link";
-import { CHECKOUT_DELIVERY_FEE } from "../../lib/checkout-pricing";
-import { PRINTING_PRICES } from "../../lib/printing/pricing";
+import { PRINT_DELIVERY_FEE, PRINTING_PRICES } from "../../lib/printing/pricing";
 import { printStatusLabel } from "../../lib/printing/tracking-policy";
 import { getStudentPrintWorkspace, listStudentPaidPrintJobs } from "../../lib/printing/service";
 
@@ -45,7 +44,7 @@ export default async function PrintingPage() {
             <ul className="mt-4 flex flex-wrap gap-2" aria-label="Printing prices">
               <li className="pk-pill">₦{PRINTING_PRICES.A4.BLACK_AND_WHITE.toLocaleString()} / page · black &amp; white</li>
               <li className="pk-pill">₦{PRINTING_PRICES.A4.COLOR.toLocaleString()} / page · colour</li>
-              <li className="pk-pill pk-pill-neutral">₦{CHECKOUT_DELIVERY_FEE.toLocaleString()} delivery</li>
+              <li className="pk-pill pk-pill-neutral">₦{PRINT_DELIVERY_FEE.toLocaleString()} delivery</li>
               <li className="pk-pill pk-pill-neutral">Double-sided costs the same</li>
             </ul>
           </div>

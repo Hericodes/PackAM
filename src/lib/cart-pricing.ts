@@ -1,7 +1,6 @@
 import "server-only";
 
 import type { Prisma } from "@prisma/client";
-import { CHECKOUT_DELIVERY_FEE } from "./checkout-pricing";
 import { cartContext, isMixedCart, type CartContext } from "./food/cart-context";
 import { priceLine, storedLineRequest, type FoodRole, type LineDetails, type MenuItem } from "./food/plate";
 import { isDedicatedWorkflowCategory } from "./products/catalogue";
@@ -27,6 +26,10 @@ export type PricedCartLine = {
   configKey: string;
 };
 
+/**
+ * The cart's items only. The delivery fee isn't part of it: it depends on the delivery speed chosen at checkout
+ * (DeliveryTierSetting, read through src/lib/delivery-tier-store.ts), so it is added there and at payment.
+ */
 export type PricedCart = {
   cartId: string | null;
   context: CartContext;
@@ -34,14 +37,12 @@ export type PricedCart = {
   shop: { id: string; name: string; isOpen: boolean } | null;
   lines: PricedCartLine[];
   subtotal: number;
-  deliveryFee: number;
-  total: number;
   count: number;
   /** Everything that stops checkout, in plain words. Empty when the cart can be paid for. */
   problems: string[];
 };
 
-const EMPTY: PricedCart = { cartId: null, context: { kind: "empty" }, shop: null, lines: [], subtotal: 0, deliveryFee: 0, total: 0, count: 0, problems: [] };
+const EMPTY: PricedCart = { cartId: null, context: { kind: "empty" }, shop: null, lines: [], subtotal: 0, count: 0, problems: [] };
 
 
 /**
@@ -123,15 +124,12 @@ export async function priceCart(reader: Reader, userId: string): Promise<PricedC
 
   for (const line of lines) if (line.problem) problems.push(line.problem.startsWith(line.name) ? line.problem : `${line.name}: ${line.problem}`);
   const subtotal = lines.reduce((sum, line) => sum + line.total, 0);
-  const deliveryFee = CHECKOUT_DELIVERY_FEE;
   return {
     cartId: cart.id,
     context,
     shop,
     lines,
     subtotal,
-    deliveryFee,
-    total: subtotal + deliveryFee,
     count: lines.reduce((sum, line) => sum + line.quantity, 0),
     problems: [...new Set(problems)],
   };

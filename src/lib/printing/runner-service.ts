@@ -5,8 +5,10 @@ import { Prisma } from "@prisma/client";
 import { db } from "../db";
 import { isSerializationFailure, retrySerializable } from "../db-retry";
 import { writeAuditLog } from "../audit";
+import { runnerMissionLoadInTransaction } from "../delivery-tier-store";
 import { createNotification, notifyAdmins } from "../notifications";
 import { getRunnerAcceptanceTimeoutMinutes } from "../orders/price-policy";
+import { offerWaitingOrdersToIdleRunner } from "../orders/runner-assignments";
 import { createPrivatePrintDocumentDownloadUrl } from "./document";
 import { transitionPrintJobInTransaction } from "./status";
 import {
@@ -86,12 +88,15 @@ export async function acceptPrintMission(userId: string, printJobId: string) {
         select: { id: true, status: true, assignedRunnerId: true, findingRunnerAt: true },
       }),
     ]);
+    // On its own, after the reads above: it may use a savepoint (delivery tiers), never alongside other work.
+    const load = await runnerMissionLoadInTransaction(tx, runner.id);
     const decision = decidePrintAcceptance({
       runner,
       assignment,
       job,
       now: new Date(),
       timeoutMinutes: getRunnerAcceptanceTimeoutMinutes(),
+      holdsUrgentMission: load.holdsUrgent,
     });
     if (decision.kind === "rejected") throw new PrintMissionError(decision.message, decision.status);
     if (decision.kind === "already-accepted") return { accepted: true, alreadyAccepted: true, status: job!.status };
@@ -145,10 +150,10 @@ async function assignedPrintJob(tx: Tx, userId: string, printJobId: string) {
 }
 
 export async function advancePrintMission(userId: string, printJobId: string, action: PrintMissionStepAction) {
-  return serializable(async (tx) => {
+  const { status, alreadyDone, runnerId } = await serializable(async (tx) => {
     const { runner, assignment, job } = await assignedPrintJob(tx, userId, printJobId);
     const plan = planPrintMissionStep(job.status, action);
-    if (plan.kind === "already-done") return { status: plan.status, alreadyDone: true };
+    if (plan.kind === "already-done") return { status: plan.status, alreadyDone: true, runnerId: null };
     if (plan.kind === "rejected") throw new PrintMissionError(plan.message, plan.status);
     if (assignment.status !== "ACCEPTED") throw new PrintMissionError("This print assignment is no longer active.");
 
@@ -170,8 +175,11 @@ export async function advancePrintMission(userId: string, printJobId: string, ac
         data: { totalDeliveries: { increment: 1 }, completedDeliveries: { increment: 1 } },
       });
     }
-    return { status: plan.to, alreadyDone: false };
+    return { status: plan.to, alreadyDone: false, runnerId: runner.id };
   }, "This print job changed. Refresh and try again.");
+  // Best effort, after the delivery committed: a runner who is now free gets waiting urgent orders straight away.
+  if (status === "DELIVERED" && !alreadyDone && runnerId) await offerWaitingOrdersToIdleRunner(runnerId);
+  return { status, alreadyDone };
 }
 
 export async function reportPrintMissionIssue(
@@ -327,10 +335,11 @@ export async function listRunnerPrintMissions(runnerId: string) {
     },
     orderBy: { offeredAt: "desc" },
     take: 50,
-    select: { id: true, status: true, printJob: { select: missionJobSelect } },
+    select: { id: true, status: true, offeredAt: true, printJob: { select: missionJobSelect } },
   });
-  return assignments.flatMap(({ id, status, printJob }) =>
-    printJob ? [{ assignmentId: id, ...toRunnerPrintMissionView({ assignmentStatus: status, job: printJob }) }] : []);
+  // offeredAt orders print offers among order offers on the runner board (print jobs rank with Cruise Mode).
+  return assignments.flatMap(({ id, status, offeredAt, printJob }) =>
+    printJob ? [{ assignmentId: id, offeredAt, ...toRunnerPrintMissionView({ assignmentStatus: status, job: printJob }) }] : []);
 }
 
 export async function listActivePrintMissionsForAdmin() {

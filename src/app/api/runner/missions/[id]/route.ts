@@ -3,6 +3,8 @@ import { optionsText } from "../../../../../lib/products/variants";
 import { auth } from "../../../../../auth";
 import { db } from "../../../../../lib/db";
 import { deliveryPointFromSnapshot, mapsLink } from "../../../../../lib/delivery-location";
+import { loadOrderDeliveryTiers, runnerMissionLoad } from "../../../../../lib/delivery-tier-store";
+import { decideTierAcceptance, describeOrderDelivery, idleRunnerRuleApplies } from "../../../../../lib/delivery-tiers";
 
 type Context = { params: Promise<{ id: string }> };
 
@@ -21,6 +23,7 @@ export async function GET(_request: Request, context: Context) {
           id: true,
           status: true,
           total: true,
+          findingRunnerAt: true,
           deliveryAddress: true,
           deliveryInstructions: true,
           // Food orders: where to buy (name and location only, no internal vendor details).
@@ -57,10 +60,28 @@ export async function GET(_request: Request, context: Context) {
   const frozen = deliveryPointFromSnapshot(order.payment?.checkoutSnapshot);
   const saved = order.deliveryLocation;
   const coordinates = frozen.coordinates ?? (saved?.latitude != null && saved?.longitude != null ? { latitude: saved.latitude, longitude: saved.longitude } : null);
+  // The delivery speed comes from its own query (never the order select), so this works before the tier migration.
+  const row = (await loadOrderDeliveryTiers(db, [order.id])).get(order.id);
+  const delivery = describeOrderDelivery(row);
+  let acceptance: { allowed: boolean; reason: string | null } | undefined;
+  if (assignment.status === "OFFERED") {
+    // A hint for the Accept button; accepting checks the same rules again in its transaction.
+    const load = await runnerMissionLoad(db, runner.id);
+    const now = new Date();
+    const decision = decideTierAcceptance({
+      orderTier: row?.tier,
+      activeMissions: load.activeMissions,
+      holdsUrgent: load.holdsUrgent,
+      idleRuleActive: idleRunnerRuleApplies({ tier: row?.tier, startedAt: order.findingRunnerAt ?? row?.createdAt ?? now, escalatedAt: row?.escalatedAt ?? null, now }),
+    });
+    acceptance = decision.ok ? { allowed: true, reason: null } : { allowed: false, reason: decision.message };
+  }
   return Response.json({ mission: {
     assignmentStatus: assignment.status,
     id: order.id,
     status: order.status,
+    delivery: { tier: delivery.tier, label: delivery.label, urgent: delivery.urgent, eta: delivery.etaShort, dueAt: delivery.dueAt?.toISOString() ?? null },
+    ...(acceptance ? { acceptance } : {}),
     shop: order.shop,
     // A plate's base, soup and extras as one line, so the runner buys exactly what was paid for.
     items: order.items.map(({ details, ...item }) => { const parsed = parseLineDetails(details); return { ...item, plate: parsed && parsed.kind === "PLATE" ? describeDetails(parsed) : null, options: optionsText(details) }; }),
