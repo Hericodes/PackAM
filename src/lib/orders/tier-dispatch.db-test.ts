@@ -527,3 +527,218 @@ test("before the migration dispatch, offers and acceptance behave exactly as tod
   await app.dispatch.redispatchOrderNow(waiting);
   assert.equal(await statusOf(waiting, solo), "OFFERED");
 });
+
+// ---------------------------------------------------------------------------------------------------------------
+// Offers a runner couldn't take, late acceptance, batch fairness and escalation with nobody to alert.
+
+const ageOffer = (where: { orderId?: string; printJobId?: string }, runner: User, minutes: number) =>
+  app.db.runnerAssignment.updateMany({ where: { ...where, runnerId: runner.runnerId }, data: { offeredAt: minutesAgo(minutes) } });
+const offerOf = (where: { orderId?: string; printJobId?: string }, runner: User) =>
+  app.db.runnerAssignment.findFirst({ where: { ...where, runnerId: runner.runnerId }, select: { status: true, offeredAt: true } });
+/** Offers below are aged to before their window ended, so the mission blocking them is moved back with them. */
+const acceptedMinutesAgo = (orderId: string, runner: User, minutes: number) =>
+  app.db.runnerAssignment.updateMany({ where: { orderId, runnerId: runner.runnerId, status: "ACCEPTED" }, data: { acceptedAt: minutesAgo(minutes) } });
+const printStartedMinutesAgo = (printJobId: string, minutes: number) => app.db.printJob.update({ where: { id: printJobId }, data: { findingRunnerAt: minutesAgo(minutes) } });
+/** Clears every waiting order from the shared test database, so a batch or list holds only what a test creates. */
+const noWaitingOrders = () => app.db.order.updateMany({ where: { status: "FINDING_RUNNER" }, data: { status: "CANCELLED" } });
+
+test("offers a runner couldn't take while holding an urgent order are re-opened when they deliver it", { skip }, async (t) => {
+  if (!(await deliveryTierTablesMigrated())) return t.skip(NOT_MIGRATED);
+  await createTestUser("ADMIN");
+  const runner = await verifiedRunner();
+  const other = await verifiedRunner();
+  await onlyAvailable(runner);
+  const urgent = await paidOrder("OYA");
+  await accepted(runner, urgent);
+  await acceptedMinutesAgo(urgent, runner, 45);
+
+  // Offered while they hold Oya Now!: refused, and the offer lapses before they deliver.
+  const cruise = await paidOrder("CRUISE");
+  assert.equal((await act(runner, cruise, "accept")).json.error, HOLDS_URGENT_MISSION_MESSAGE);
+  // An escalated Oya Now! order goes to them too, and is just as blocked.
+  const escalatedOya = await paidOrder("OYA");
+  await startedMinutesAgo(escalatedOya, 6);
+  assert.equal((await app.dispatch.redispatchOrderNow(escalatedOya)).escalated, true);
+  assert.equal(await statusOf(escalatedOya, runner), "OFFERED");
+  // A blocked offer someone else took meanwhile must never come back.
+  await onlyAvailable(runner, other);
+  const taken = await paidOrder("CRUISE");
+  for (const orderId of [cruise, escalatedOya, taken]) await ageOffer({ orderId }, runner, 31);
+  await startedMinutesAgo(cruise, 31);
+  await startedMinutesAgo(escalatedOya, 37);
+  await onlyAvailable(runner);
+  assert.equal((await app.dispatch.redispatchOrderNow(cruise)).outcome, "WAITING_FOR_RUNNERS", "the blocked runner counts as tried");
+  assert.equal(await statusOf(cruise, runner), "EXPIRED");
+  await onlyAvailable(runner, other);
+  await accepted(other, taken);
+  await onlyAvailable(runner);
+
+  const before = Date.now();
+  await deliver(runner, urgent);
+  for (const orderId of [cruise, escalatedOya]) {
+    const offer = await offerOf({ orderId }, runner);
+    assert.equal(offer?.status, "OFFERED", "re-opened once they no longer hold an urgent mission");
+    assert.ok(offer!.offeredAt.getTime() >= before - 1000, "with a fresh window");
+  }
+  assert.equal(await statusOf(taken, runner), "EXPIRED", "a mission someone else took is not re-opened");
+  assert.equal(await app.db.runnerAssignment.count({ where: { orderId: cruise, runnerId: runner.runnerId } }), 1, "the same row, not a second offer");
+  assert.equal(await app.db.notification.count({ where: { userId: runner.userId, orderId: cruise, title: "Mission available again 🫡" } }), 1);
+
+  // Idempotent: running it again changes nothing.
+  const reopenedAt = (await offerOf({ orderId: cruise }, runner))!.offeredAt;
+  await app.offers.offerWaitingMissionsToRunner(runner.runnerId);
+  assert.deepEqual((await offerOf({ orderId: cruise }, runner))!.offeredAt, reopenedAt);
+  // A live offer again: dispatch waits on it instead of moving the order to refund review, and never offers it twice.
+  await startedMinutesAgo(cruise, 121);
+  const step = await app.dispatch.redispatchOrderNow(cruise);
+  assert.deepEqual({ outcome: step.outcome, offered: step.offered }, { outcome: "WAITING_ON_OFFERS", offered: 0 });
+
+  await accepted(runner, escalatedOya);
+  await deliver(runner, escalatedOya);
+  await accepted(runner, cruise);
+
+  // An offer a runner simply let lapse while they could take it is not re-opened by a later delivery.
+  const free = await verifiedRunner();
+  await onlyAvailable(free);
+  const job = await paidOrder("CRUISE");
+  await accepted(free, job);
+  const ignored = await paidOrder("CRUISE");
+  await ageOffer({ orderId: ignored }, free, 31);
+  await app.dispatch.redispatchOrderNow(ignored);
+  assert.equal(await statusOf(ignored, free), "EXPIRED");
+  await deliver(free, job);
+  assert.equal(await statusOf(ignored, free), "EXPIRED", "ignored while free: still tried");
+  await app.db.order.update({ where: { id: ignored }, data: { status: "CANCELLED" } });
+});
+
+test("print offers a runner couldn't take are re-opened once they no longer hold an urgent order, even if still busy", { skip }, async (t) => {
+  if (!(await deliveryTierTablesMigrated())) return t.skip(NOT_MIGRATED);
+  await createTestUser("ADMIN");
+  const runner = await verifiedRunner();
+  await onlyAvailable(runner);
+  // A Cruise Mode order first, then an escalated Oya Now! order on top of it.
+  const cruise = await paidOrder("CRUISE");
+  await accepted(runner, cruise);
+  const urgent = await paidOrder("OYA");
+  await startedMinutesAgo(urgent, 6);
+  await app.dispatch.redispatchOrderNow(urgent);
+  await accepted(runner, urgent);
+  await acceptedMinutesAgo(urgent, runner, 45);
+
+  const printJobId = await offeredPrintJob();
+  await assert.rejects(app.print.acceptPrintMission(runner.userId, printJobId), (error: unknown) =>
+    error instanceof app.print.PrintMissionError && error.message === HOLDS_URGENT_MISSION_MESSAGE);
+  await ageOffer({ printJobId }, runner, 31);
+  await printStartedMinutesAgo(printJobId, 31);
+  assert.equal((await app.dispatch.redispatchPrintJobNow(printJobId)).outcome, "WAITING_FOR_RUNNERS");
+  // A print job paid while they were offline was never offered to them.
+  await onlyAvailable();
+  const unseen = await offeredPrintJob();
+  await onlyAvailable(runner);
+
+  const before = Date.now();
+  await deliver(runner, urgent);
+  assert.equal(await app.db.runnerAssignment.count({ where: { runnerId: runner.runnerId, status: "ACCEPTED" } }), 1, "still busy with the Cruise Mode order");
+  const offer = await offerOf({ printJobId }, runner);
+  assert.equal(offer?.status, "OFFERED");
+  assert.ok(offer!.offeredAt.getTime() >= before - 1000);
+  assert.equal((await offerOf({ printJobId: unseen }, runner))?.status, "OFFERED", "waiting print jobs are offered too");
+  assert.equal((await app.print.acceptPrintMission(runner.userId, printJobId)).accepted, true);
+  await app.db.printJob.update({ where: { id: unseen }, data: { status: "CANCELLED" } });
+});
+
+test("an urgent order accepted after its threshold, before any pass, alerts admins once that it was accepted late", { skip }, async (t) => {
+  if (!(await deliveryTierTablesMigrated())) return t.skip(NOT_MIGRATED);
+  const admin = await createTestUser("ADMIN");
+  const runner = await verifiedRunner();
+  await onlyAvailable(runner);
+  const onTime = await paidOrder("OYA");
+  await accepted(runner, onTime);
+  await deliver(runner, onTime);
+  assert.equal(await escalatedAt(onTime), null, "accepted in time: no escalation");
+  assert.equal(await escalationAlerts(admin, onTime), 0);
+
+  const late = await paidOrder("SHARP");
+  await startedMinutesAgo(late, 11);
+  await accepted(runner, late);
+  assert.ok(await escalatedAt(late), "escalatedAt is recorded");
+  const alerts = await app.db.notification.findMany({ where: { userId: admin.userId, orderId: late, title: URGENT_ESCALATION_TITLE }, select: { message: true, idempotencyKey: true } });
+  assert.deepEqual(alerts, [{ message: app.dispatch.urgentAcceptedLateMessage("SHARP", shortReference(late)), idempotencyKey: `urgent-unaccepted:${late}` }]);
+  assert.match(alerts[0].message, /accepted it late/);
+  await app.dispatch.dispatchDueOrders();
+  await app.dispatch.redispatchOrderNow(late);
+  assert.equal(await escalationAlerts(admin, late), 1, "exactly once");
+});
+
+test("urgent orders never take the whole dispatch batch, and escalation-due orders are always in it", { skip }, async (t) => {
+  if (!(await deliveryTierTablesMigrated())) return t.skip(NOT_MIGRATED);
+  await onlyAvailable();
+  await noWaitingOrders();
+  const fresh: string[] = [];
+  for (let i = 0; i < 6; i += 1) fresh.push(await paidOrder("OYA"));
+  const due = await paidOrder("SHARP");
+  await startedMinutesAgo(due, 11);
+  const cruise = await paidOrder("CRUISE");
+  const legacy = await paidOrder(null);
+  await startedMinutesAgo(cruise, 300);
+  await startedMinutesAgo(legacy, 200);
+  try {
+    const candidates = await app.dispatch.selectDispatchCandidates(4);
+    assert.equal(candidates.length, 4, JSON.stringify(candidates));
+    assert.equal(candidates[0], due, "the escalation-due order first, ahead of newer Oya Now! orders");
+    assert.deepEqual(candidates.slice(1, 3), fresh.slice(0, 2), "then urgent orders, oldest first");
+    assert.equal(candidates[3], cruise, "a quarter is kept for the oldest other orders");
+    const larger = await app.dispatch.selectDispatchCandidates(8);
+    assert.deepEqual(larger.slice(-2), [cruise, legacy], JSON.stringify(larger));
+    assert.equal(larger.filter((orderId) => fresh.includes(orderId)).length, 5, "the rest of the urgent share");
+  } finally {
+    await noWaitingOrders();
+  }
+});
+
+test("urgent orders past the first 50 are still held back from busy runners", { skip }, async (t) => {
+  if (!(await deliveryTierTablesMigrated())) return t.skip(NOT_MIGRATED);
+  const runner = await verifiedRunner();
+  await onlyAvailable(runner);
+  await accepted(runner, await paidOrder("CRUISE"));
+  await onlyAvailable();
+  await noWaitingOrders();
+  try {
+    const urgent: string[] = [];
+    for (let i = 0; i < 52; i += 1) urgent.push(await paidOrder("OYA"));
+    const cruise = await paidOrder("CRUISE");
+    await onlyAvailable(runner);
+    const offered = await app.db.$transaction((tx) => app.offers.offerFindingOrdersToRunner(tx, runner.runnerId), { isolationLevel: "Serializable" });
+    assert.equal(await app.db.runnerAssignment.count({ where: { runnerId: runner.runnerId, orderId: { in: urgent } } }), 0, "no urgent order reaches a busy runner");
+    assert.equal(await statusOf(cruise, runner), "OFFERED");
+    assert.equal(offered, 1);
+  } finally {
+    await noWaitingOrders();
+  }
+});
+
+test("an escalation with no active admin is not recorded, so a later pass alerts once an admin exists", { skip }, async (t) => {
+  if (!(await deliveryTierTablesMigrated())) return t.skip(NOT_MIGRATED);
+  const runner = await verifiedRunner();
+  await onlyAvailable(runner);
+  const orderId = await paidOrder("OYA");
+  await startedMinutesAgo(orderId, 6);
+  await onlyAvailable(runner, await verifiedRunner());
+  const active = await app.db.user.findMany({ where: { role: "ADMIN", status: "ACTIVE" }, select: { id: true } });
+  await app.db.user.updateMany({ where: { id: { in: active.map((user) => user.id) } }, data: { status: "SUSPENDED" } });
+  try {
+    const first = await app.dispatch.redispatchOrderNow(orderId);
+    assert.equal(first.escalated, false, "nobody was alerted");
+    assert.equal(await escalatedAt(orderId), null, "so the escalation is not claimed");
+    assert.equal(first.outcome, "OFFERED", "offers still widen at the threshold");
+  } finally {
+    await app.db.user.updateMany({ where: { id: { in: active.map((user) => user.id) } }, data: { status: "ACTIVE" } });
+  }
+  const admin = await createTestUser("ADMIN");
+  const second = await app.dispatch.redispatchOrderNow(orderId);
+  assert.equal(second.escalated, true);
+  assert.ok(await escalatedAt(orderId));
+  assert.equal(await escalationAlerts(admin, orderId), 1);
+  await app.dispatch.redispatchOrderNow(orderId);
+  assert.equal(await escalationAlerts(admin, orderId), 1);
+});

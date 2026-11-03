@@ -5,12 +5,13 @@ import { db } from "../db";
 import { isValidReportedShopPrice } from "../catalogue-permissions";
 import { retrySerializable } from "../db-retry";
 import { orderDeliveryTierInTransaction, runnerMissionLoadInTransaction } from "../delivery-tier-store";
-import { decideTierAcceptance, idleRunnerRuleApplies } from "../delivery-tiers";
+import { decideTierAcceptance, idleRunnerRuleApplies, isUrgentTier, urgentEscalationDue } from "../delivery-tiers";
 import { isPriceIncreaseWithinConfiguredTolerance } from "./price-policy";
 import { getRunnerAcceptanceTimeoutMinutes } from "./price-policy";
 import { offerStillAcceptable } from "./dispatch-policy";
-import { dispatchOrderInTransaction } from "./dispatch";
-import { offerFindingOrdersToRunner, offerFindingPrintJobsToRunner, offerWaitingOrdersToIdleRunner } from "./runner-assignments";
+import { dispatchOrderInTransaction, escalateUrgentOrderInTransaction, urgentAcceptedLateMessage } from "./dispatch";
+import { offerFindingOrdersToRunner, offerFindingPrintJobsToRunner, offerWaitingMissionsToRunner } from "./runner-assignments";
+import { shortReference } from "../student-copy";
 import { startRefundWorkflow } from "./refunds";
 import { transitionOrderInTransaction } from "./transition";
 import { hasCompleteSourcing, hasUnresolvedUnavailableItems } from "./sourcing-completion";
@@ -85,6 +86,10 @@ export async function acceptRunnerMission(userId: string, orderId: string) {
       where: { orderId, id: { not: assignment.id }, status: "OFFERED" },
       data: { status: "EXPIRED" },
     });
+    // Accepted after its threshold but before a dispatch pass escalated it: admins still get the one alert, saying so.
+    if (tier && isUrgentTier(tier.tier) && urgentEscalationDue({ tier: tier.tier, startedAt: order.findingRunnerAt ?? tier.createdAt, escalatedAt: tier.escalatedAt, status: order.status, assignedRunnerId: null, now })) {
+      await escalateUrgentOrderInTransaction(tx, { orderId, message: urgentAcceptedLateMessage(tier.tier, shortReference(orderId)), now });
+    }
     return { accepted: true };
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }));
 }
@@ -226,8 +231,10 @@ export async function reportSourcing(userId: string, orderId: string, input: Sou
 }
 
 export async function decidePriceChange(userId: string, orderId: string, sourcingId: string, decision: "CONTINUE" | "CANCEL") {
-  return db.$transaction(async (tx) => {
-    const order = await tx.order.findFirst({ where: { id: orderId, userId }, select: { id: true, status: true, total: true } });
+  let releasedRunnerId: string | null = null;
+  const result = await db.$transaction(async (tx) => {
+    releasedRunnerId = null;
+    const order = await tx.order.findFirst({ where: { id: orderId, userId }, select: { id: true, status: true, total: true, assignedRunnerId: true } });
     if (!order) throw new Error("Order not found.");
     const sourcing = await tx.orderItemSourcing.findFirst({
       where: { id: sourcingId, orderItem: { orderId } },
@@ -242,6 +249,7 @@ export async function decidePriceChange(userId: string, orderId: string, sourcin
         data: { status: "REJECTED", priceDecisionAt: new Date(), priceDecisionBy: userId },
       });
       await startRefundWorkflow(tx, { orderId, reason: "PRICE_CHANGE_REJECTED", actorId: userId, note: "Student declined the sourcing price change." });
+      releasedRunnerId = order.assignedRunnerId;
       return { decision, status: "REFUND_PROCESSING" };
     }
     if (sourcing.status === "APPROVED" || sourcing.status === "SOURCED") return { decision, status: sourcing.status };
@@ -259,10 +267,13 @@ export async function decidePriceChange(userId: string, orderId: string, sourcin
     }
     return { decision, status: "APPROVED" };
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  // Best effort, after it committed: the runner lost this mission, so offers they couldn't take may be theirs again.
+  if (releasedRunnerId) await offerWaitingMissionsToRunner(releasedRunnerId);
+  return result;
 }
 
 export async function startOrderDelivery(userId: string, orderId: string) {
-  return db.$transaction(async (tx) => {
+  const result = await db.$transaction(async (tx) => {
     const { runner, order } = await getAssignedOrder(tx, userId, orderId);
     if (order.status !== "SOURCING_PRODUCT") throw new Error("This order is not being sourced.");
     const items = await tx.orderItem.findMany({
@@ -278,7 +289,7 @@ export async function startOrderDelivery(userId: string, orderId: string) {
     if (pendingPrice) throw new Error("A price change is waiting for the student’s decision.");
     if (hasUnresolvedUnavailableItems(items)) {
       await startRefundWorkflow(tx, { orderId, reason: "PRODUCT_UNAVAILABLE", actorId: userId, note: "Required items could not be sourced." });
-      return { status: "REFUND_PROCESSING" as const };
+      return { status: "REFUND_PROCESSING" as const, runnerId: runner.id };
     }
     if (!hasCompleteSourcing(items)) throw new Error("Every required item must be sourced before delivery starts.");
     await transitionOrderInTransaction(tx, {
@@ -289,8 +300,11 @@ export async function startOrderDelivery(userId: string, orderId: string) {
       guard: { assignedRunnerId: runner.id },
     });
     await notifyStudent(tx, order.userId, orderId, "Your package is on the way 👀", "The runner has started delivery.");
-    return { status: "OUT_FOR_DELIVERY" as const };
+    return { status: "OUT_FOR_DELIVERY" as const, runnerId: null };
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  // Best effort, after the refund started: the runner no longer holds this mission.
+  if (result.runnerId) await offerWaitingMissionsToRunner(result.runnerId);
+  return { status: result.status };
 }
 
 export async function reportDeliveryIssue(userId: string, orderId: string, type: "CUSTOMER_UNAVAILABLE" | "DELIVERY_ISSUE" | "WRONG_ITEM" | "MISSING_ITEM" | "DAMAGED_ITEM" | "OTHER", description: string) {
@@ -331,8 +345,8 @@ export async function markOrderDelivered(userId: string, orderId: string) {
     await notifyStudent(tx, order.userId, orderId, "Your package don land 🎒", "Your order has been delivered.");
     return { status: "DELIVERED" as const, runnerId: runner.id };
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
-  // Best effort, after the delivery committed: a runner who is now free gets waiting urgent orders straight away.
-  await offerWaitingOrdersToIdleRunner(result.runnerId);
+  // Best effort, after the delivery committed: offers they couldn't take while holding it, and waiting urgent orders.
+  await offerWaitingMissionsToRunner(result.runnerId);
   return { status: result.status };
 }
 

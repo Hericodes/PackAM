@@ -8,7 +8,7 @@ import { writeAuditLog } from "../audit";
 import { runnerMissionLoadInTransaction } from "../delivery-tier-store";
 import { createNotification, notifyAdmins } from "../notifications";
 import { getRunnerAcceptanceTimeoutMinutes } from "../orders/price-policy";
-import { offerWaitingOrdersToIdleRunner } from "../orders/runner-assignments";
+import { offerWaitingMissionsToRunner } from "../orders/runner-assignments";
 import { createPrivatePrintDocumentDownloadUrl } from "./document";
 import { transitionPrintJobInTransaction } from "./status";
 import {
@@ -177,8 +177,8 @@ export async function advancePrintMission(userId: string, printJobId: string, ac
     }
     return { status: plan.to, alreadyDone: false, runnerId: runner.id };
   }, "This print job changed. Refresh and try again.");
-  // Best effort, after the delivery committed: a runner who is now free gets waiting urgent orders straight away.
-  if (status === "DELIVERED" && !alreadyDone && runnerId) await offerWaitingOrdersToIdleRunner(runnerId);
+  // Best effort, after the delivery committed: a runner who is now free gets waiting missions straight away.
+  if (status === "DELIVERED" && !alreadyDone && runnerId) await offerWaitingMissionsToRunner(runnerId);
   return { status, alreadyDone };
 }
 

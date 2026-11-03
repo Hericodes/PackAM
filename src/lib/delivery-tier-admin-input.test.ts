@@ -187,3 +187,10 @@ test("the page checks the admin role first, and the settings component stays out
   assert.ok(seen.size >= 4, `followed ${seen.size} modules`);
   assert.match(source("../components/admin/DeliveryTierSettings.tsx"), /^"use client";/);
 });
+
+test("the last tier checkout can sell can't be turned off, even if another row is on with an unsellable fee", () => {
+  const on = { fee: 200, enabled: true };
+  const refused = applyTierSettingChange(on, { tier: "CRUISE", version: 1, enabled: false }, [{ fee: 100_001, enabled: true }, { fee: null, enabled: false }]);
+  assert.equal(refused.ok ? null : refused.code, "LAST_ENABLED_TIER");
+  assert.equal(applyTierSettingChange(on, { tier: "CRUISE", version: 1, enabled: false }, [{ fee: 300, enabled: true }]).ok, true);
+});

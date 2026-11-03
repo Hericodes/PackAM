@@ -3,8 +3,10 @@ import "server-only";
 import { Prisma } from "@prisma/client";
 import { db } from "../db";
 import { retrySerializable } from "../db-retry";
-import { claimUrgentEscalationInTransaction, orderDeliveryTierInTransaction, readTierTables } from "../delivery-tier-store";
+import { claimUrgentEscalationInTransaction, inTierSavepoint, loadOrderDeliveryTiers, orderDeliveryTierInTransaction, readTierTables } from "../delivery-tier-store";
 import {
+  DELIVERY_TIER_LABELS,
+  ESCALATION_MINUTES,
   URGENT_ESCALATION_TITLE,
   URGENT_TIERS,
   idleRunnerRuleApplies,
@@ -12,6 +14,7 @@ import {
   urgentEscalationDue,
   urgentEscalationMessage,
   urgentSafeDeadlineMinutes,
+  type UrgentDeliveryTier,
 } from "../delivery-tiers";
 import { notifyAdmins } from "../notifications";
 import { shortReference } from "../student-copy";
@@ -27,6 +30,24 @@ export type DispatchResult = { outcome: DispatchOutcome; offered: number; expire
 
 /** Most missions handled per scheduled run, so one invocation stays well inside function time limits. */
 export const DISPATCH_BATCH_LIMIT = 25;
+
+/** The same alert when a runner accepted the order after its threshold, before any dispatch step escalated it. */
+export function urgentAcceptedLateMessage(tier: UrgentDeliveryTier, orderReference: string) {
+  return `${DELIVERY_TIER_LABELS[tier]} order ${orderReference} wasn’t accepted within ${ESCALATION_MINUTES[tier]} minutes. A runner has accepted it late. Check it still arrives on time.`;
+}
+
+/**
+ * Claims an urgent order's escalation and alerts every active admin, in the caller's transaction, with the one key
+ * `urgent-unaccepted:{orderId}`. True for exactly one caller however many race. The claim (escalatedAt) is kept only
+ * when an alert was written: with no active admin it is released, so a later step claims it again and alerts then.
+ */
+export async function escalateUrgentOrderInTransaction(tx: Tx, input: { orderId: string; message: string; now: Date }): Promise<boolean> {
+  if (!(await claimUrgentEscalationInTransaction(tx, input.orderId, input.now))) return false;
+  const alerted = await notifyAdmins(tx, { type: "DELIVERY", title: URGENT_ESCALATION_TITLE, message: input.message, orderId: input.orderId, idempotencyKey: `urgent-unaccepted:${input.orderId}` });
+  if (alerted > 0) return true;
+  await inTierSavepoint(tx, (savepoint) => savepoint.orderDeliveryTier.updateMany({ where: { orderId: input.orderId, escalatedAt: { not: null } }, data: { escalatedAt: null } }), null, "escalation release");
+  return false;
+}
 
 function windows() {
   const offerWindowMinutes = getRunnerAcceptanceTimeoutMinutes();
@@ -56,11 +77,8 @@ export async function dispatchOrderInTransaction(tx: Tx, orderId: string, now = 
   let escalated = false;
   if (tier && isUrgentTier(tier.tier) && urgentEscalationDue({ tier: tier.tier, startedAt, escalatedAt, status: order.status, assignedRunnerId: order.assignedRunnerId, now })) {
     // True for exactly one transaction however many passes race; the notification key makes the alert once-only too.
-    escalated = await claimUrgentEscalationInTransaction(tx, orderId, now);
-    if (escalated) {
-      escalatedAt = now;
-      await notifyAdmins(tx, { type: "DELIVERY", title: URGENT_ESCALATION_TITLE, message: urgentEscalationMessage(tier.tier, shortReference(orderId)), orderId, idempotencyKey: `urgent-unaccepted:${orderId}` });
-    }
+    escalated = await escalateUrgentOrderInTransaction(tx, { orderId, message: urgentEscalationMessage(tier.tier, shortReference(orderId)), now });
+    if (escalated) escalatedAt = now;
   }
   const idleOnly = idleRunnerRuleApplies({ tier: tier?.tier, startedAt, escalatedAt, now });
   const [offers, runners] = await Promise.all([
@@ -146,35 +164,68 @@ function tally(summary: DispatchCycleSummary, result: DispatchResult) {
   if (result.escalated) summary.escalations += 1;
 }
 
-/** Orders waiting for a runner: Oya Now!, then Sharp Sharp (oldest first), then everything else oldest first. */
-export async function selectDispatchCandidates(limit = DISPATCH_BATCH_LIMIT): Promise<string[]> {
+/**
+ * Orders waiting for a runner: urgent orders due for escalation, then Oya Now!, then Sharp Sharp (oldest first), then
+ * everything else oldest first. At least a quarter of the batch is kept for that last group, so a stream of urgent
+ * orders never starves Cruise Mode and older orders of expiry, redispatch and refund review. Escalation-due orders
+ * are always included (so with very many of them the batch can grow by that quarter).
+ */
+export async function selectDispatchCandidates(limit = DISPATCH_BATCH_LIMIT, now = new Date()): Promise<string[]> {
+  const reserved = Math.ceil(limit / 4);
+  const waiting = { status: "FINDING_RUNNER" as const, assignedRunnerId: null };
   // Two queries, never one relation orderBy across all orders: orders without a tier row would sort after Cruise Mode.
-  const urgent = await readTierTables(db, (client) => client.orderDeliveryTier.findMany({
-    where: { tier: { in: [...URGENT_TIERS] }, order: { is: { status: "FINDING_RUNNER", assignedRunnerId: null } } },
-    orderBy: [{ tier: "asc" }, { createdAt: "asc" }],
-    take: limit,
-    select: { orderId: true },
-  }), [] as Array<{ orderId: string }>, "dispatch scan");
-  const urgentIds = urgent.map((row) => row.orderId);
+  const { due, urgent } = await readTierTables(db, async (client) => ({
+    // Mirrors urgentEscalationDue: started (findingRunnerAt, else the row's createdAt) at least ESCALATION_MINUTES ago.
+    due: await client.orderDeliveryTier.findMany({
+      where: {
+        escalatedAt: null,
+        order: { is: waiting },
+        OR: URGENT_TIERS.map((tier) => {
+          const startedBy = new Date(now.getTime() - ESCALATION_MINUTES[tier] * 60_000);
+          return { tier, OR: [{ order: { is: { findingRunnerAt: { lte: startedBy } } } }, { createdAt: { lte: startedBy }, order: { is: { findingRunnerAt: null } } }] };
+        }),
+      },
+      orderBy: [{ tier: "asc" }, { createdAt: "asc" }],
+      take: limit,
+      select: { orderId: true },
+    }),
+    urgent: await client.orderDeliveryTier.findMany({
+      where: { tier: { in: [...URGENT_TIERS] }, order: { is: waiting } },
+      orderBy: [{ tier: "asc" }, { createdAt: "asc" }],
+      take: limit,
+      select: { orderId: true },
+    }),
+  }), { due: [] as Array<{ orderId: string }>, urgent: [] as Array<{ orderId: string }> }, "dispatch scan");
+  const dueIds = due.map((row) => row.orderId);
+  const scannedUrgent = [...new Set([...dueIds, ...urgent.map((row) => row.orderId)])];
+  const urgentIds = scannedUrgent.slice(0, Math.max(dueIds.length, limit - reserved));
+  const restTake = Math.max(reserved, limit - urgentIds.length);
+  // More urgent orders than one scan: the extras would show up below and take the reserved places.
+  const overflow = urgent.length >= limit;
   // Without the tier tables this is exactly the scan from before delivery tiers.
-  const rest = urgentIds.length >= limit ? [] : await db.order.findMany({
-    where: { status: "FINDING_RUNNER", assignedRunnerId: null, ...(urgentIds.length ? { id: { notIn: urgentIds } } : {}) },
+  const rest = await db.order.findMany({
+    where: { ...waiting, ...(scannedUrgent.length ? { id: { notIn: scannedUrgent } } : {}) },
     select: { id: true },
     orderBy: { findingRunnerAt: "asc" },
-    take: limit - urgentIds.length,
+    take: overflow ? restTake + limit : restTake,
   });
-  return [...urgentIds, ...rest.map((order) => order.id)];
+  let restIds = rest.map((order) => order.id);
+  if (overflow) {
+    const tiers = await loadOrderDeliveryTiers(db, restIds);
+    restIds = restIds.filter((orderId) => !isUrgentTier(tiers.get(orderId)?.tier));
+  }
+  return [...urgentIds, ...restIds.slice(0, restTake)];
 }
 
 /**
  * Scheduled pass over orders still looking for a runner: expire stale offers, redispatch, and only then
  * move missions that genuinely can't progress to refund review. Bounded per run; each mission is its own
  * retried serializable transaction, so a failure on one never blocks the rest and re-running is safe.
- * Oya Now! and Sharp Sharp orders are handled first, so a full batch never leaves them waiting.
+ * Escalation-due, Oya Now! and Sharp Sharp orders are handled first, with a quarter of the batch kept for the rest.
  */
 export async function dispatchDueOrders(now = new Date(), limit = DISPATCH_BATCH_LIMIT): Promise<DispatchCycleSummary> {
   const summary = emptySummary();
-  const candidates = await selectDispatchCandidates(limit);
+  const candidates = await selectDispatchCandidates(limit, now);
   summary.scanned = candidates.length;
   for (const orderId of candidates) {
     try {

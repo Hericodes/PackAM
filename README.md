@@ -29,6 +29,14 @@ Production endpoints on that domain (all built from `APP_URL`, so nothing else n
 - Payment return pages: `https://www.packam.app/checkout/payment-result` (orders) and `https://www.packam.app/printing/payment/<printJobId>` (printing)
 - Scheduled dispatch (GitHub secret `PACKAM_BASE_URL` = `https://www.packam.app`): `POST https://www.packam.app/api/internal/fulfilment/run-due`
 
+## Delivery tiers migration (`20261101150000_delivery_tiers`)
+
+Additive only (one enum, two new tables, seeded Cruise Mode ₦200, Sharp Sharp ₦300, Oya Now! ₦400, all on). The app runs with or without it: before it, checkout offers Cruise Mode at ₦200 only; once applied, the other speeds switch on without a redeploy.
+
+- **If it fails on its 5-second lock timeout** (a busy moment): nothing was applied and the app keeps working, but Prisma records the migration as failed. Run `npx prisma migrate resolve --rolled-back 20261101150000_delivery_tiers`, then deploy again at a quieter time.
+- **Rollback** (only while no Sharp Sharp or Oya Now! payment is pending): `DROP TABLE "OrderDeliveryTier"; DROP TABLE "DeliveryTierSetting"; DROP TYPE "DeliveryTier";` and then `DELETE FROM "_prisma_migrations" WHERE migration_name = '20261101150000_delivery_tiers';`, so a later deploy re-applies it.
+- **Before rolling the code back** to a build without tiers, check for unpaid urgent attempts: `SELECT id FROM "Payment" WHERE "printJobId" IS NULL AND "orderId" IS NULL AND status IN ('PENDING','RECONCILIATION_REQUIRED') AND "checkoutSnapshot"->>'deliveryTier' IN ('OYA','SHARP');`. Afterwards, find paid orders that lost their speed: `SELECT p."orderId" FROM "Payment" p LEFT JOIN "OrderDeliveryTier" t ON t."orderId" = p."orderId" WHERE p."orderId" IS NOT NULL AND t."orderId" IS NULL AND p."checkoutSnapshot"->>'deliveryTier' IN ('OYA','SHARP');`
+
 ## Account email (Resend)
 
 Account emails (email confirmation, password reset and security notices) go through [Resend](https://resend.com). Verify the sending domain `mail.packam.app` in Resend and add exactly the DNS records Resend shows for it, then set these in the Vercel Production environment only and redeploy:

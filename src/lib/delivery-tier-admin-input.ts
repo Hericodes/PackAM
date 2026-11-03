@@ -54,7 +54,8 @@ export function applyTierSettingChange(current: TierSettingState, change: TierSe
   if (next.enabled && !isValidTierFee(next.fee)) {
     return { ok: false, status: 400, code: "FEE_REQUIRED", error: `Set a fee of at least ₦1 before turning ${label} on.` };
   }
-  if (current.enabled && !next.enabled && !others.some((other) => other.enabled)) {
+  // Only another tier checkout can actually sell counts (on, with a valid fee).
+  if (current.enabled && !next.enabled && !others.some((other) => other.enabled && isValidTierFee(other.fee))) {
     return { ok: false, status: 409, code: "LAST_ENABLED_TIER", error: `${label} is the only delivery speed on. Turn another one on first, so students can always check out.` };
   }
   return { ok: true, next, changed: next.fee !== current.fee || next.enabled !== current.enabled };

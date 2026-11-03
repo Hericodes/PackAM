@@ -20,9 +20,10 @@ export async function notifyAdmins(
   input: { type: NotificationType; title: string; message: string; orderId?: string | null; relatedType?: string | null; relatedId?: string | null; idempotencyKey: string },
 ) {
   const admins = await tx.user.findMany({ where: { role: "ADMIN", status: "ACTIVE" }, select: { id: true } });
-  if (!admins.length) return;
-  await tx.notification.createMany({
+  if (!admins.length) return 0;
+  // How many notifications were written (0 with no active admin, or when every admin already has this one).
+  return (await tx.notification.createMany({
     data: admins.map((admin) => ({ ...input, userId: admin.id, idempotencyKey: input.idempotencyKey.slice(0, 180) })),
     skipDuplicates: true,
-  });
+  })).count;
 }
