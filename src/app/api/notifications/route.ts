@@ -2,11 +2,16 @@ import { auth } from "../../../auth";
 import { db } from "../../../lib/db";
 import { notificationOwnerWhere } from "../../../lib/notifications-policy";
 
-export async function GET() {
+/** The signed-in person's latest 50 notifications and their unread count. `?count=1`: the count only (the bell). */
+export async function GET(request: Request) {
   const session = await auth();
   if (!session?.user?.id) return Response.json({ error: "Sign in to view notifications." }, { status: 401 });
   const active = await db.user.findFirst({ where: { id: session.user.id, status: "ACTIVE" }, select: { id: true } });
   if (!active) return Response.json({ error: "Your account is unavailable." }, { status: 403 });
+  if (new URL(request.url).searchParams.get("count") === "1") {
+    const unreadCount = await db.notification.count({ where: { ...notificationOwnerWhere(active.id), isRead: false } });
+    return Response.json({ unreadCount }, { headers: { "Cache-Control": "no-store" } });
+  }
   const [notifications, unreadCount] = await Promise.all([
     db.notification.findMany({ where: notificationOwnerWhere(active.id), orderBy: { createdAt: "desc" }, take: 50, select: { id: true, type: true, title: true, message: true, orderId: true, relatedType: true, relatedId: true, isRead: true, createdAt: true } }),
     db.notification.count({ where: { ...notificationOwnerWhere(active.id), isRead: false } }),

@@ -9,9 +9,11 @@ test("the marketplace page has no delivery-fee sentence under the heading", () =
   assert.doesNotMatch(page, /Prices include everything|added once per order|except the flat/);
 });
 
-test("the homepage greets students in the PackAM voice", () => {
+test("the homepage greets students in the PackAM voice, a different Pidgin greeting each visit", () => {
   const page = source("./page.tsx");
-  assert.match(page, /Wetin dey sup\?/);
+  assert.match(page, /pickHomeGreeting\(/);
+  assert.match(page, /RememberGreeting/);
+  assert.match(source("../lib/home-greetings.ts"), /Wetin dey sup\?/);
   assert.doesNotMatch(page, /What brings you here today\?/);
 });
 

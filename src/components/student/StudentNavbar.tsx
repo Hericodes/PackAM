@@ -5,6 +5,7 @@ import { PackAMLogo } from "../brand/PackAMLogo";
 import { Icon } from "../ui/Icon";
 import { navItemsFor, type NavRole } from "./nav-items";
 import { StudentCartButton } from "./StudentCartButton";
+import { InstallAppButton } from "../pwa/InstallAppButton";
 import { StudentMobileMenu } from "./StudentMobileMenu";
 import { StudentNavLinks } from "./StudentNavLinks";
 import { StudentProfileMenu } from "./StudentProfileMenu";
@@ -54,6 +55,7 @@ export async function StudentNavbar() {
           >
             <Icon name="search" />
           </Link>
+          <InstallAppButton />
           {user && <NotificationBell />}
           {role === "STUDENT" && <StudentCartButton />}
           {!user && (

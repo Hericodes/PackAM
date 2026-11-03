@@ -22,7 +22,7 @@ type ProductCardProps = {
 export function ProductCard({ id, name, price, image, category, labels = [], hasOptions = false, priceVaries = false, outOfStock = false }: ProductCardProps) {
   const href = `/products/${id}`;
   return (
-    <article className="group flex h-full flex-col overflow-hidden rounded-[18px] border sm:rounded-[22px] border-black/[0.07] bg-white shadow-[0_1px_2px_rgba(8,8,8,0.04)] transition duration-200 hover:border-black/[0.12] hover:shadow-[0_14px_30px_-18px_rgba(135,90,0,0.45)] focus-within:border-black/20 motion-safe:hover:-translate-y-0.5">
+    <article className="group flex h-full flex-col overflow-hidden rounded-[18px] border sm:rounded-[22px] border-black/[0.11] shadow-[0_1px_2px_rgba(8,8,8,0.05),0_10px_24px_-16px_rgba(135,90,0,0.38)] bg-white transition duration-200 hover:border-black/20 hover:shadow-[0_2px_4px_rgba(8,8,8,0.05),0_18px_34px_-16px_rgba(135,90,0,0.5)] focus-within:border-black/20 motion-safe:hover:-translate-y-0.5">
       <div className="relative">
         <Link href={href} tabIndex={-1} aria-hidden="true" className="block">
           <ProductVisual
@@ -43,7 +43,7 @@ export function ProductCard({ id, name, price, image, category, labels = [], has
         </div>
       </div>
 
-      <div className="flex flex-1 flex-col border-t border-black/[0.05] p-2.5 sm:p-4">
+      <div className="flex flex-1 flex-col border-t border-black/[0.07] p-2.5 sm:p-4">
         {category && (
           <p className="flex items-center gap-1.5 text-[0.625rem] font-bold uppercase tracking-[0.03em] text-black/55 sm:text-[0.6875rem] sm:tracking-[0.08em]">
             <span className="h-1.5 w-1.5 rounded-full bg-[#feb80a]" aria-hidden="true" />
@@ -88,7 +88,7 @@ export function ProductCard({ id, name, price, image, category, labels = [], has
 /** Placeholder with the card's real proportions, so the grid does not jump when products arrive. */
 export function ProductCardSkeleton() {
   return (
-    <div className="flex h-full flex-col overflow-hidden rounded-[18px] border border-black/[0.07] bg-white sm:rounded-[22px]" aria-hidden="true">
+    <div className="flex h-full flex-col overflow-hidden rounded-[18px] border border-black/[0.11] bg-white sm:rounded-[22px]" aria-hidden="true">
       <div className="pk-skeleton aspect-[3/2] rounded-none sm:aspect-4/3" />
       <div className="flex flex-1 flex-col gap-2 border-t border-black/[0.05] p-2.5 sm:p-4">
         <div className="pk-skeleton h-3 w-2/5" />

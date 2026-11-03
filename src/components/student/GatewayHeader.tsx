@@ -2,6 +2,8 @@ import Link from "next/link";
 import { auth } from "../../auth";
 import { PackAMLogo } from "../brand/PackAMLogo";
 import { Icon } from "../ui/Icon";
+import { InstallAppButton } from "../pwa/InstallAppButton";
+import { NotificationBell } from "../notifications/NotificationBell";
 import { navItemsFor, type NavRole } from "./nav-items";
 import { menuUserFor } from "./StudentNavbar";
 import { StudentMobileMenu } from "./StudentMobileMenu";
@@ -35,6 +37,8 @@ export async function GatewayHeader() {
 
         {menuUser ? (
           <div className="flex shrink-0 items-center gap-1.5">
+            <InstallAppButton labelOnPhones />
+            <NotificationBell />
             <StudentProfileMenu
               displayName={menuUser.displayName}
               initial={menuUser.initial}
@@ -45,6 +49,7 @@ export async function GatewayHeader() {
           </div>
         ) : (
           <div className="flex shrink-0 items-center gap-1 sm:gap-1.5">
+            <InstallAppButton labelOnPhones />
             <Link href="/login" className="inline-flex min-h-11 items-center gap-2 rounded-full px-3 text-sm font-bold transition hover:bg-black/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black sm:px-3.5">
               <Icon name="user" className="hidden h-[18px] w-[18px] sm:block" />
               Log in

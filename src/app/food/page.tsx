@@ -33,7 +33,7 @@ export default async function FoodPage() {
           <ul className="mt-4 grid gap-3 sm:mt-6 sm:grid-cols-2 lg:grid-cols-3" aria-label="Food shops">
             {shops.map((shop) => (
               <li key={shop.id}>
-                <Link href={`/food/${shop.id}`} className={`group flex h-full gap-3 rounded-[20px] border border-black/[0.07] bg-white p-2.5 transition hover:border-black/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black sm:flex-col sm:p-0 ${shop.isOpen ? "" : "opacity-80"}`}>
+                <Link href={`/food/${shop.id}`} className={`group flex h-full gap-3 rounded-[20px] border border-black/[0.11] shadow-[0_1px_2px_rgba(8,8,8,0.05),0_10px_24px_-16px_rgba(135,90,0,0.38)] bg-white p-2.5 transition hover:border-black/20 hover:shadow-[0_2px_4px_rgba(8,8,8,0.05),0_18px_34px_-16px_rgba(135,90,0,0.5)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black sm:flex-col sm:p-0 ${shop.isOpen ? "" : "opacity-80"}`}>
                   <div className="pk-media pk-media-amber relative h-[88px] w-[88px] shrink-0 overflow-hidden rounded-2xl sm:aspect-[16/9] sm:h-auto sm:w-full sm:rounded-b-none sm:rounded-t-[20px]">
                     {shop.imageUrl
                       ? <Image src={productImageDeliveryUrl(shop.imageUrl)} alt="" fill sizes="(min-width: 640px) 33vw, 88px" className="object-cover" />

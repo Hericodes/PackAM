@@ -139,7 +139,7 @@ export function FoodMenu({ shop, menu, delivery }: { shop: Shop; menu: PublicMen
                 {items.map((meal) => {
                   const quantity = mealQuantity[meal.id] ?? 1;
                   return (
-                    <li key={meal.id} className="flex gap-3 rounded-2xl border border-black/[0.07] bg-white p-2.5">
+                    <li key={meal.id} className="flex gap-3 rounded-2xl border bg-white p-2.5 border-black/[0.11] shadow-[0_1px_2px_rgba(8,8,8,0.05),0_10px_24px_-16px_rgba(135,90,0,0.38)]">
                       <Thumb item={meal} />
                       <div className="flex min-w-0 flex-1 flex-col">
                         <p className="font-black leading-5">{meal.name}</p>

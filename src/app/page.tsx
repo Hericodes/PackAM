@@ -4,6 +4,8 @@ import Link from "next/link";
 import { GatewayHeader } from "../components/student/GatewayHeader";
 import { Icon, type IconName } from "../components/ui/Icon";
 import { ACCOUNT_DELETED_COOKIE } from "../lib/account/deletion-policy";
+import { GREETING_COOKIE, parseGreetingIndex, pickHomeGreeting } from "../lib/home-greetings";
+import { RememberGreeting } from "../components/student/RememberGreeting";
 
 type Service = {
   id: string;
@@ -89,9 +91,13 @@ export default async function HomePage({ searchParams }: HomePageProps) {
   // has the cookie, so the query alone shows nothing.
   const [params, cookieStore] = await Promise.all([searchParams, cookies()]);
   const accountDeleted = params.accountDeleted === "1" && cookieStore.get(ACCOUNT_DELETED_COOKIE)?.value === "1";
+  // A different greeting each visit, never the last one this browser saw. Picked on the server (this page renders per
+  // request), so there's no flash; the browser then remembers which one it got.
+  const { index: greetingIndex, greeting } = pickHomeGreeting(Math.random, parseGreetingIndex(cookieStore.get(GREETING_COOKIE)?.value));
   return (
     <div className="flex min-h-svh flex-col text-black">
       <GatewayHeader />
+      <RememberGreeting index={greetingIndex} />
 
       <main className="packam-container flex flex-1 flex-col justify-center py-10 sm:py-14">
         <div className="mx-auto w-full max-w-2xl">
@@ -101,8 +107,8 @@ export default async function HomePage({ searchParams }: HomePageProps) {
             </p>
           )}
           <div className="text-center">
-            <h1 className="text-balance text-[clamp(1.75rem,6vw,2.5rem)] font-black leading-[1.1] tracking-[-0.03em]">Wetin dey sup?</h1>
-            <p className="pk-muted mt-2 text-base sm:text-lg">Pick wetin you need — we go handle the waka.</p>
+            <h1 className="text-balance text-[clamp(1.75rem,6vw,2.5rem)] font-black leading-[1.1] tracking-[-0.03em]">{greeting.title}</h1>
+            <p className="pk-muted mt-2 text-balance text-base sm:text-lg">{greeting.subtitle}</p>
           </div>
 
           <ul className="mt-8 grid gap-3 sm:mt-10 sm:gap-4" aria-label="PackAM services">
