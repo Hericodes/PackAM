@@ -21,7 +21,7 @@ export default async function FoodPage() {
       <div className="packam-container pt-3 sm:pt-8">
         <p className="pk-eyebrow">Food</p>
         <h1 className="pk-page-title mt-1 max-sm:text-[1.625rem] sm:mt-2">Wetin you wan chop?</h1>
-        <p className="pk-muted mt-1.5 text-[0.8125rem] leading-5 sm:text-base sm:leading-6">Pick a shop, choose your food, and your runner brings it. {!delivery ? "Delivery is added at checkout." : delivery.options > 1 ? `Delivery from ₦${delivery.fromFee.toLocaleString()}, depending on how fast you want it.` : `Delivery is ₦${delivery.fromFee.toLocaleString()}.`}</p>
+        <p className="pk-muted mt-1.5 text-[0.8125rem] leading-5 sm:text-base sm:leading-6">Pick a shop, choose your food, and your runner brings it. {!delivery ? "Delivery is added at checkout." : delivery.options > 1 ? `Choose how fast you need it. Delivery starts from ₦${delivery.fromFee.toLocaleString()}.` : `Delivery is ₦${delivery.fromFee.toLocaleString()}.`}</p>
 
         {shops.length === 0 ? (
           <div className="pk-empty mt-5 px-4 py-8">

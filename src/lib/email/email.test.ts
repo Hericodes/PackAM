@@ -116,3 +116,10 @@ test("templates refuse anything but an absolute http(s) link", () => {
     assert.throws(() => resetPassword("Ada", bad), /absolute http\(s\) URLs/, bad);
   }
 });
+
+test("email config: the production sender on mail.packam.app is accepted as it will be set", () => {
+  assert.deepEqual(
+    parseEmailConfig({ RESEND_API_KEY: "re_test_123456789", EMAIL_FROM: "PackAM <no-reply@mail.packam.app>", NODE_ENV: "production" }),
+    { mode: "resend", apiKey: "re_test_123456789", from: "PackAM <no-reply@mail.packam.app>" },
+  );
+});

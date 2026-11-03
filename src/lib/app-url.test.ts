@@ -46,3 +46,10 @@ test("appUrl reads APP_URL when it is called", () => {
     else process.env.APP_URL = saved;
   }
 });
+
+test("the production domain: emailed links are built on https://www.packam.app", () => {
+  const base = parseAppUrl("https://www.packam.app", "production");
+  assert.equal(buildAppUrl(base, "/reset-password?token=abc_DEF-123"), "https://www.packam.app/reset-password?token=abc_DEF-123");
+  assert.equal(buildAppUrl(base, "/api/account/verify-email?token=abc_DEF-123"), "https://www.packam.app/api/account/verify-email?token=abc_DEF-123");
+  assert.throws(() => parseAppUrl("http://www.packam.app", "production"), "plain http is refused in production");
+});

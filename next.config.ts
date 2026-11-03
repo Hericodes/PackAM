@@ -1,8 +1,25 @@
 import type { NextConfig } from "next";
 
+/** Canonical production host (www); the apex redirects to it. */
+const CANONICAL_ORIGIN = "https://www.packam.app";
+const APEX_HOST = "packam.app";
+/** PackAM's earlier address. It keeps serving, so apps installed from it keep working, but search engines drop it. */
+const LEGACY_HOST = "packam.vercel.app";
+
 const nextConfig: NextConfig = {
+  async redirects() {
+    return [
+      // Normally done by the Vercel domain settings before the app runs; this is the fallback. Query strings carry over.
+      { source: "/:path*", has: [{ type: "host", value: APEX_HOST }], destination: `${CANONICAL_ORIGIN}/:path*`, permanent: true },
+    ];
+  },
   async headers() {
     return [
+      {
+        source: "/:path*",
+        has: [{ type: "host", value: LEGACY_HOST }],
+        headers: [{ key: "X-Robots-Tag", value: "noindex" }],
+      },
       {
         // The browser must re-check the service worker on every visit, so updates reach installed apps.
         source: "/sw.js",

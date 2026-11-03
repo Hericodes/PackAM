@@ -1,6 +1,6 @@
 /**
  * Absolute links for emails and anything else that leaves the site. Built only from APP_URL, never from
- * siteConfig.url (hard-coded localhost) or request headers (which the caller chooses). APP_URL is required and
+ * siteConfig.url (the fixed canonical origin) or request headers (which the caller chooses). APP_URL is required and
  * must use HTTPS in production, the same rules as the payment return URLs. Pure apart from reading the
  * environment when appUrl() is called, so it is unit-tested.
  */
@@ -21,7 +21,7 @@ export function parseAppUrl(value: string | undefined, nodeEnv: string | undefin
   try {
     base = new URL(raw);
   } catch {
-    throw new AppUrlConfigError("APP_URL must be an absolute URL, like https://your-packam-domain.example.");
+    throw new AppUrlConfigError("APP_URL must be an absolute URL, like https://www.packam.app.");
   }
   if (base.protocol !== "https:" && base.protocol !== "http:") throw new AppUrlConfigError("APP_URL must start with https:// (or http:// outside production).");
   if (base.username || base.password) throw new AppUrlConfigError("APP_URL must not contain a username or password.");

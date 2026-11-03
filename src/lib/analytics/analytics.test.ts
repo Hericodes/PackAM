@@ -59,10 +59,11 @@ test("page paths drop ids, queries and fragments", () => {
 });
 
 test("referrers: other sites only, host only", () => {
-  assert.equal(referrerHostOf("https://www.instagram.com/p/123?utm=1", "packam.vercel.app"), "instagram.com");
-  assert.equal(referrerHostOf("https://packam.vercel.app/search", "packam.vercel.app"), null);
-  assert.equal(referrerHostOf("javascript:alert(1)", "packam.vercel.app"), null);
-  assert.equal(referrerHostOf(null, "packam.vercel.app"), null);
+  assert.equal(referrerHostOf("https://www.instagram.com/p/123?utm=1", "www.packam.app"), "instagram.com");
+  assert.equal(referrerHostOf("https://www.packam.app/search", "www.packam.app"), null);
+  assert.equal(referrerHostOf("https://packam.app/search", "www.packam.app"), null, "the apex is PackAM too");
+  assert.equal(referrerHostOf("javascript:alert(1)", "www.packam.app"), null);
+  assert.equal(referrerHostOf(null, "www.packam.app"), null);
 });
 
 test("bots, headless browsers and opted-out visitors are skipped; staff pages and bad ids refused", () => {

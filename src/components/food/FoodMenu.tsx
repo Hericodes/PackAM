@@ -215,7 +215,7 @@ export function FoodMenu({ shop, menu, delivery }: { shop: Shop; menu: PublicMen
                       <dt className="font-black">Plate {naira(platePreview.line.unitPrice)}{plates > 1 ? ` × ${plates}` : ""}</dt>
                       <dd className="text-lg font-black">{naira(platePreview.line.total)}</dd>
                     </div>
-                    <p className="text-xs text-black/55">{!delivery ? "+ delivery, shown at checkout." : delivery.options > 1 ? `+ delivery from ${naira(delivery.fromFee)}, chosen at checkout.` : `+ ${naira(delivery.fromFee)} delivery, shown at checkout.`}</p>
+                    <p className="text-xs text-black/55">{!delivery ? "+ delivery, shown at checkout." : delivery.options > 1 ? `Choose how fast you need it. Delivery starts from ${naira(delivery.fromFee)}.` : `+ ${naira(delivery.fromFee)} delivery, shown at checkout.`}</p>
                   </dl>
                 ) : (
                   <p className="text-sm text-black/60">{platePreview && !platePreview.ok ? platePreview.error : "Choose a base to see your plate’s price."}</p>

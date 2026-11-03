@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { cookies } from "next/headers";
 import Link from "next/link";
 import { GatewayHeader } from "../components/student/GatewayHeader";
@@ -77,6 +78,9 @@ function ServiceCard({ service }: { service: Service }) {
     </Link>
   );
 }
+
+// The home page's canonical address is the www domain, whichever host served it (metadataBase in the root layout).
+export const metadata: Metadata = { alternates: { canonical: "/" } };
 
 type HomePageProps = { searchParams: Promise<{ accountDeleted?: string }> };
 

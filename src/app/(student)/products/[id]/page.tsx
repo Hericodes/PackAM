@@ -100,7 +100,7 @@ export default async function ProductPage({ params }: ProductPageProps) {
             <dl className="mt-5 grid gap-3 text-sm sm:grid-cols-2">
               <div className="pk-card p-4">
                 <dt className="font-extrabold">Delivery</dt>
-                <dd className="pk-muted mt-1 leading-6">{!delivery ? "Added once at checkout." : delivery.options > 1 ? `From ₦${delivery.fromFee.toLocaleString()} per order, added once at checkout, where you choose how fast it comes.` : `₦${delivery.fromFee.toLocaleString()} per order, added once at checkout.`}</dd>
+                <dd className="pk-muted mt-1 leading-6">{!delivery ? "Added once at checkout." : delivery.options > 1 ? `Choose how fast you need it. Delivery starts from ₦${delivery.fromFee.toLocaleString()}.` : `₦${delivery.fromFee.toLocaleString()} per order, added once at checkout.`}</dd>
               </div>
               <div className="pk-card p-4">
                 <dt className="font-extrabold">If the shop price changes</dt>

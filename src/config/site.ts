@@ -4,7 +4,11 @@ export const siteConfig = {
   description:
     "Need something but can't leave where you are? Order it. We'll get it to you.",
 
-  url: "http://localhost:3000",
+  /**
+   * The canonical production origin (www; the apex packam.app redirects here). Metadata, robots.txt and the
+   * sitemap use it. Emails and payment links are built from APP_URL instead (src/lib/app-url.ts).
+   */
+  url: "https://www.packam.app",
 
   brand: {
     colors: {

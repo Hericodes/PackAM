@@ -9,7 +9,7 @@ OPAY_ENVIRONMENT=sandbox
 OPAY_MERCHANT_ID=
 OPAY_PUBLIC_KEY=
 OPAY_SECRET_KEY=
-APP_URL=https://your-packam-domain.example
+APP_URL=https://www.packam.app
 ```
 
 `OPAY_ENVIRONMENT` accepts `sandbox` (the development default) or `production`. PackAM uses OPay's Nigeria hosts: `https://testapi.opaycheckout.com` for sandbox and `https://liveapi.opaycheckout.com` for production. Confirm these hosts are enabled for the merchant account before testing. `APP_URL` is the canonical origin used for OPay return and webhook URLs; use HTTPS in production. Configure `/api/webhooks/opay` as the merchant dashboard webhook URL as well.
@@ -17,6 +17,22 @@ APP_URL=https://your-packam-domain.example
 PackAM stores NGN amounts as whole naira. OPay Cashier create/status `amount.total` uses the minor unit (kobo), so the server sends `amount * 100` (₦3,700 becomes `370000`) and verifies that representation against the status API. The callback docs describe `payload.amount` in NGN, so callbacks are compared to the whole-naira database amount before PackAM performs the authenticated status query. Students return to `/checkout/payment-result`; only a signed callback followed by that status query can finalize an order.
 
 The `20261002103000_payment_attempt_lifecycle`, `20261003120000_opay_cashier`, and `20261003130000_fulfilment_engine` Prisma migrations must be applied to the target database before these flows are used. Apply migrations using the normal deployment procedure; do not reset the database.
+
+## Domain
+
+The canonical production address is `https://www.packam.app`. Set `APP_URL` to it in the Vercel Production environment: every emailed link and payment return or webhook URL is built from `APP_URL`. In Vercel → Settings → Domains, add `www.packam.app` as the primary domain and `packam.app` redirecting to it (`next.config.ts` also redirects the apex as a fallback). The earlier `packam.vercel.app` address keeps working, so apps installed from it still open, but it is served with `X-Robots-Tag: noindex` so search engines index only the www domain. `robots.txt` and `sitemap.xml` point at the www domain.
+
+## Account email (Resend)
+
+Account emails (email confirmation, password reset and security notices) go through [Resend](https://resend.com). Verify the sending domain `mail.packam.app` in Resend and add exactly the DNS records Resend shows for it, then set these in the Vercel Production environment only and redeploy:
+
+```dotenv
+RESEND_API_KEY=
+EMAIL_FROM="PackAM <no-reply@mail.packam.app>"
+APP_URL=https://www.packam.app
+```
+
+Keep Resend's click and open tracking off for this domain: tracking would route password-reset links through Resend's redirect service. Until both variables are set, password reset shows "Reset by email isn't available right now" and nothing is sent.
 
 ## Orders and fulfilment
 

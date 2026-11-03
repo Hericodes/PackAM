@@ -66,7 +66,7 @@ Vercel Hobby only allows a Vercel Cron to run **once a day**, so:
 
 - **Every 5 minutes:** `.github/workflows/fulfilment-dispatch.yml` (GitHub Actions) POSTs to
   `/api/internal/fulfilment/run-due` with `Authorization: Bearer <CRON_SECRET>`.
-  Add repository secrets **`PACKAM_BASE_URL`** (your production URL) and **`CRON_SECRET`**
+  Add repository secrets **`PACKAM_BASE_URL`** (the production URL, `https://www.packam.app`) and **`CRON_SECRET`**
   (GitHub → Settings → Secrets and variables → Actions). GitHub may delay scheduled runs by a few minutes,
   and pauses schedules on repositories with no activity for 60 days.
 - **Once a day (backup):** `vercel.json` registers a Vercel Cron for the same path. Vercel sends

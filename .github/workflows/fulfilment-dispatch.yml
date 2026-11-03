@@ -1,5 +1,5 @@
 # Runs PackAM's runner dispatch pass every 5 minutes (Vercel Hobby only allows a daily Vercel Cron).
-# Needs two repository secrets: PACKAM_BASE_URL (e.g. https://packam.example) and CRON_SECRET (the same
+# Needs two repository secrets: PACKAM_BASE_URL (https://www.packam.app) and CRON_SECRET (the same
 # value as CRON_SECRET in Vercel). The endpoint is idempotent and bounded, so retries and overlaps are safe.
 name: Runner dispatch
 

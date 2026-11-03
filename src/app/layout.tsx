@@ -4,6 +4,7 @@ import "./globals.css";
 import { CartExperience } from "../components/cart/CartExperience";
 import { PwaProvider } from "../components/pwa/PwaProvider";
 import { PageViewTracker } from "../components/analytics/PageViewTracker";
+import { siteConfig } from "../config/site";
 
 /*
  * The old "Arial, Helvetica" stack looked different on every phone: Android has no Arial (it used Roboto or
@@ -14,6 +15,8 @@ import { PageViewTracker } from "../components/analytics/PageViewTracker";
 const sans = Roboto({ subsets: ["latin"], display: "swap", variable: "--font-packam" });
 
 export const metadata: Metadata = {
+  // Absolute URLs in metadata (canonical, Open Graph) resolve against the canonical www domain on every host.
+  metadataBase: new URL(siteConfig.url),
   title: {
     default: "PackAM",
     template: "%s | PackAM",
@@ -24,6 +27,14 @@ export const metadata: Metadata = {
   // Installed on iPhone and iPad (Add to Home Screen): opens full screen, named PackAM. The icon is app/apple-icon.png.
   appleWebApp: { capable: true, title: "PackAM", statusBarStyle: "default" },
   formatDetection: { telephone: false },
+  openGraph: {
+    type: "website",
+    siteName: "PackAM",
+    title: "PackAM",
+    description: "Need something but can't leave where you are? Order it. We'll get it to you.",
+    locale: "en_NG",
+  },
+  twitter: { card: "summary" },
 };
 
 export const viewport: Viewport = {
