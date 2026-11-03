@@ -263,6 +263,7 @@ model User {
   auditLogs             AuditLog[]
   handledSupportCases   SupportCase[]     @relation("HandledSupportCases")
   accountTokens         AccountToken[]
+  paymentPin            AdminPaymentPin?
 
   @@index([role])
   @@index([status])
@@ -1345,4 +1346,17 @@ model OrderDeliveryTier {
   order           Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
   @@index([tier, createdAt])
+}
+
+/// An admin's personal payment PIN, asked for before confirming or rejecting a bank transfer (src/lib/payments/
+/// payment-pin-store.ts). Its own table, so no read of User ever depends on it. Only a bcrypt hash is stored. After
+/// PAYMENT_PIN_MAX_FAILURES wrong tries in a row the PIN is locked until lockedUntil.
+model AdminPaymentPin {
+  userId      String    @id
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  pinHash     String
+  failedCount Int       @default(0)
+  lockedUntil DateTime?
+  setAt       DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 }

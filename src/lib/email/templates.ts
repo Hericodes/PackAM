@@ -161,6 +161,28 @@ export function transferToConfirmAlert(name: string | null | undefined, amount: 
   });
 }
 
+/** To an admin whenever their payment PIN is set, changed, reset by another admin or locked. No PIN in it, ever. */
+export function paymentPinNotice(name: string | null | undefined, kind: "set" | "changed" | "reset" | "locked"): EmailContent {
+  const copy = {
+    set: { subject: "Your PackAM payment PIN was set", heading: "Payment PIN set", text: "A payment PIN was just set on your PackAM admin account. You’ll need it to confirm or reject bank transfers." },
+    changed: { subject: "Your PackAM payment PIN was changed", heading: "Payment PIN changed", text: "The payment PIN on your PackAM admin account was just changed." },
+    reset: { subject: "Your PackAM payment PIN was reset", heading: "Payment PIN reset", text: "Another admin just reset the payment PIN on your PackAM admin account. Set a new one on the Payments page before you confirm or reject bank transfers." },
+    locked: { subject: "Your PackAM payment PIN was locked", heading: "Payment PIN locked", text: "Your payment PIN was entered wrongly 5 times in a row, so it is locked for 15 minutes. Every PackAM admin has been told." },
+  }[kind];
+  return compose({
+    subject: copy.subject,
+    preview: copy.text,
+    heading: copy.heading,
+    name,
+    blocks: [
+      { kind: "paragraph", text: copy.text },
+      { kind: "paragraph", text: kind === "locked"
+        ? "If this wasn’t you, someone may be using your account: change your password straight away and sign out of all devices in Settings."
+        : "If this wasn’t you, change your password straight away, sign out of all devices in Settings, and tell the other admins." },
+    ],
+  });
+}
+
 /** Whitespace collapsed, so a stored value can't add lines to the text part. */
 function oneLine(value: string) {
   return value.replace(/\s+/g, " ").trim();

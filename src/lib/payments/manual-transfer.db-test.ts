@@ -16,12 +16,14 @@ import {
   createTestLocation,
   createTestUser,
   dbTestSkip,
+  setTestPassword,
   signInAs,
   testDb,
 } from "../../test-support/db-harness";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, test } from "node:test";
+import bcrypt from "bcryptjs";
 
 type App = {
   db: Awaited<ReturnType<typeof testDb>>;
@@ -31,6 +33,7 @@ type App = {
   cancel: typeof import("../../app/api/payments/cancel/route");
   claim: typeof import("../../app/api/payments/manual/claim/route");
   admin: typeof import("../../app/api/admin/payments/[id]/manual/route");
+  pinRoute: typeof import("../../app/api/admin/payment-pin/route");
   store: typeof import("./manual-transfer-store");
   email: typeof import("../email");
 };
@@ -49,7 +52,7 @@ before(async () => {
   if (!migrated[0]?.ok) { skip = "manual-transfer migration not applied to this test database"; return; }
   for (const key of ENV_KEYS) savedEnv[key] = process.env[key];
   Object.assign(process.env, ACCOUNT, { PAYMENT_PROVIDER: "MANUAL", APP_URL: "https://packam.example" });
-  const [cart, create, status, cancel, claim, admin, store, email] = await Promise.all([
+  const [cart, create, status, cancel, claim, admin, store, email, pinRoute] = await Promise.all([
     import("../../app/api/cart/route"),
     import("../../app/api/payments/create/route"),
     import("../../app/api/payments/status/route"),
@@ -58,8 +61,9 @@ before(async () => {
     import("../../app/api/admin/payments/[id]/manual/route"),
     import("./manual-transfer-store"),
     import("../email"),
+    import("../../app/api/admin/payment-pin/route"),
   ]);
-  app = { db, cart, create, status, cancel, claim, admin, store, email };
+  app = { db, cart, create, status, cancel, claim, admin, store, email, pinRoute };
 });
 after(async () => {
   for (const key of ENV_KEYS) {
@@ -100,12 +104,16 @@ async function startTransfer() {
 
 const claim = (student: User, reference: string) => asUser(student, () => callRoute(app.claim.POST, { method: "POST", path: "/api/payments/manual/claim", body: { reference } }));
 const statusOf = (student: User, reference: string) => asUser(student, () => callRoute(app.status.GET, { path: `/api/payments/status?reference=${encodeURIComponent(reference)}` }));
-const adminAction = (admin: User, paymentId: string, body: Record<string, unknown>) => asUser(admin, () => callRoute(app.admin.POST, { method: "POST", path: `/api/admin/payments/${paymentId}/manual`, params: { id: paymentId }, body }));
+/** Every admin made by verifiedAdmin() has this payment PIN. */
+const PIN = "482915";
+const adminAction = (admin: User, paymentId: string, body: Record<string, unknown>) => asUser(admin, () => callRoute(app.admin.POST, { method: "POST", path: `/api/admin/payments/${paymentId}/manual`, params: { id: paymentId }, body: { pin: PIN, ...body } }));
+const pinAction = (admin: User, body: Record<string, unknown>) => asUser(admin, () => callRoute(app.pinRoute.POST, { method: "POST", path: "/api/admin/payment-pin", body }));
 const backdate = (paymentId: string, minutes: number) => app.db.payment.update({ where: { id: paymentId }, data: { createdAt: new Date(Date.now() - minutes * MINUTE) } });
 
-async function verifiedAdmin() {
+async function verifiedAdmin({ withPin = true } = {}) {
   const admin = await createTestUser("ADMIN");
   await app.db.user.update({ where: { id: admin.userId }, data: { emailVerifiedAt: new Date() } });
+  if (withPin) await app.db.adminPaymentPin.create({ data: { userId: admin.userId, pinHash: await bcrypt.hash(PIN, 4) } });
   const { email } = await app.db.user.findUniqueOrThrow({ where: { id: admin.userId }, select: { email: true } });
   return { admin, email };
 }
@@ -278,4 +286,102 @@ test("a student can cancel an unpaid transfer they haven't claimed", async (t) =
   assert.equal(cancelled.json.status, "CANCELLED");
   assert.equal((await app.db.payment.findUniqueOrThrow({ where: { id: payment.id } })).status, "FAILED");
   assert.equal((await claim(student, payment.transactionReference!)).json.status, "FAILED");
+});
+
+test("payment PIN: nothing is confirmed or rejected without the admin's own right PIN; 5 wrong tries lock it and alert", async (t) => {
+  if (skip) return t.skip(skip);
+  const { admin, email } = await verifiedAdmin();
+  const { admin: noPin } = await verifiedAdmin({ withPin: false });
+  const { student, payment } = await startTransfer();
+  await claim(student, payment.transactionReference!);
+  const unchanged = async () => {
+    const row = await app.db.payment.findUniqueOrThrow({ where: { id: payment.id } });
+    assert.deepEqual({ status: row.status, orderId: row.orderId }, { status: "PENDING", orderId: null });
+  };
+
+  const missing = await adminAction(admin, payment.id, { action: "confirm", receivedAmount: 1_700, pin: undefined });
+  assert.deepEqual({ status: missing.status, code: missing.json.code }, { status: 400, code: "PIN_REQUIRED" });
+  const notSet = await adminAction(noPin, payment.id, { action: "reject", pin: PIN });
+  assert.deepEqual({ status: notSet.status, code: notSet.json.code }, { status: 403, code: "PIN_NOT_SET" }, "another admin's PIN never works for you");
+  await unchanged();
+
+  app.email.clearTestOutbox();
+  for (let i = 1; i <= 4; i += 1) {
+    const wrong = await adminAction(admin, payment.id, { action: "confirm", receivedAmount: 1_700, pin: "000001" });
+    assert.deepEqual({ status: wrong.status, code: wrong.json.code }, { status: 403, code: "WRONG_PIN" });
+    assert.match(wrong.json.error ?? "", new RegExp(`${5 - i} tr`));
+  }
+  const fifth = await adminAction(admin, payment.id, { action: "reject", pin: "000002" });
+  assert.deepEqual({ status: fifth.status, code: fifth.json.code }, { status: 423, code: "PIN_LOCKED" });
+  const lockedEvenWithRightPin = await adminAction(admin, payment.id, { action: "confirm", receivedAmount: 1_700 });
+  assert.equal(lockedEvenWithRightPin.status, 423, "while locked, the right PIN doesn't work either");
+  await unchanged();
+  assert.equal(await app.db.auditLog.count({ where: { actorId: admin.userId, action: { in: ["payment_pin.wrong", "payment_pin.locked"] } } }), 5);
+  assert.ok(await app.db.notification.findFirst({ where: { userId: noPin.userId, title: "An admin payment PIN was locked" } }), "every admin is alerted");
+  assert.equal(app.email.testOutbox().filter((message) => message.to === email && message.purpose === "payment-pin-locked").length, 1);
+
+  // After the lock ends, the right PIN works and clears the count.
+  await app.db.adminPaymentPin.update({ where: { userId: admin.userId }, data: { lockedUntil: new Date(Date.now() - 1) } });
+  const confirmed = await adminAction(admin, payment.id, { action: "confirm", receivedAmount: 1_700 });
+  assert.equal(confirmed.status, 200, JSON.stringify(confirmed.json));
+  assert.equal((await app.db.adminPaymentPin.findUniqueOrThrow({ where: { userId: admin.userId } })).failedCount, 0);
+});
+
+test("payment PIN: parallel wrong guesses can't get past the limit", async (t) => {
+  if (skip) return t.skip(skip);
+  const { admin } = await verifiedAdmin();
+  const { payment } = await startTransfer();
+  const results = await Promise.all(Array.from({ length: 8 }, (_, i) => adminAction(admin, payment.id, { action: "reject", pin: String(100000 + i) })));
+  assert.equal(results.filter((r) => r.json.code === "WRONG_PIN").length, 4, JSON.stringify(results.map((r) => r.json.code)));
+  assert.equal(results.filter((r) => r.json.code === "PIN_LOCKED").length, 4);
+  assert.equal((await app.db.payment.findUniqueOrThrow({ where: { id: payment.id } })).status, "PENDING");
+});
+
+test("payment PIN: setting one needs the login password, changing needs the current PIN, guessable PINs are refused", async (t) => {
+  if (skip) return t.skip(skip);
+  const { admin, email } = await verifiedAdmin({ withPin: false });
+  await setTestPassword(admin.userId, "Correct-Horse-9");
+  app.email.clearTestOutbox();
+
+  const noPassword = await pinAction(admin, { action: "set", currentPassword: "wrong-password", newPin: "730264" });
+  assert.deepEqual({ status: noPassword.status, code: noPassword.json.code }, { status: 400, code: "WRONG_PASSWORD" });
+  const weak = await pinAction(admin, { action: "set", currentPassword: "Correct-Horse-9", newPin: "123456" });
+  assert.deepEqual({ status: weak.status, code: weak.json.code }, { status: 400, code: "WEAK_PIN" });
+  assert.equal(await app.db.adminPaymentPin.count({ where: { userId: admin.userId } }), 0);
+
+  const set = await pinAction(admin, { action: "set", currentPassword: "Correct-Horse-9", newPin: "730264" });
+  assert.equal(set.status, 200, JSON.stringify(set.json));
+  const row = await app.db.adminPaymentPin.findUniqueOrThrow({ where: { userId: admin.userId } });
+  assert.ok(row.pinHash.startsWith("$2") && !row.pinHash.includes("730264"), "only a bcrypt hash is stored");
+
+  const changeWithoutPin = await pinAction(admin, { action: "set", currentPassword: "Correct-Horse-9", newPin: "190837" });
+  assert.deepEqual({ status: changeWithoutPin.status, code: changeWithoutPin.json.code }, { status: 400, code: "PIN_REQUIRED" }, "a stolen password alone can't replace the PIN");
+  const changeWrongPin = await pinAction(admin, { action: "set", currentPassword: "Correct-Horse-9", currentPin: "111112", newPin: "190837" });
+  assert.equal(changeWrongPin.json.code, "WRONG_PIN");
+  const changed = await pinAction(admin, { action: "set", currentPassword: "Correct-Horse-9", currentPin: "730264", newPin: "190837" });
+  assert.equal(changed.status, 200, JSON.stringify(changed.json));
+  assert.deepEqual(app.email.testOutbox().filter((message) => message.to === email).map((message) => message.purpose), ["payment-pin-set", "payment-pin-changed"], "the admin is told every time");
+  assert.ok(app.email.testOutbox().every((message) => !message.text.includes("730264") && !message.text.includes("190837")), "no PIN in any email");
+});
+
+test("payment PIN: another admin resets a forgotten PIN with their own; nobody resets their own", async (t) => {
+  if (skip) return t.skip(skip);
+  const { admin: helper } = await verifiedAdmin();
+  const { admin: forgetful, email } = await verifiedAdmin();
+  app.email.clearTestOutbox();
+
+  const self = await pinAction(forgetful, { action: "reset", targetUserId: forgetful.userId, pin: PIN });
+  assert.equal(self.status, 400);
+  const wrong = await pinAction(helper, { action: "reset", targetUserId: forgetful.userId, pin: "000003" });
+  assert.equal(wrong.json.code, "WRONG_PIN");
+  assert.equal(await app.db.adminPaymentPin.count({ where: { userId: forgetful.userId } }), 1);
+
+  const reset = await pinAction(helper, { action: "reset", targetUserId: forgetful.userId, pin: PIN });
+  assert.equal(reset.status, 200, JSON.stringify(reset.json));
+  assert.equal(await app.db.adminPaymentPin.count({ where: { userId: forgetful.userId } }), 0);
+  assert.equal(await app.db.auditLog.count({ where: { actorId: helper.userId, action: "payment_pin.reset", resourceId: forgetful.userId } }), 1);
+  assert.equal(app.email.testOutbox().filter((message) => message.to === email && message.purpose === "payment-pin-reset").length, 1);
+  const { payment } = await startTransfer();
+  const blocked = await adminAction(forgetful, payment.id, { action: "reject" });
+  assert.equal(blocked.json.code, "PIN_NOT_SET", "until they set a new one, they can't approve anything");
 });

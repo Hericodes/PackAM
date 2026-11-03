@@ -12,6 +12,9 @@ import { PAYMENT_REVIEW_MIGRATION, isPaymentReviewTableMissing } from "../../../
 import { SUPPORTED_PROVIDERS, providerName } from "../../../lib/payments/provider-selection";
 import { ManualPaymentActions } from "../../../components/admin/ManualPaymentActions";
 import { manualTransferDeadline } from "../../../lib/payments/manual-transfer";
+import { PaymentPinSettings } from "../../../components/admin/PaymentPinSettings";
+import { isSchemaBehindCode } from "../../../lib/db-errors";
+import { isPinLocked } from "../../../lib/payments/payment-pin";
 
 const CANCEL_MARKER = "checkout.cancelled_by_student";
 
@@ -46,11 +49,27 @@ async function loadReviewCandidates(staleBefore: Date) {
   }
 }
 
+/** This admin's PIN and the other admins who have one. null: the PIN table isn't migrated (transfers can't be approved). */
+async function loadPins(adminId: string, now: Date) {
+  try {
+    const rows = await db.adminPaymentPin.findMany({ where: { user: { role: "ADMIN" } }, select: { userId: true, setAt: true, failedCount: true, lockedUntil: true, user: { select: { email: true, firstName: true, lastName: true } } } });
+    const mine = rows.find((row) => row.userId === adminId);
+    return {
+      status: mine ? { set: true as const, setAtLabel: formatCampusTime(mine.setAt), locked: isPinLocked(mine, now) } : { set: false as const },
+      others: rows.filter((row) => row.userId !== adminId).map((row) => ({ id: row.userId, label: [[row.user.firstName, row.user.lastName].filter(Boolean).join(" "), row.user.email].filter(Boolean).join(" · ") })),
+    };
+  } catch (error) {
+    if (!isSchemaBehindCode(error)) throw error;
+    console.error("ADMIN PAYMENTS: AdminPaymentPin table missing; apply migration 20261103130000_admin_payment_pin.");
+    return null;
+  }
+}
+
 export default async function AdminPaymentsPage() {
-  await requireRole("ADMIN");
+  const session = await requireRole("ADMIN");
   const now = new Date();
   const staleBefore = new Date(now.getTime() - STALE_PENDING_AFTER_MS);
-  const [{ rows: candidates, reviewCasesAvailable }, payments, refunds, transfers] = await Promise.all([
+  const [{ rows: candidates, reviewCasesAvailable }, payments, refunds, transfers, pins] = await Promise.all([
     loadReviewCandidates(staleBefore),
     db.payment.findMany({ orderBy: { createdAt: "desc" }, take: 100, select: { id: true, status: true, provider: true, amount: true, transactionReference: true, orderId: true, printJobId: true, user: { select: { email: true } } } }),
     db.refund.findMany({ orderBy: { createdAt: "desc" }, take: 100, select: { id: true, status: true, amount: true, reason: true, transactionReference: true, order: { select: { id: true, user: { select: { email: true } } } } } }),
@@ -61,6 +80,7 @@ export default async function AdminPaymentsPage() {
       take: 100,
       select: { id: true, amount: true, transferCode: true, transferClaimedAt: true, createdAt: true, transactionReference: true, user: { select: { firstName: true, lastName: true, email: true, phone: true } } },
     }),
+    loadPins(session.user.id, now),
   ]);
   const claimedTransfers = transfers.filter((t) => t.transferClaimedAt);
   const cancelMarkers = new Set((await db.auditLog.findMany({ where: { action: CANCEL_MARKER, resourceId: { in: candidates.map((p) => p.id) } }, select: { resourceId: true } })).map((row) => row.resourceId));
@@ -126,6 +146,9 @@ export default async function AdminPaymentsPage() {
       <p className="font-black">Payment review actions are unavailable: a database migration hasn’t been applied.</p>
       <p className="mt-1 leading-6">The database is missing the review-case table from migration <code className="font-mono text-xs">{PAYMENT_REVIEW_MIGRATION}</code>. Unresolved payments are still listed below, but Retry verification, Cancel, Close, Reopen and Escalate stay hidden until the migration is applied (<code className="font-mono text-xs">npx prisma migrate deploy</code>). No payment records were changed.</p>
     </div>}
+    {pins ? <PaymentPinSettings status={pins.status} otherAdminsWithPin={pins.others} />
+      : <p role="alert" className="mt-6 rounded-2xl border border-[#c92d24]/25 bg-[#ffe9e7] p-4 text-sm text-[#7a1a14]">Payment PINs aren’t set up on this database yet (migration <code className="font-mono text-xs">20261103130000_admin_payment_pin</code>), so bank transfers can’t be confirmed or rejected until it’s applied.</p>}
+
     <section aria-labelledby="transfers" className="mt-6">
       <h2 id="transfers" className="flex items-center gap-2 text-xl font-black">Bank transfers to confirm <span className={`rounded-full px-2 py-0.5 text-xs ${claimedTransfers.length ? "bg-[#c92d24] text-white" : "bg-black/10 text-black/60"}`}>{claimedTransfers.length}</span></h2>
       <p className="mt-1 max-w-3xl text-xs text-black/55">Open the bank app and find a credit with the code in the remark (or the student’s name and the exact amount). Confirm only money you can see: the order starts the moment you confirm. Unpaid checkouts nobody claimed close on their own after 30 minutes.</p>
@@ -140,7 +163,7 @@ export default async function AdminPaymentsPage() {
             </div>
             <p className="text-right text-xs text-black/55">{t.transferClaimedAt ? <>Said paid <strong className="text-black">{formatCampusTime(t.transferClaimedAt)}</strong></> : <>Pay by {formatCampusTime(manualTransferDeadline(t.createdAt))}</>}<br />Started {formatCampusTime(t.createdAt)}</p>
           </div>
-          <ManualPaymentActions paymentId={t.id} amount={t.amount} />
+          <ManualPaymentActions paymentId={t.id} amount={t.amount} pinSet={Boolean(pins?.status.set)} />
         </li>;
       })}</ul> : <p className="mt-3 rounded-2xl bg-white p-5 text-sm text-black/55">No bank transfers waiting.</p>}
     </section>
