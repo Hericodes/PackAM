@@ -75,6 +75,7 @@ export default async function CheckoutPage() {
         <div className="mt-5 sm:mt-7">
           <CheckoutClient
             providerName={payWith}
+            payByTransfer={checkoutProvider() === "MANUAL"}
             items={cart.lines.map((line) => ({
               id: line.cartItemId,
               quantity: line.quantity,

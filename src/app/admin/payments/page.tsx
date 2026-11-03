@@ -10,6 +10,8 @@ import { StatusBadge } from "../../../components/ui/StatusBadge";
 import { PaymentReviewActions } from "../../../components/admin/PaymentReviewActions";
 import { PAYMENT_REVIEW_MIGRATION, isPaymentReviewTableMissing } from "../../../lib/db-errors";
 import { SUPPORTED_PROVIDERS, providerName } from "../../../lib/payments/provider-selection";
+import { ManualPaymentActions } from "../../../components/admin/ManualPaymentActions";
+import { manualTransferDeadline } from "../../../lib/payments/manual-transfer";
 
 const CANCEL_MARKER = "checkout.cancelled_by_student";
 
@@ -26,7 +28,8 @@ const PAYMENT_FIELDS = {
  * visible, and the page says which migration is missing instead of failing.
  */
 async function loadReviewCandidates(staleBefore: Date) {
-  const unresolved = [{ status: "RECONCILIATION_REQUIRED" as const }, orphanedSuccessfulMarketplacePaymentWhere, { status: "PENDING" as const, createdAt: { lte: staleBefore } }];
+  // Pending bank transfers have their own list above (confirm or reject), so they aren't repeated here as stale.
+  const unresolved = [{ status: "RECONCILIATION_REQUIRED" as const }, orphanedSuccessfulMarketplacePaymentWhere, { status: "PENDING" as const, createdAt: { lte: staleBefore }, provider: { not: "MANUAL" as const } }];
   try {
     const rows = await db.payment.findMany({
       where: { provider: { in: [...SUPPORTED_PROVIDERS] }, OR: [...unresolved, { reviewCase: { is: { status: "OPEN" } } }] },
@@ -47,11 +50,19 @@ export default async function AdminPaymentsPage() {
   await requireRole("ADMIN");
   const now = new Date();
   const staleBefore = new Date(now.getTime() - STALE_PENDING_AFTER_MS);
-  const [{ rows: candidates, reviewCasesAvailable }, payments, refunds] = await Promise.all([
+  const [{ rows: candidates, reviewCasesAvailable }, payments, refunds, transfers] = await Promise.all([
     loadReviewCandidates(staleBefore),
     db.payment.findMany({ orderBy: { createdAt: "desc" }, take: 100, select: { id: true, status: true, provider: true, amount: true, transactionReference: true, orderId: true, printJobId: true, user: { select: { email: true } } } }),
     db.refund.findMany({ orderBy: { createdAt: "desc" }, take: 100, select: { id: true, status: true, amount: true, reason: true, transactionReference: true, order: { select: { id: true, user: { select: { email: true } } } } } }),
+    // Bank transfers waiting for an admin: the ones students say they sent first, oldest claim first.
+    db.payment.findMany({
+      where: { provider: "MANUAL", printJobId: null, orderId: null, status: { in: ["PENDING", "RECONCILIATION_REQUIRED"] }, transferCode: { not: null } },
+      orderBy: [{ transferClaimedAt: { sort: "asc", nulls: "last" } }, { createdAt: "asc" }],
+      take: 100,
+      select: { id: true, amount: true, transferCode: true, transferClaimedAt: true, createdAt: true, transactionReference: true, user: { select: { firstName: true, lastName: true, email: true, phone: true } } },
+    }),
   ]);
+  const claimedTransfers = transfers.filter((t) => t.transferClaimedAt);
   const cancelMarkers = new Set((await db.auditLog.findMany({ where: { action: CANCEL_MARKER, resourceId: { in: candidates.map((p) => p.id) } }, select: { resourceId: true } })).map((row) => row.resourceId));
 
   const rows = candidates.map((payment) => {
@@ -109,13 +120,32 @@ export default async function AdminPaymentsPage() {
   return <main className="min-h-screen"><div className="packam-container py-8">
     <p className="text-xs font-black uppercase tracking-widest text-black/40">Daily ops</p>
     <h1 className="mt-1 text-3xl font-black">Payments &amp; refunds</h1>
-    <p className="mt-2 max-w-3xl text-sm text-black/60">Only the payment provider’s verified status record (OPay or Paystack) can mark a payment paid or failed. A timeout or error proves nothing, so those payments stay unresolved. Closing a review case is bookkeeping — it never says money was received, refunded or not received. A pending refund is not a completed provider refund.</p>
+    <p className="mt-2 max-w-3xl text-sm text-black/60">Only the payment provider’s verified status record (OPay or Paystack) can mark a payment paid or failed, except a bank transfer, which an admin confirms below after seeing the money in the account. A timeout or error proves nothing, so those payments stay unresolved. Closing a review case is bookkeeping — it never says money was received, refunded or not received. A pending refund is not a completed provider refund.</p>
 
     {!reviewCasesAvailable && <div role="alert" className="mt-5 rounded-2xl border border-[#c92d24]/25 bg-[#ffe9e7] p-4 text-sm text-[#7a1a14]">
       <p className="font-black">Payment review actions are unavailable: a database migration hasn’t been applied.</p>
       <p className="mt-1 leading-6">The database is missing the review-case table from migration <code className="font-mono text-xs">{PAYMENT_REVIEW_MIGRATION}</code>. Unresolved payments are still listed below, but Retry verification, Cancel, Close, Reopen and Escalate stay hidden until the migration is applied (<code className="font-mono text-xs">npx prisma migrate deploy</code>). No payment records were changed.</p>
     </div>}
-    <section aria-labelledby="review-open" className="mt-6">
+    <section aria-labelledby="transfers" className="mt-6">
+      <h2 id="transfers" className="flex items-center gap-2 text-xl font-black">Bank transfers to confirm <span className={`rounded-full px-2 py-0.5 text-xs ${claimedTransfers.length ? "bg-[#c92d24] text-white" : "bg-black/10 text-black/60"}`}>{claimedTransfers.length}</span></h2>
+      <p className="mt-1 max-w-3xl text-xs text-black/55">Open the bank app and find a credit with the code in the remark (or the student’s name and the exact amount). Confirm only money you can see: the order starts the moment you confirm. Unpaid checkouts nobody claimed close on their own after 30 minutes.</p>
+      {transfers.length ? <ul className="mt-3 grid gap-3">{transfers.map((t) => {
+        const name = [t.user.firstName, t.user.lastName].filter(Boolean).join(" ");
+        return <li key={t.id} className={`rounded-2xl bg-white p-4 sm:p-5 ${t.transferClaimedAt ? "ring-2 ring-[#feb80a]" : ""}`}>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <StatusBadge label={t.transferClaimedAt ? "Student says paid" : "Waiting for the student"} tone={t.transferClaimedAt ? "warning" : "neutral"} />
+              <p className="mt-2 text-lg font-black">₦{t.amount.toLocaleString()} <span className="font-mono text-base">{t.transferCode}</span></p>
+              <p className="text-sm text-black/60">{name ? `${name} · ` : ""}{t.user.email}{t.user.phone ? ` · ${t.user.phone}` : ""}</p>
+            </div>
+            <p className="text-right text-xs text-black/55">{t.transferClaimedAt ? <>Said paid <strong className="text-black">{formatCampusTime(t.transferClaimedAt)}</strong></> : <>Pay by {formatCampusTime(manualTransferDeadline(t.createdAt))}</>}<br />Started {formatCampusTime(t.createdAt)}</p>
+          </div>
+          <ManualPaymentActions paymentId={t.id} amount={t.amount} />
+        </li>;
+      })}</ul> : <p className="mt-3 rounded-2xl bg-white p-5 text-sm text-black/55">No bank transfers waiting.</p>}
+    </section>
+
+    <section aria-labelledby="review-open" className="mt-8">
       <h2 id="review-open" className="flex items-center gap-2 text-xl font-black">Payments needing review <span className={`rounded-full px-2 py-0.5 text-xs ${open.length ? "bg-[#c92d24] text-white" : "bg-black/10 text-black/60"}`}>{open.length}</span></h2>
       <p className="mt-1 text-xs text-black/55">Under review, captured without an order, still pending {Math.round(STALE_PENDING_AFTER_MS / 60_000)}+ minutes after checkout, or with an open case.</p>
       {open.length ? <ul className="mt-3 grid gap-3">{open.map(card)}</ul> : <p className="mt-3 rounded-2xl bg-white p-5 text-sm text-black/55">No payments need review. The money dey balance 🫡</p>}

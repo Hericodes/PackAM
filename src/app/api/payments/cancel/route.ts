@@ -3,6 +3,7 @@ import { cancellationResponse, cancelUnpaidCheckout } from "../../../../lib/paym
 import { checkoutCancellationDeps } from "../../../../lib/payments/checkout-cancellation-store";
 import { consolePaymentLogger, referenceTail } from "../../../../lib/payments/opay-verification";
 import { consumeRateLimit } from "../../../../lib/rate-limit";
+import { db } from "../../../../lib/db";
 
 /** Cancels the signed-in student's own unpaid marketplace checkout, after reconciling it with its payment provider. */
 export async function POST(request: Request) {
@@ -23,6 +24,13 @@ export async function POST(request: Request) {
     const result = await cancelUnpaidCheckout(checkoutCancellationDeps(reference, session.user.id));
     consolePaymentLogger.info("checkout_cancel_requested", { refTail: referenceTail(reference), outcome: result.kind });
     const response = cancellationResponse(result);
+    // A bank transfer the student said they sent: the OPay wording doesn't apply.
+    if (result.kind === "STILL_PENDING") {
+      const attempt = await db.payment.findFirst({ where: { transactionReference: reference, userId: session.user.id }, select: { provider: true } });
+      if (attempt?.provider === "MANUAL") {
+        return Response.json({ status: "PENDING", error: "You told us you sent this money, so we can’t cancel it now. We’re checking your transfer and will confirm or contact you. If you didn’t send it, contact support." }, { status: 409 });
+      }
+    }
     return Response.json(response.body, { status: response.status });
   } catch (error) {
     consolePaymentLogger.error("checkout_cancel_failed", { refTail: referenceTail(reference), errorName: error instanceof Error ? error.name : "UnknownError" });

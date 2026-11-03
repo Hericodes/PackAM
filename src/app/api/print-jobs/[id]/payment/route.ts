@@ -2,7 +2,7 @@ import { auth } from "../../../../../auth";
 import { db } from "../../../../../lib/db";
 import { createPrintPaymentAttempt } from "../../../../../lib/printing/service";
 import { parsePrintCheckoutSnapshot } from "../../../../../lib/printing/payment-snapshot";
-import { checkoutProvider, createHostedCheckout } from "../../../../../lib/payments/gateways";
+import { createHostedCheckout, printCheckoutProvider } from "../../../../../lib/payments/gateways";
 import { consumeRateLimit } from "../../../../../lib/rate-limit";
 
 export const runtime = "nodejs";
@@ -26,7 +26,7 @@ export async function POST(request: Request, context: Context) {
 
   try {
     // New attempts use the active provider; a reused attempt keeps the provider it was created with.
-    const attempt = await createPrintPaymentAttempt(checkoutProvider(), session.user.id, printJobId, idempotencyKey);
+    const attempt = await createPrintPaymentAttempt(printCheckoutProvider(), session.user.id, printJobId, idempotencyKey);
     if (attempt.printJobId !== printJobId) {
       throw new Error("Print payment attempt did not match the requested job.");
     }

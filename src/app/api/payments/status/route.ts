@@ -4,6 +4,7 @@ import { isCheckoutCancelled } from "../../../../lib/payments/checkout-cancellat
 import { verificationDepsFor } from "../../../../lib/payments/gateways";
 import { checkOpayPaymentStatus, consolePaymentLogger } from "../../../../lib/payments/opay-verification";
 import { SUPPORTED_PROVIDERS } from "../../../../lib/payments/provider-selection";
+import { expireManualCheckoutIfStale, manualTransferViewFor } from "../../../../lib/payments/manual-transfer-store";
 import { consumeRateLimit } from "../../../../lib/rate-limit";
 
 /**
@@ -30,7 +31,7 @@ export async function GET(request: Request) {
         provider: { in: [...SUPPORTED_PROVIDERS] },
         ...(printJobId ? { printJobId } : {}),
       },
-      select: { id: true, provider: true, providerCheckoutReference: true, amount: true, currency: true, status: true, orderId: true, printJobId: true },
+      select: { id: true, provider: true, providerCheckoutReference: true, amount: true, currency: true, status: true, orderId: true, printJobId: true, createdAt: true, transferCode: true, transferClaimedAt: true },
     });
   } catch (error) {
     consolePaymentLogger.warn("payment_status_lookup_failed", { errorName: error instanceof Error ? error.name : "UnknownError" });
@@ -38,6 +39,16 @@ export async function GET(request: Request) {
   }
   if (!attempt) return Response.json({ error: "Payment attempt not found." }, { status: 404 });
   const provider = attempt.provider;
+  // Bank transfer: nothing to ask a provider. An unclaimed attempt past its deadline is closed now; otherwise the page
+  // gets the account, code and deadline. Only an admin confirming the credit can turn it into SUCCESS.
+  if (provider === "MANUAL" && attempt.status === "PENDING") {
+    try {
+      if (await expireManualCheckoutIfStale(attempt.id)) return Response.json({ status: "FAILED", cancelled: false, expired: true, provider });
+    } catch (error) {
+      consolePaymentLogger.warn("manual_transfer_expiry_failed", { errorName: error instanceof Error ? error.name : "UnknownError" });
+    }
+    return Response.json({ status: "PENDING", provider, manual: await manualTransferViewFor(attempt) });
+  }
   if (attempt.status === "SUCCESS") return Response.json({ status: "SUCCESS", orderId: attempt.orderId, printJobId: attempt.printJobId, provider });
   if (attempt.status === "FAILED") {
     const cancelled = !attempt.printJobId && await isCheckoutCancelled(attempt.id).catch(() => false);

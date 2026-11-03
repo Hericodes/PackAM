@@ -4,6 +4,7 @@ import { cronSecretConfigured, isAuthorizedCronRequest } from "../../../../../li
 import { expireUnclaimedRunnerOrders } from "../../../../../lib/orders/scheduled-work";
 import { expireUnclaimedPrintJobs } from "../../../../../lib/printing/fulfilment-recovery";
 import { consumeRateLimit } from "../../../../../lib/rate-limit";
+import { runManualTransferHousekeeping } from "../../../../../lib/payments/manual-transfer-store";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -32,10 +33,12 @@ async function run(request: Request) {
   try {
     const orders = await expireUnclaimedRunnerOrders();
     const printJobs = await expireUnclaimedPrintJobs();
-    const failed = orders.failed + printJobs.failed;
-    console.info(JSON.stringify({ event: "fulfilment_dispatch_run", orders, printJobs }));
+    // Bank transfers: close unpaid checkouts past 30 minutes, remind admins of claims still waiting.
+    const transfers = await runManualTransferHousekeeping();
+    const failed = orders.failed + printJobs.failed + transfers.failed;
+    console.info(JSON.stringify({ event: "fulfilment_dispatch_run", orders, printJobs, transfers }));
     // 500 when any mission failed, so the scheduler shows the run as failed; the next run retries it.
-    return Response.json({ orders, printJobs }, { status: failed ? 500 : 200 });
+    return Response.json({ orders, printJobs, transfers }, { status: failed ? 500 : 200 });
   } catch (error) {
     console.error("FULFILMENT SCHEDULE ERROR:", error instanceof Error ? error.name : "Unknown error");
     return Response.json({ error: "Unable to process due fulfilment tasks." }, { status: 500 });

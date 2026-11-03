@@ -54,6 +54,8 @@ type CheckoutClientProps = {
   lastLocation: DeliveryLocation | null;
   /** Display name of the provider new checkouts use, e.g. "Paystack". */
   providerName?: string;
+  /** Manual bank transfer: checkout hands out PackAM's account number instead of opening a payment gateway. */
+  payByTransfer?: boolean;
   /** Food orders: the shop everything comes from. */
   shopName?: string | null;
   /** What stops this cart being paid for, from the server. */
@@ -62,7 +64,7 @@ type CheckoutClientProps = {
 
 const money = (amount: number) => `₦${amount.toLocaleString()}`;
 
-export function CheckoutClient({ items: initialItems, tiers, lastLocation, providerName = "our payment partner", shopName = null, problems = [] }: CheckoutClientProps) {
+export function CheckoutClient({ items: initialItems, tiers, lastLocation, providerName = "our payment partner", payByTransfer = false, shopName = null, problems = [] }: CheckoutClientProps) {
   const router = useRouter();
   const { setSummary } = useCartExperience();
   // The server's revised breakdown when prices changed; payment waits for the student to confirm it.
@@ -231,7 +233,7 @@ export function CheckoutClient({ items: initialItems, tiers, lastLocation, provi
   const paymentButton = (
     <button type="button" onClick={() => void handlePayment()} disabled={!items.length || paymentBusy || busyItem !== null || problems.length > 0 || revised !== null || deliveryProblem !== null} aria-busy={paymentBusy} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-black px-5 text-sm font-black text-white transition hover:bg-[#262626] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black disabled:cursor-not-allowed disabled:opacity-40">
       {paymentBusy ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-r-transparent" aria-hidden="true" /> : <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#feb80a] text-black"><Icon name="arrowRight" className="h-3 w-3" strokeWidth={3} /></span>}
-      {paymentBusy ? `Opening ${providerName}…` : `Pay ${money(total)}`}
+      {paymentBusy ? (payByTransfer ? "Getting account number…" : `Opening ${providerName}…`) : payByTransfer ? `Get account number · ${money(total)}` : `Pay ${money(total)}`}
     </button>
   );
 
@@ -360,7 +362,7 @@ export function CheckoutClient({ items: initialItems, tiers, lastLocation, provi
         {error && <p role="alert" className="rounded-xl bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{error}</p>}
         {message && <p role="status" className="rounded-xl bg-green-50 px-3 py-2 text-sm font-semibold text-green-800">{message}</p>}
         {paymentButton}
-        <p className="flex items-start gap-2 text-xs leading-5 text-black/55"><Icon name="check" className="mt-0.5 h-3.5 w-3.5 text-[#16803c]" strokeWidth={2.6} /> You’ll finish paying securely on {providerName}. The total above is what you’ll be charged.</p>
+        <p className="flex items-start gap-2 text-xs leading-5 text-black/55"><Icon name="check" className="mt-0.5 h-3.5 w-3.5 text-[#16803c]" strokeWidth={2.6} /> {payByTransfer ? "You’ll get PackAM’s account number next. Send exactly the total above, then confirm. Your order starts once we see your money." : `You’ll finish paying securely on ${providerName}. The total above is what you’ll be charged.`}</p>
       </aside>
 
       <div className="fixed inset-x-0 bottom-0 z-40 border-t border-black/10 bg-[#fffdf7]/95 pk-safe-x pb-[max(12px,env(safe-area-inset-bottom))] pt-3 backdrop-blur lg:hidden">

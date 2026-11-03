@@ -9,6 +9,7 @@ import { removeCheckoutItemsFromCart } from "./payment-lifecycle";
 import { checkOpayPaymentStatus, type VerificationDeps } from "./opay-verification";
 import { opayStatusDeps, verificationDepsFor } from "./gateways";
 import { SUPPORTED_PROVIDERS } from "./provider-selection";
+import { failUnclaimedManualCheckout } from "./manual-transfer-store";
 import type { CancelFailedResult, CancellationDeps, CheckoutAttemptView } from "./checkout-cancellation";
 
 /** Re-exported for existing imports; defined with the other provider deps in gateways.ts. */
@@ -104,6 +105,12 @@ export function checkoutCancellationDeps(reference: string, userId: string, veri
     async reconcile() {
       const attempt = await findOwnedAttempt(reference, userId);
       if (!attempt || attempt.status !== "PENDING") return;
+      // Bank transfer: no provider to ask. Closed only if the student hasn't said they sent money; a claimed transfer
+      // stays pending for an admin, so it reads as "still being confirmed".
+      if (attempt.provider === "MANUAL" && !verification) {
+        await failUnclaimedManualCheckout(userId, reference);
+        return;
+      }
       // Same trusted path as the status poll: errors are logged and reported as "still pending".
       await checkOpayPaymentStatus(
         { reference, amount: attempt.amount, currency: attempt.currency, providerCheckoutReference: attempt.providerCheckoutReference },

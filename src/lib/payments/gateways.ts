@@ -4,7 +4,7 @@ import { PaymentProvider } from "@prisma/client";
 import { completeVerifiedPayment, failPendingPayment, markPaymentNeedsReview } from "./payment-lifecycle";
 import { consolePaymentLogger, type VerificationDeps } from "./opay-verification";
 import { paystackRecordRules } from "./paystack-verification";
-import { activeCheckoutProvider, isSupportedProvider, type SupportedProvider } from "./provider-selection";
+import { activeCheckoutProvider, activePrintCheckoutProvider, isSupportedProvider, type SupportedProvider } from "./provider-selection";
 import { createCashierPayment, queryPaymentStatus } from "./providers/opay";
 import { initializePaystackTransaction, queryPaystackTransaction } from "./providers/paystack";
 
@@ -28,8 +28,24 @@ export const paystackStatusDeps: VerificationDeps = {
   log: consolePaymentLogger,
 };
 
+/**
+ * Manual bank transfer has no provider to ask: only an admin confirming the credit in the bank app can complete it
+ * (confirmManualPayment). Every automatic check (status poll, student cancel, admin "retry verification") therefore
+ * sees "still pending" and changes nothing, and nothing here can ever complete a payment.
+ */
+export const manualStatusDeps: VerificationDeps = {
+  provider: "MANUAL",
+  queryStatus: async () => ({ status: "PENDING" }),
+  verifyTransaction: () => ({ status: "PENDING" }),
+  complete: async () => { throw new Error("Manual payments are completed only by an admin confirming the transfer."); },
+  fail: failPendingPayment,
+  markReview: markPaymentNeedsReview,
+  log: consolePaymentLogger,
+};
+
 /** Verification for an existing attempt: always the provider it was created with. */
 export function verificationDepsFor(provider: string): VerificationDeps {
+  if (provider === "MANUAL") return manualStatusDeps;
   if (provider === "PAYSTACK") return paystackStatusDeps;
   if (provider === "OPAY") return opayStatusDeps;
   throw new Error(`Payment provider ${provider} is not supported for verification.`);
@@ -37,6 +53,11 @@ export function verificationDepsFor(provider: string): VerificationDeps {
 
 export function checkoutProvider(): SupportedProvider {
   return activeCheckoutProvider(process.env);
+}
+
+/** Print payments: never MANUAL (no transfer screen for printing yet); see activePrintCheckoutProvider. */
+export function printCheckoutProvider(): Exclude<SupportedProvider, "MANUAL"> {
+  return activePrintCheckoutProvider(process.env);
 }
 
 export type CheckoutInput = {
@@ -56,6 +77,8 @@ export type CheckoutInput = {
 /** Creates the hosted checkout for an attempt, with that attempt's provider. */
 export async function createHostedCheckout(provider: string, input: CheckoutInput): Promise<{ checkoutUrl: string; providerCheckoutReference: string }> {
   if (!isSupportedProvider(provider)) throw new Error(`Payment provider ${provider} is not supported for checkout.`);
+  // A manual transfer has no hosted checkout; its screen is PackAM's own payment-result page.
+  if (provider === "MANUAL") throw new Error("Manual bank transfer has no hosted checkout.");
   if (provider === "PAYSTACK") {
     return initializePaystackTransaction({
       reference: input.reference,

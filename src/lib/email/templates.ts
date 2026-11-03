@@ -140,6 +140,27 @@ export function accountDeletedNotice(name: string | null | undefined): EmailCont
   });
 }
 
+/**
+ * To each admin when a student says they sent a bank transfer, and again if it is still waiting. Carries only the
+ * amount and the transfer code (never the student's name or address); the admin page has the rest.
+ */
+export function transferToConfirmAlert(name: string | null | undefined, amount: number, code: string, link: string, reminder = false): EmailContent {
+  const naira = `₦${Math.trunc(amount).toLocaleString("en-NG")}`;
+  return compose({
+    subject: reminder ? "A bank transfer is still waiting for you" : "A bank transfer to confirm",
+    preview: `${naira} · ${oneLine(code)}`,
+    heading: reminder ? "Still waiting for confirmation" : "Transfer to confirm",
+    name,
+    blocks: [
+      { kind: "paragraph", text: reminder
+        ? `A student said they sent ${naira} with the code ${oneLine(code)} over 30 minutes ago, and nobody has confirmed or rejected it yet.`
+        : `A student says they sent ${naira} with the code ${oneLine(code)} in the remark. Check the account in your bank app, then confirm or reject it in PackAM.` },
+      { kind: "button", label: "Open payments", href: checkedLink(link) },
+      { kind: "note", text: "Confirm only the amount you can see in the account. Their order starts when you confirm." },
+    ],
+  });
+}
+
 /** Whitespace collapsed, so a stored value can't add lines to the text part. */
 function oneLine(value: string) {
   return value.replace(/\s+/g, " ").trim();

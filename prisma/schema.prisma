@@ -128,6 +128,7 @@ enum PaymentProvider {
   PAYSTACK
   FLUTTERWAVE
   OPAY
+  MANUAL
   OTHER
 }
 
@@ -897,6 +898,11 @@ model Payment {
   providerReference    String?         @unique
   providerCheckoutReference String?    @unique
   cashierUrl           String?
+
+  // Manual bank transfer (provider MANUAL): the short code the student puts in the transfer remark, and when
+  // the student said they had sent the money. Neither proves payment; an admin confirms it by hand.
+  transferCode         String?         @unique
+  transferClaimedAt    DateTime?
 
   // Immutable item/address/price snapshot captured when the attempt is created.
   // Nullable to retain compatibility with payments created before this lifecycle.

@@ -6,6 +6,8 @@ import { consumeRateLimit } from "../../../../lib/rate-limit";
 import { CartNotPayableError, CheckoutAttemptMismatchError, DeliveryTierUnavailableError, PriceChangedError } from "../../../../lib/payments/payment-errors";
 import { isSchemaBehindCode, schemaBehindCodeResponse } from "../../../../lib/db-errors";
 import { parseCheckoutDeliveryRequest } from "../../../../lib/delivery-tiers";
+import { manualTransferAccount } from "../../../../lib/payments/manual-transfer";
+import { ensureManualCheckout } from "../../../../lib/payments/manual-transfer-store";
 
 /**
  * Starts (or resumes) payment for the student's current cart. New attempts use the active provider
@@ -40,6 +42,13 @@ export async function POST(request: Request) {
   const delivery = parseCheckoutDeliveryRequest(body);
   if (!delivery.ok) return Response.json({ error: delivery.error, code: delivery.code }, { status: 400 });
 
+  // Bank transfer with no account set up: refuse before anything is created, so no student is sent to a blank account.
+  const transferAccount = manualTransferAccount(process.env);
+  if (checkoutProvider() === "MANUAL" && !transferAccount) {
+    console.error("PAYMENT CREATE: PAYMENT_PROVIDER is MANUAL but MANUAL_TRANSFER_* is incomplete; refusing checkout.");
+    return Response.json({ error: "Payment is unavailable right now. Your cart is safe. Please try again a little later." }, { status: 503 });
+  }
+
   try {
     const attempt = await createPaymentAttempt(checkoutProvider(), deliveryLocationId, idempotencyKey, typeof deliveryInstructions === "string" ? deliveryInstructions.trim() || null : undefined, reviewedTotal, { tier: delivery.tier, reviewedDeliveryFee: delivery.reviewedDeliveryFee });
     if (attempt.status === "SUCCESS" || attempt.status === "FAILED") {
@@ -50,6 +59,11 @@ export async function POST(request: Request) {
       select: { cashierUrl: true, checkoutSnapshot: true },
     });
     if (stored?.cashierUrl) return Response.json({ cashierUrl: stored.cashierUrl, provider: attempt.provider });
+    // Bank transfer: no gateway. The student gets PackAM's own page with the account number and a transfer code.
+    if (attempt.provider === "MANUAL") {
+      if (!transferAccount) return Response.json({ error: "Payment is unavailable right now. Your cart is safe. Please try again a little later." }, { status: 503 });
+      return Response.json({ cashierUrl: await ensureManualCheckout(attempt.transactionReference!), provider: attempt.provider });
+    }
 
     const [student, appUrl] = await Promise.all([
       db.user.findUnique({ where: { id: session.user.id }, select: { id: true, firstName: true, lastName: true, email: true, phone: true } }),
