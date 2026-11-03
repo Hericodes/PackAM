@@ -22,6 +22,13 @@ The `20261002103000_payment_attempt_lifecycle`, `20261003120000_opay_cashier`, a
 
 The canonical production address is `https://www.packam.app`. Set `APP_URL` to it in the Vercel Production environment: every emailed link and payment return or webhook URL is built from `APP_URL`. In Vercel → Settings → Domains, add `www.packam.app` as the primary domain and `packam.app` redirecting to it (`next.config.ts` also redirects the apex as a fallback). The earlier `packam.vercel.app` address keeps working, so apps installed from it still open, but it is served with `X-Robots-Tag: noindex` so search engines index only the www domain. `robots.txt` and `sitemap.xml` point at the www domain.
 
+Production endpoints on that domain (all built from `APP_URL`, so nothing else needs changing in code):
+
+- Paystack webhook (Paystack dashboard → Settings → API Keys & Webhooks): `https://www.packam.app/api/webhooks/paystack`
+- OPay webhook / callback (OPay merchant dashboard; PackAM also sends it with every transaction): `https://www.packam.app/api/webhooks/opay`
+- Payment return pages: `https://www.packam.app/checkout/payment-result` (orders) and `https://www.packam.app/printing/payment/<printJobId>` (printing)
+- Scheduled dispatch (GitHub secret `PACKAM_BASE_URL` = `https://www.packam.app`): `POST https://www.packam.app/api/internal/fulfilment/run-due`
+
 ## Account email (Resend)
 
 Account emails (email confirmation, password reset and security notices) go through [Resend](https://resend.com). Verify the sending domain `mail.packam.app` in Resend and add exactly the DNS records Resend shows for it, then set these in the Vercel Production environment only and redeploy:
