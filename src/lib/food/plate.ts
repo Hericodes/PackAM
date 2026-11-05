@@ -7,6 +7,33 @@
 
 export type FoodRole = "MEAL" | "BASE" | "SOUP" | "EXTRA";
 
+/**
+ * What kind of base or add-on an item is. Bases: SWALLOW (needs a soup), RICE and OTHER (no soup). Add-ons (EXTRA):
+ * PROTEIN, SIDE, DRINK. Null for meals and soups, and for items made before groups existed, which keep the old
+ * rules (a base without a group takes an optional soup).
+ */
+export type FoodGroup = "SWALLOW" | "RICE" | "OTHER" | "PROTEIN" | "SIDE" | "DRINK";
+export const BASE_GROUPS = ["SWALLOW", "RICE", "OTHER"] as const satisfies readonly FoodGroup[];
+export const EXTRA_GROUPS = ["PROTEIN", "SIDE", "DRINK"] as const satisfies readonly FoodGroup[];
+export const GROUP_LABELS: Record<FoodGroup, string> = { SWALLOW: "Swallow", RICE: "Rice", OTHER: "Others", PROTEIN: "Protein", SIDE: "Sides", DRINK: "Drinks" };
+
+/** Whether a plate on this base needs a soup ("required": swallow), can't have one ("none") or may ("optional": no group yet). */
+export function soupRule(base: { group?: FoodGroup | null }): "required" | "none" | "optional" {
+  if (base.group === "SWALLOW") return "required";
+  if (base.group === "RICE" || base.group === "OTHER") return "none";
+  return "optional";
+}
+
+/** Soups may be free (₦0); everything else costs at least ₦1. */
+export function isSellablePrice(role: FoodRole, price: number) {
+  return Number.isSafeInteger(price) && (price >= 1 || (role === "SOUP" && price === 0));
+}
+
+/** "Free" for a ₦0 soup, otherwise "₦1,500". */
+export function foodPriceLabel(price: number) {
+  return price === 0 ? "Free" : `₦${price.toLocaleString()}`;
+}
+
 /** The approved ceiling for one extra on one plate; an admin may set a lower one per extra. */
 export const MAX_EXTRA_QUANTITY = 5;
 /** Distinct extras on one plate. Keeps the plate key (and the cart line) bounded. */
@@ -24,6 +51,8 @@ export type MenuItem = {
   available: boolean;
   /** EXTRA only. Null means MAX_EXTRA_QUANTITY. */
   maxPerPlate: number | null;
+  /** BASE and EXTRA: its group, or null/absent for an item made before groups existed. */
+  group?: FoodGroup | null;
 };
 
 export type LineRequest =
@@ -78,7 +107,7 @@ export function priceLine(menu: MenuItem[], request: LineRequest): LineResult {
   const byId = new Map(menu.map((item) => [item.id, item]));
   const usable = (id: unknown, role: FoodRole) => {
     const item = typeof id === "string" ? byId.get(id) : undefined;
-    return item && item.role === role && item.available && Number.isSafeInteger(item.price) && item.price >= 1 ? item : null;
+    return item && item.role === role && item.available && isSellablePrice(item.role, item.price) ? item : null;
   };
   if (!isQuantity(request.quantity, MAX_LINE_QUANTITY)) return { ok: false, error: `Choose a quantity from 1 to ${MAX_LINE_QUANTITY}.` };
 
@@ -100,6 +129,9 @@ export function priceLine(menu: MenuItem[], request: LineRequest): LineResult {
   if (!base) return { ok: false, error: "Choose a base for your plate from this shop’s menu." };
 
   let soup: MenuItem | null = null;
+  const rule = soupRule(base);
+  if (rule === "none" && request.soupId) return { ok: false, error: `${base.name} doesn’t come with soup. Remove the soup and try again.` };
+  if (rule === "required" && !request.soupId) return { ok: false, error: `Choose a soup for your ${base.name}. Soup is free.` };
   if (request.soupId) {
     soup = usable(request.soupId, "SOUP");
     if (!soup) return { ok: false, error: "That soup isn’t available right now. Choose another or skip soup." };

@@ -72,7 +72,7 @@ export async function createMenuItem(adminId: string, shopId: string, input: Men
     const [slug] = assignSlugs([`food ${input.name!}`], taken);
     const item = await tx.product.create({
       data: {
-        name: input.name!, slug, categoryId: category.id, shopId, foodRole: input.role!, customerPrice: input.price!,
+        name: input.name!, slug, categoryId: category.id, shopId, foodRole: input.role!, foodGroup: input.group ?? null, customerPrice: input.price!,
         menuSection: input.section ?? null, description: input.description ?? null, imageUrl: input.imageUrl ?? null,
         maxPerPlate: input.role === "EXTRA" ? (input.maxPerPlate ?? null) : null,
         // Hidden until the admin marks it available.
@@ -80,13 +80,13 @@ export async function createMenuItem(adminId: string, shopId: string, input: Men
       },
       select: { id: true },
     });
-    await writeAuditLog(tx, { actorId: adminId, action: "PRODUCT_CREATED", resource: "Product", resourceId: item.id, newState: { name: input.name!, shopId, foodRole: input.role!, customerPrice: input.price!, available: Boolean(input.available) } });
+    await writeAuditLog(tx, { actorId: adminId, action: "PRODUCT_CREATED", resource: "Product", resourceId: item.id, newState: { name: input.name!, shopId, foodRole: input.role!, foodGroup: input.group ?? null, customerPrice: input.price!, available: Boolean(input.available) } });
     return { ok: true as const, data: item };
   });
 }
 
 export async function updateMenuItem(adminId: string, id: string, input: MenuItemInput): Promise<StoreResult<{ id: string }>> {
-  const before = await db.product.findUnique({ where: { id }, select: { id: true, shopId: true, foodRole: true, name: true, customerPrice: true, status: true, imageUrl: true } });
+  const before = await db.product.findUnique({ where: { id }, select: { id: true, shopId: true, foodRole: true, foodGroup: true, name: true, customerPrice: true, status: true, imageUrl: true } });
   if (!before?.shopId || !before.foodRole) return { ok: false, status: 404, error: "Menu item not found." };
   const image = await checkImage(input.imageUrl, before.imageUrl);
   if (!image.ok) return image;
@@ -96,19 +96,20 @@ export async function updateMenuItem(adminId: string, id: string, input: MenuIte
       data: {
         ...(input.name !== undefined ? { name: input.name } : {}),
         ...(input.price !== undefined ? { customerPrice: input.price } : {}),
+        ...(input.group !== undefined ? { foodGroup: input.group } : {}),
         ...(input.section !== undefined ? { menuSection: input.section } : {}),
         ...(input.description !== undefined ? { description: input.description } : {}),
         ...(input.imageUrl !== undefined ? { imageUrl: input.imageUrl } : {}),
         ...(input.maxPerPlate !== undefined ? { maxPerPlate: before.foodRole === "EXTRA" ? input.maxPerPlate : null } : {}),
         ...(input.available !== undefined ? { status: input.available ? "ACTIVE" as const : "INACTIVE" as const } : {}),
       },
-      select: { name: true, customerPrice: true, status: true },
+      select: { name: true, customerPrice: true, status: true, foodGroup: true },
     });
     // Historical orders keep their own frozen names and prices; this changes only the menu from now on.
     await writeAuditLog(tx, {
       actorId: adminId, action: "PRODUCT_UPDATED", resource: "Product", resourceId: id,
-      previousState: { name: before.name, customerPrice: before.customerPrice, status: before.status },
-      newState: { name: updated.name, customerPrice: updated.customerPrice, status: updated.status },
+      previousState: { name: before.name, customerPrice: before.customerPrice, status: before.status, foodGroup: before.foodGroup },
+      newState: { name: updated.name, customerPrice: updated.customerPrice, status: updated.status, foodGroup: updated.foodGroup },
     });
     return { ok: true as const, data: { id } };
   });

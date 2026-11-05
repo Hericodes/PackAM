@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { MAX_EXTRA_QUANTITY, describeDetails, parseLineDetails, plateConfigKey, priceLine, storedLineRequest, type MenuItem } from "./plate";
+import { MAX_EXTRA_QUANTITY, describeDetails, foodPriceLabel, isSellablePrice, parseLineDetails, plateConfigKey, priceLine, soupRule, storedLineRequest, type MenuItem } from "./plate";
 import { addConflict, cartContext, isMixedCart } from "./cart-context";
 
 // A shop's menu as an admin might configure it. Names and prices are test fixtures, not real data.
@@ -111,4 +111,48 @@ test("cart boundaries: Order Stuff or one food shop, never mixed, never silently
   assert.equal(isMixedCart([fromA, fromB]), true);
   assert.equal(isMixedCart([fromA, stuff]), true);
   assert.equal(isMixedCart([fromA, fromA]), false);
+});
+
+// The same shop after its admin grouped everything, with a free soup.
+const grouped: MenuItem[] = [
+  { id: "amala", name: "Amala", role: "BASE", group: "SWALLOW", price: 400, available: true, maxPerPlate: null },
+  { id: "jollof", name: "Jollof rice", role: "BASE", group: "RICE", price: 500, available: true, maxPerPlate: null },
+  { id: "beans", name: "Beans", role: "BASE", group: "OTHER", price: 300, available: true, maxPerPlate: null },
+  { id: "legacy", name: "Old base", role: "BASE", price: 350, available: true, maxPerPlate: null },
+  { id: "ewedu", name: "Ewedu", role: "SOUP", price: 0, available: true, maxPerPlate: null },
+  { id: "egusi", name: "Egusi", role: "SOUP", price: 200, available: true, maxPerPlate: null },
+  { id: "beef", name: "Beef", role: "EXTRA", group: "PROTEIN", price: 300, available: true, maxPerPlate: null },
+  { id: "plantain", name: "Plantain", role: "EXTRA", group: "SIDE", price: 200, available: true, maxPerPlate: null },
+  { id: "coke", name: "Coke", role: "EXTRA", group: "DRINK", price: 400, available: true, maxPerPlate: 2 },
+];
+
+test("swallow needs a soup (free soups cost nothing); rice and others take none; ungrouped bases keep the old rule", () => {
+  assert.deepEqual(["SWALLOW", "RICE", "OTHER", null, undefined].map((group) => soupRule({ group: group as never })), ["required", "none", "none", "optional", "optional"]);
+  const noSoup = priceLine(grouped, { kind: "PLATE", baseId: "amala", quantity: 1 });
+  assert.ok(!noSoup.ok && /Choose a soup for your Amala\. Soup is free\./.test(noSoup.error));
+  const free = priceLine(grouped, { kind: "PLATE", baseId: "amala", soupId: "ewedu", extras: [{ productId: "beef", quantity: 2 }], quantity: 1 });
+  assert.ok(free.ok);
+  assert.equal(free.line.unitPrice, 400 + 0 + 600, "a free soup adds nothing");
+  assert.equal(describeDetails(free.line.details), "Amala + Ewedu + Beef ×2");
+  const paidSoup = priceLine(grouped, { kind: "PLATE", baseId: "amala", soupId: "egusi", quantity: 1 });
+  assert.ok(paidSoup.ok && paidSoup.line.unitPrice === 600, "an admin may still price a special soup");
+  const riceWithSoup = priceLine(grouped, { kind: "PLATE", baseId: "jollof", soupId: "ewedu", quantity: 1 });
+  assert.ok(!riceWithSoup.ok && /Jollof rice doesn’t come with soup/.test(riceWithSoup.error));
+  const rice = priceLine(grouped, { kind: "PLATE", baseId: "jollof", extras: [{ productId: "plantain", quantity: 1 }, { productId: "coke", quantity: 2 }], quantity: 2 });
+  assert.ok(rice.ok && rice.line.unitPrice === 500 + 200 + 800 && rice.line.total === 3000);
+  assert.ok(priceLine(grouped, { kind: "PLATE", baseId: "beans", quantity: 1 }).ok, "others: no soup, no protein needed");
+  assert.ok(priceLine(grouped, { kind: "PLATE", baseId: "legacy", quantity: 1 }).ok, "an ungrouped base still works without soup");
+  assert.ok(priceLine(grouped, { kind: "PLATE", baseId: "legacy", soupId: "ewedu", quantity: 1 }).ok, "and with one");
+  const tooMany = priceLine(grouped, { kind: "PLATE", baseId: "jollof", extras: [{ productId: "coke", quantity: 3 }], quantity: 1 });
+  assert.ok(!tooMany.ok && /Coke up to 2 times/.test(tooMany.error));
+});
+
+test("only soups may be free; the label says so", () => {
+  assert.equal(isSellablePrice("SOUP", 0), true);
+  for (const role of ["MEAL", "BASE", "EXTRA"] as const) assert.equal(isSellablePrice(role, 0), false, role);
+  assert.equal(isSellablePrice("SOUP", -1), false);
+  assert.equal(isSellablePrice("BASE", 1.5), false);
+  assert.equal(priceLine([{ ...grouped[6], price: 0 }, grouped[1]], { kind: "PLATE", baseId: "jollof", extras: [{ productId: "beef", quantity: 1 }], quantity: 1 }).ok, false, "a ₦0 add-on is never sold");
+  assert.equal(foodPriceLabel(0), "Free");
+  assert.equal(foodPriceLabel(1500), "₦1,500");
 });

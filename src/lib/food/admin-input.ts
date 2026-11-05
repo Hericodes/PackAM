@@ -2,11 +2,15 @@
  * Validation for Admin → Food. Pure, so every rule is unit-tested; the admin API applies it on the
  * server. Nothing is filled in for the admin: every price, name and role must be set explicitly.
  */
-import { isValidCustomerPrice } from "../catalogue-permissions";
-import { MAX_EXTRA_QUANTITY, type FoodRole } from "./plate";
+import { BASE_GROUPS, EXTRA_GROUPS, GROUP_LABELS, MAX_EXTRA_QUANTITY, isSellablePrice, type FoodGroup, type FoodRole } from "./plate";
 
 export const FOOD_ROLES: readonly FoodRole[] = ["MEAL", "BASE", "SOUP", "EXTRA"];
-export const ROLE_LABELS: Record<FoodRole, string> = { MEAL: "Ready-made meal", BASE: "Plate base", SOUP: "Soup", EXTRA: "Extra" };
+export const ROLE_LABELS: Record<FoodRole, string> = { MEAL: "Ready-made meal", BASE: "Plate base", SOUP: "Soup", EXTRA: "Add-on" };
+
+/** The groups an item of this role may have (none for meals and soups). */
+export function groupsForRole(role: FoodRole | undefined): readonly FoodGroup[] {
+  return role === "BASE" ? BASE_GROUPS : role === "EXTRA" ? EXTRA_GROUPS : [];
+}
 
 const NAME_MAX = 120;
 const SHORT_MAX = 120;
@@ -56,7 +60,7 @@ export function parseShopInput(body: unknown, creating: boolean): Result<ShopInp
   return { ok: true, data };
 }
 
-export type MenuItemInput = { name?: string; role?: FoodRole; price?: number; section?: string | null; description?: string | null; imageUrl?: string | null; maxPerPlate?: number | null; available?: boolean };
+export type MenuItemInput = { name?: string; role?: FoodRole; group?: FoodGroup; price?: number; section?: string | null; description?: string | null; imageUrl?: string | null; maxPerPlate?: number | null; available?: boolean };
 
 /** `creating`: name, role and price are required. The role of an existing item can't change. */
 export function parseMenuItemInput(body: unknown, creating: boolean, existingRole?: FoodRole): Result<MenuItemInput> {
@@ -68,15 +72,27 @@ export function parseMenuItemInput(body: unknown, creating: boolean, existingRol
   if (name?.ok) data.name = name.data!;
 
   if (creating) {
-    if (!FOOD_ROLES.includes(b.role as FoodRole)) return { ok: false, error: "Choose what this item is: a ready-made meal, a plate base, a soup or an extra." };
+    if (!FOOD_ROLES.includes(b.role as FoodRole)) return { ok: false, error: "Choose what this item is: a ready-made meal, a plate base, a soup or an add-on." };
     data.role = b.role as FoodRole;
   } else if (b.role !== undefined && b.role !== existingRole) {
     return { ok: false, error: "An item’s type can’t be changed. Hide it and add a new item instead." };
   }
   const role = data.role ?? existingRole;
 
+  // Bases and add-ons are grouped (Swallow / Rice / Others; Protein / Sides / Drinks): required for a new one, and
+  // an existing one without a group can be given one. A group never changes role and can't be removed.
+  const allowed = groupsForRole(role);
+  if (b.group !== undefined || (creating && allowed.length)) {
+    if (!allowed.length) return { ok: false, error: "Only plate bases and add-ons have a group." };
+    if (!allowed.includes(b.group as FoodGroup)) return { ok: false, error: `Choose a group: ${allowed.map((group) => GROUP_LABELS[group]).join(", ")}.` };
+    data.group = b.group as FoodGroup;
+  }
+
   if (creating || b.price !== undefined) {
-    if (!isValidCustomerPrice(b.price)) return { ok: false, error: "Set a price in whole naira, at least ₦1." };
+    // Soups may be free (₦0); everything else costs at least ₦1.
+    if (typeof b.price !== "number" || !role || !isSellablePrice(role, b.price) || b.price > 10_000_000) {
+      return { ok: false, error: role === "SOUP" ? "Set the soup’s price in whole naira, or 0 for free." : "Set a price in whole naira, at least ₦1." };
+    }
     data.price = b.price;
   }
   for (const [key, label, max] of [["section", "Menu section", SHORT_MAX], ["description", "Description", DESCRIPTION_MAX]] as const) {

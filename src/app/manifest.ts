@@ -1,4 +1,5 @@
 import type { MetadataRoute } from "next";
+import { siteConfig } from "../config/site";
 
 /**
  * Makes PackAM installable. The installed app is the same website (same accounts, cart, orders and payments),
@@ -13,6 +14,10 @@ export default function manifest(): MetadataRoute.Manifest {
     start_url: "/",
     scope: "/",
     display: "standalone",
+    // Lists PackAM itself, so Chrome can tell the site whether it is already installed (getInstalledRelatedApps).
+    // prefer_related_applications stays false: the site never sends anyone to a store instead.
+    related_applications: [{ platform: "webapp", url: `${siteConfig.url}/manifest.webmanifest` }],
+    prefer_related_applications: false,
     background_color: "#fffdf7",
     theme_color: "#fffdf7",
     categories: ["shopping", "food", "lifestyle"],

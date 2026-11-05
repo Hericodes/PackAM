@@ -2,7 +2,7 @@ import "server-only";
 
 import type { Prisma } from "@prisma/client";
 import { cartContext, isMixedCart, type CartContext } from "./food/cart-context";
-import { priceLine, storedLineRequest, type FoodRole, type LineDetails, type MenuItem } from "./food/plate";
+import { isSellablePrice, priceLine, storedLineRequest, type FoodGroup, type FoodRole, type LineDetails, type MenuItem } from "./food/plate";
 import { isDedicatedWorkflowCategory } from "./products/catalogue";
 import { stockShortfall, type VariantDetails } from "./products/variants";
 
@@ -81,10 +81,10 @@ export async function priceCart(reader: Reader, userId: string): Promise<PricedC
     shop = found ? { id: found.id, name: found.name, isOpen: listed && found.isOpen } : null;
     if (!listed) problems.push(`${context.shopName} isn’t taking orders on PackAM right now.`);
     else if (!found!.isOpen) problems.push(`${found!.name} is closed right now, so it can’t take new orders.`);
-    const items = await reader.product.findMany({ where: { shopId: context.shopId }, select: { id: true, name: true, foodRole: true, customerPrice: true, status: true, maxPerPlate: true } });
+    const items = await reader.product.findMany({ where: { shopId: context.shopId }, select: { id: true, name: true, foodRole: true, foodGroup: true, customerPrice: true, status: true, maxPerPlate: true } });
     menu = items.filter((item) => item.foodRole).map((item) => ({
-      id: item.id, name: item.name, role: item.foodRole as FoodRole, price: item.customerPrice,
-      available: item.status === "ACTIVE" && item.customerPrice >= 1, maxPerPlate: item.maxPerPlate,
+      id: item.id, name: item.name, role: item.foodRole as FoodRole, group: item.foodGroup as FoodGroup | null, price: item.customerPrice,
+      available: item.status === "ACTIVE" && isSellablePrice(item.foodRole as FoodRole, item.customerPrice), maxPerPlate: item.maxPerPlate,
     }));
   }
 

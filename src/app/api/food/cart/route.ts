@@ -2,7 +2,7 @@ import { auth } from "../../../../auth";
 import { db } from "../../../../lib/db";
 import { addToCart, cartConflictResponse } from "../../../../lib/cart-add";
 import { priceCart } from "../../../../lib/cart-pricing";
-import { priceLine, type LineRequest, type MenuItem } from "../../../../lib/food/plate";
+import { isSellablePrice, priceLine, type FoodGroup, type LineRequest, type MenuItem } from "../../../../lib/food/plate";
 import { listedShopWhere } from "../../../../lib/food/shops";
 import { isSchemaBehindCode, schemaBehindCodeResponse } from "../../../../lib/db-errors";
 
@@ -27,8 +27,8 @@ export async function POST(request: Request) {
     if (!shop) return Response.json({ error: "This shop isn’t on PackAM Food right now." }, { status: 404 });
     if (!shop.isOpen) return Response.json({ error: `${shop.name} is closed right now, so it can’t take new orders.`, code: "SHOP_CLOSED" }, { status: 409 });
 
-    const items = await db.product.findMany({ where: { shopId: shop.id, foodRole: { not: null } }, select: { id: true, name: true, foodRole: true, customerPrice: true, status: true, maxPerPlate: true } });
-    const menu: MenuItem[] = items.map((item) => ({ id: item.id, name: item.name, role: item.foodRole!, price: item.customerPrice, available: item.status === "ACTIVE" && item.customerPrice >= 1, maxPerPlate: item.maxPerPlate }));
+    const items = await db.product.findMany({ where: { shopId: shop.id, foodRole: { not: null } }, select: { id: true, name: true, foodRole: true, foodGroup: true, customerPrice: true, status: true, maxPerPlate: true } });
+    const menu: MenuItem[] = items.map((item) => ({ id: item.id, name: item.name, role: item.foodRole!, group: item.foodGroup as FoodGroup | null, price: item.customerPrice, available: item.status === "ACTIVE" && isSellablePrice(item.foodRole!, item.customerPrice), maxPerPlate: item.maxPerPlate }));
     const priced = priceLine(menu, body.line as LineRequest);
     if (!priced.ok) return Response.json({ error: priced.error }, { status: 400 });
 

@@ -79,12 +79,12 @@ async function buildShop(admin: User, name: string, options: { open?: boolean; l
   };
   const ids = {
     meal: await add({ name: "Jollof combo", role: "MEAL", price: 1500, section: "Rice and meals" }),
-    rice: await add({ name: "White rice", role: "BASE", price: 500 }),
-    amala: await add({ name: "Amala", role: "BASE", price: 400, section: "Swallow and soup" }),
+    rice: await add({ name: "White rice", role: "BASE", group: "RICE", price: 500 }),
+    amala: await add({ name: "Amala", role: "BASE", group: "SWALLOW", price: 400, section: "Swallow and soup" }),
     ewedu: await add({ name: "Ewedu", role: "SOUP", price: 200 }),
-    meat: await add({ name: "Meat", role: "EXTRA", price: 300 }),
-    ponmo: await add({ name: "Ponmo", role: "EXTRA", price: 150, maxPerPlate: 2 }),
-    hidden: await add({ name: "Egg", role: "EXTRA", price: 250, available: false }),
+    meat: await add({ name: "Meat", role: "EXTRA", group: "PROTEIN", price: 300 }),
+    ponmo: await add({ name: "Ponmo", role: "EXTRA", group: "PROTEIN", price: 150, maxPerPlate: 2 }),
+    hidden: await add({ name: "Egg", role: "EXTRA", group: "PROTEIN", price: 250, available: false }),
   };
   if (options.listed ?? true) assert.equal((await callRoute(app.shop.PATCH, { method: "PATCH", params: { id: shopId }, body: { listedInFood: true } })).status, 200);
   if (options.open ?? true) assert.equal((await callRoute(app.shop.PATCH, { method: "PATCH", params: { id: shopId }, body: { isOpen: true } })).status, 200);
@@ -113,8 +113,9 @@ test("only admins can create or change food shops and menu items", { skip }, asy
   assert.equal(await app.db.vendor.count({ where: { name: "Sneaky shop" } }), 0);
 
   signInAs(admin);
-  assert.equal((await callRoute(app.items.POST, { method: "POST", params: { id: shopId }, body: { name: "Free soup", role: "SOUP", price: 0 } })).status, 400, "every item needs a price of at least ₦1");
-  assert.equal((await callRoute(app.items.POST, { method: "POST", params: { id: shopId }, body: { name: "Big meat", role: "EXTRA", price: 300, maxPerPlate: 6 } })).status, 400, "per-plate limit is at most 5");
+  assert.equal((await callRoute(app.items.POST, { method: "POST", params: { id: shopId }, body: { name: "Free plantain", role: "EXTRA", group: "SIDE", price: 0 } })).status, 400, "only soups may be free");
+  assert.equal((await callRoute(app.items.POST, { method: "POST", params: { id: shopId }, body: { name: "Ungrouped beef", role: "EXTRA", price: 300 } })).status, 400, "a new add-on needs a group");
+  assert.equal((await callRoute(app.items.POST, { method: "POST", params: { id: shopId }, body: { name: "Big meat", role: "EXTRA", group: "PROTEIN", price: 300, maxPerPlate: 6 } })).status, 400, "per-plate limit is at most 5");
   assert.equal((await callRoute(app.shops.POST, { method: "POST", body: { name: "Opens at once", isOpen: true } })).status, 400, "a new shop starts closed and hidden");
 });
 
@@ -295,4 +296,34 @@ test("a food order exists only after verified payment, keeps its shop and plate,
   const after = await db.orderItem.findUniqueOrThrow({ where: { id: platesLine.id }, select: { productName: true, unitPrice: true, totalPrice: true, details: true } });
   assert.deepEqual(after, { productName: platesLine.productName, unitPrice: platesLine.unitPrice, totalPrice: platesLine.totalPrice, details: platesLine.details });
   assert.equal((await db.order.findUniqueOrThrow({ where: { id: orderId! }, select: { total: true } })).total, 4100);
+});
+
+test("food groups: free soups, swallow needs soup, rice takes none, and the database enforces the pairings", { skip }, async () => {
+  const admin = await createTestUser("ADMIN");
+  const student = await createTestUser("STUDENT");
+  const { shopId, ids } = await buildShop(admin, "Grouped kitchen");
+  signInAs(admin);
+  const freeSoup = await callRoute(app.items.POST, { method: "POST", params: { id: shopId }, body: { name: "Efo", role: "SOUP", price: 0, available: true } });
+  assert.equal(freeSoup.status, 201, JSON.stringify(freeSoup.json));
+  const efo = (freeSoup.json as { id: string }).id;
+  trackForCleanup({ products: [efo] });
+  assert.equal((await app.db.product.findUniqueOrThrow({ where: { id: efo } })).status, "ACTIVE", "an active free soup is allowed");
+
+  // The student menu shows the free soup and the groups.
+  const menu = await app.foodShops.getShopMenu(shopId);
+  assert.equal(menu.find((item) => item.id === efo)?.price, 0);
+  assert.deepEqual(menu.filter((item) => item.role === "BASE").map((item) => [item.name, item.group]).sort(), [["Amala", "SWALLOW"], ["White rice", "RICE"]]);
+
+  const lineFor = (body: Record<string, unknown>) => addFood(student, shopId, { kind: "PLATE", quantity: 1, ...body });
+  assert.equal((await lineFor({ baseId: ids.amala })).status, 400, "swallow without soup is refused");
+  assert.equal((await lineFor({ baseId: ids.rice, soupId: efo })).status, 400, "rice with soup is refused");
+  const swallow = await lineFor({ baseId: ids.amala, soupId: efo, extras: [{ productId: ids.meat, quantity: 1 }] });
+  assert.equal(swallow.status, 200, JSON.stringify(swallow.json));
+  assert.equal((swallow.json as { added: { unitPrice: number } }).added.unitPrice, 400 + 0 + 300, "the free soup adds nothing");
+  assert.equal((await lineFor({ baseId: ids.rice, extras: [{ productId: ids.ponmo, quantity: 1 }] })).status, 200);
+
+  // The database itself refuses a wrong pairing, a group on a non-food product, and a ₦0 product that isn't a soup.
+  await assert.rejects(app.db.product.update({ where: { id: ids.rice }, data: { foodGroup: "PROTEIN" } }), /Product_food_group_matches_role_check|check constraint/i);
+  await assert.rejects(app.db.product.update({ where: { id: ids.meal }, data: { foodGroup: "RICE" } }), /Product_food_group_matches_role_check|check constraint/i);
+  await assert.rejects(app.db.product.update({ where: { id: ids.meat }, data: { customerPrice: 0 } }), /Product_active_requires_price_check|check constraint/i);
 });

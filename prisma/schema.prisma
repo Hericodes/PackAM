@@ -153,6 +153,18 @@ enum FoodRole {
   EXTRA
 }
 
+/// What kind of plate base or add-on a food item is (migration 20261105090000). Bases: SWALLOW (needs a
+/// soup), RICE and OTHER (no soup). Add-ons (EXTRA): PROTEIN, SIDE, DRINK. Null on every other product, and on
+/// food items made before groups existed (they keep the old rules: soup optional, listed under "Extras").
+enum FoodGroup {
+  SWALLOW
+  RICE
+  OTHER
+  PROTEIN
+  SIDE
+  DRINK
+}
+
 enum ProductAvailability {
   AVAILABLE
   UNAVAILABLE
@@ -398,6 +410,8 @@ model Product {
   // and has a role; database CHECKs keep shopId and foodRole set together (migration 20261028090000).
   shopId      String?
   foodRole    FoodRole?
+  /// BASE: SWALLOW, RICE or OTHER; EXTRA: PROTEIN, SIDE or DRINK (a CHECK enforces the pairing). Null otherwise.
+  foodGroup   FoodGroup?
   /// Admin-chosen menu heading, e.g. "Rice and meals". Free text; nothing is built in.
   menuSection String?
   /// EXTRA only: the most a student may add to one plate (1..5). Null means the default of 5.

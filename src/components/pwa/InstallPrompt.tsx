@@ -57,6 +57,61 @@ function stepsFor(route: Exclude<IosInstallRoute, null>): Step[] {
 }
 
 /** Step-by-step Add to Home Screen for iPhone and iPad, where browsers don't offer an install prompt. */
+/**
+ * Shown by the top-bar button when the browser can't show its own install prompt. "installed": PackAM is already on
+ * this device (a browser can't open an installed app from a web page, so this says where to find it). "manual": the
+ * browser didn't offer its prompt, so this explains its menu, and how to open PackAM if it's already installed.
+ */
+export function AppHelpSheet({ mode, onClose }: { mode: "installed" | "manual"; onClose: () => void }) {
+  const closeRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    const previous = document.activeElement as HTMLElement | null;
+    closeRef.current?.focus();
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
+    document.addEventListener("keydown", onKey);
+    return () => { document.removeEventListener("keydown", onKey); previous?.focus?.(); };
+  }, [onClose]);
+
+  const steps = mode === "installed"
+    ? [
+        { title: "Go to your home screen", detail: "Close or minimise this browser." },
+        { title: "Tap the PackAM icon", detail: "It’s on your home screen or in your app list. It opens straight into PackAM, already signed in." },
+      ]
+    : [
+        { title: "Open your browser menu", detail: "Tap ⋮ (top right in Chrome) or the menu button in your browser." },
+        { title: "Choose “Install app” or “Add to Home screen”", detail: "Then confirm. PackAM appears on your home screen like any other app." },
+      ];
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/40 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:items-center" onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <div role="dialog" aria-modal="true" aria-labelledby="app-help-title" className="max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto rounded-[24px] bg-white p-5 shadow-[0_14px_40px_rgba(8,8,8,0.2)]">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="pk-eyebrow">{mode === "installed" ? "Already installed" : "Install PackAM"}</p>
+            <h2 id="app-help-title" className="mt-1 text-xl font-black leading-tight">{mode === "installed" ? "PackAM is already on this phone" : "Add PackAM to your home screen"}</h2>
+          </div>
+          <button ref={closeRef} type="button" onClick={onClose} aria-label="Close" className="-mr-2 -mt-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-black/55 transition hover:bg-black/5 hover:text-black focus-visible:outline focus-visible:outline-2 focus-visible:outline-black">
+            <Icon name="close" className="h-[18px] w-[18px]" />
+          </button>
+        </div>
+        <p className="mt-2 text-sm leading-6 text-black/65">{mode === "installed" ? "No need to download it again. Open it from your phone:" : "Your browser installs apps from its own menu:"}</p>
+        <ol className="mt-3 space-y-3">
+          {steps.map((step, index) => (
+            <li key={step.title} className="flex gap-3 rounded-2xl bg-[#fafafa] p-3">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#feb80a] text-sm font-black text-black" aria-hidden="true">{index + 1}</span>
+              <div className="min-w-0"><p className="text-sm font-black">{step.title}</p><p className="mt-0.5 text-sm leading-5 text-black/65">{step.detail}</p></div>
+            </li>
+          ))}
+        </ol>
+        {mode === "manual" && <p className="mt-3 text-xs leading-5 text-black/55">Already installed PackAM? Open it from your home screen instead: there’s no need to install it again.</p>}
+        <button type="button" onClick={onClose} className="mt-4 flex min-h-12 w-full items-center justify-center rounded-full border border-black/15 bg-white px-5 text-sm font-black transition hover:bg-black/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black">
+          Got it
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function IosInstallGuide({ route, onClose }: { route: Exclude<IosInstallRoute, null>; onClose: () => void }) {
   const closeRef = useRef<HTMLButtonElement>(null);
   const [copied, setCopied] = useState(false);
@@ -110,6 +165,7 @@ export function IosInstallGuide({ route, onClose }: { route: Exclude<IosInstallR
             <button type="button" onClick={() => void copyLink()} className="min-h-10 shrink-0 rounded-full bg-black px-4 text-sm font-black text-white">{copied ? "Copied" : "Copy link"}</button>
           </div>
         )}
+        <p className="mt-3 text-xs leading-5 text-black/55">Already added PackAM? Open it from your home screen: there’s no need to add it again.</p>
         <button type="button" onClick={onClose} className="mt-4 flex min-h-12 w-full items-center justify-center rounded-full border border-black/15 bg-white px-5 text-sm font-black transition hover:bg-black/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black">
           Got it
         </button>

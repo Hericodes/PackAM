@@ -3,7 +3,7 @@
 import { usePathname } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useCartExperience } from "../cart/CartExperience";
-import { InstallPrompt, IosInstallGuide, InstallStatus } from "./InstallPrompt";
+import { AppHelpSheet, InstallPrompt, IosInstallGuide, InstallStatus } from "./InstallPrompt";
 import {
   EMPTY_INSTALL_STATE,
   MIN_TIME_ON_SITE_MS,
@@ -31,9 +31,20 @@ type PwaContextValue = {
   standalone: boolean;
   /** Shows the browser's install prompt, or the iPhone/iPad guide. */
   install: () => Promise<void>;
+  /**
+   * What the top-bar button offers, once known (null on the server and inside the installed app):
+   * "install" (the browser's prompt or the iPhone guide), "installed" (already on this device: says how to open it),
+   * or "help" (the browser didn't offer a prompt: explains its menu).
+   */
+  appButton: "install" | "installed" | "help" | null;
+  /** The top-bar button's action: install, or the matching help. Never installs twice. */
+  openAppButton: () => void;
 };
 
-const PwaContext = createContext<PwaContextValue>({ canInstall: false, standalone: false, install: async () => {} });
+const PwaContext = createContext<PwaContextValue>({ canInstall: false, standalone: false, install: async () => {}, appButton: null, openAppButton: () => {} });
+
+/** Chrome's check for an installed copy of this site's own app (the manifest lists it). Absent elsewhere. */
+type RelatedAppsNavigator = Navigator & { getInstalledRelatedApps?: () => Promise<Array<{ platform: string; url?: string }>> };
 const STORAGE_KEY = "packam:install";
 
 function readState(): InstallState {
@@ -60,6 +71,8 @@ export function PwaProvider({ children }: { children: React.ReactNode }) {
   const [promptOpen, setPromptOpen] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
   const [status, setStatus] = useState<Status>("idle");
+  const [installedHere, setInstalledHere] = useState(false);
+  const [helpOpen, setHelpOpen] = useState<"installed" | "manual" | null>(null);
   const [now, setNow] = useState(0);
   // Shown by itself at most once per visit, even if the visitor just carries on browsing.
   const shownThisVisit = useRef(false);
@@ -86,6 +99,11 @@ export function PwaProvider({ children }: { children: React.ReactNode }) {
       setNow(Date.now());
       setReady(true);
     }, 0);
+    // Chrome (Android and desktop) can say whether PackAM is installed on this device; other browsers can't.
+    const related = (navigator as RelatedAppsNavigator).getInstalledRelatedApps;
+    if (related) {
+      related.call(navigator).then((apps) => { if (apps.some((app) => app.platform === "webapp")) setInstalledHere(true); }).catch(() => { /* unknown: treated as not installed */ });
+    }
     const onBeforeInstall = (event: Event) => {
       // We show our own prompt at a better moment instead of the browser's banner.
       event.preventDefault();
@@ -162,15 +180,30 @@ export function PwaProvider({ children }: { children: React.ReactNode }) {
   }, [update]);
 
   const closeGuide = useCallback(() => setGuideOpen(false), []);
+  const closeHelp = useCallback(() => setHelpOpen(null), []);
+
+  // The browser offering its prompt means PackAM isn't installed (any more), whatever was remembered.
+  const knownInstalled = !nativeAvailable && (installedHere || state.installed);
+  const appButton: PwaContextValue["appButton"] = !ready || standalone ? null
+    : nativeAvailable ? "install"
+      : knownInstalled ? "installed"
+        : iosRoute ? "install"
+          : "help";
+  const openAppButton = useCallback(() => {
+    if (appButton === "install") void install();
+    else if (appButton === "installed") setHelpOpen("installed");
+    else if (appButton === "help") setHelpOpen("manual");
+  }, [appButton, install]);
   const clearStatus = useCallback(() => setStatus("idle"), []);
 
-  const value = useMemo(() => ({ canInstall, standalone, install }), [canInstall, standalone, install]);
+  const value = useMemo(() => ({ canInstall, standalone, install, appButton, openAppButton }), [canInstall, standalone, install, appButton, openAppButton]);
 
   return (
     <PwaContext.Provider value={value}>
       {children}
       {promptOpen && canInstall && <InstallPrompt onInstall={() => void install()} onDismiss={dismiss} ios={!nativeAvailable && iosRoute !== null} />}
       {guideOpen && iosRoute && <IosInstallGuide route={iosRoute} onClose={closeGuide} />}
+      {helpOpen && <AppHelpSheet mode={helpOpen} onClose={closeHelp} />}
       <InstallStatus status={status} onDone={clearStatus} />
     </PwaContext.Provider>
   );
