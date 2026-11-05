@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { ProductImageUpload } from "../../products/ProductImageUpload";
 import { productImageDeliveryUrl } from "../../../lib/cloudinary-url";
 import { FOOD_ROLES, ROLE_LABELS, groupsForRole } from "../../../lib/food/admin-input";
-import { GROUP_LABELS, foodPriceLabel, soupRule, type FoodGroup, type FoodRole } from "../../../lib/food/plate";
+import { GROUP_LABELS, foodPriceLabel, portionUnit, soupRule, type FoodGroup, type FoodRole } from "../../../lib/food/plate";
 import { parseNairaInput } from "../../../lib/products/product-form";
 import { Icon } from "../../ui/Icon";
 
@@ -14,7 +14,7 @@ export type AdminMenuItem = { id: string; name: string; role: FoodRole; group: F
 
 const ROLE_HELP: Record<FoodRole, string> = {
   MEAL: "A fixed combo at one price, e.g. “Jollof rice, chicken & plantain”.",
-  BASE: "What a plate is built on: swallow (amala, eba…), rice, or others (beans, spaghetti…).",
+  BASE: "What a plate is built on: swallow (amala, eba…), rice, or others (beans, spaghetti…). Priced per spoon, or per wrap for swallow; students can mix up to 3.",
   SOUP: "Egusi, ewedu, efo… Swallow plates must pick one. Free unless you price it.",
   EXTRA: "Added on top of a plate: protein (beef, fish, egg), sides (plantain, moi moi) or drinks.",
 };
@@ -107,7 +107,7 @@ function ItemForm({ shopId, item, sections, onDone }: { shopId: string; item?: A
       <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_160px]">
         <div><label htmlFor={`item-name-${item?.id ?? "new"}`} className={label}>Name</label><input id={`item-name-${item?.id ?? "new"}`} value={name} onChange={(event) => setName(event.target.value)} maxLength={120} className="pk-input" /></div>
         <div>
-          <label htmlFor={`item-price-${item?.id ?? "new"}`} className={label}>Price</label>
+          <label htmlFor={`item-price-${item?.id ?? "new"}`} className={label}>{effectiveRole === "BASE" ? `Price per ${portionUnit(group || null)}` : "Price"}</label>
           <div className="relative"><span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 font-black text-black/55" aria-hidden="true">₦</span><input id={`item-price-${item?.id ?? "new"}`} value={price} onChange={(event) => setPrice(event.target.value)} inputMode="numeric" className="pk-input pl-9" /></div>
           {effectiveRole === "SOUP" && <p className="mt-1 text-xs text-black/55">0 = free with the plate.</p>}
         </div>
@@ -198,7 +198,7 @@ export function FoodMenuManager({ shopId, items }: { shopId: string; items: Admi
                       {/* The name keeps at least ~11rem; on a phone the status and buttons wrap below it. */}
                       <div className="min-w-[11rem] flex-1 basis-[11rem]">
                         <p className={`font-black ${item.available ? "" : "text-black/55"}`}>{item.name}</p>
-                        <p className="text-xs text-black/55">{foodPriceLabel(item.price)}{item.role === "BASE" && item.group ? ` · ${soupRule(item) === "required" ? "with free soup" : "no soup"}` : ""}{item.section ? ` · ${item.section}` : ""}{item.role === "EXTRA" ? (item.maxPerPlate ? ` · max ${item.maxPerPlate} per plate` : " · no limit") : ""}</p>
+                        <p className="text-xs text-black/55">{foodPriceLabel(item.price)}{item.role === "BASE" ? ` per ${portionUnit(item.group)}` : ""}{item.role === "BASE" && item.group ? ` · ${soupRule(item) === "required" ? "with free soup" : "no soup"}` : ""}{item.section ? ` · ${item.section}` : ""}{item.role === "EXTRA" ? (item.maxPerPlate ? ` · max ${item.maxPerPlate} per plate` : " · no limit") : ""}</p>
                       </div>
                       <div className="flex items-center gap-2">
                         {(item.role === "BASE" || item.role === "EXTRA") && !item.group && <span className="rounded-full bg-[#fff3d6] px-2.5 py-1 text-xs font-black text-[#7a4a00]">Set a group</span>}

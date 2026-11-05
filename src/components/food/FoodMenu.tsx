@@ -7,7 +7,7 @@ import { useMemo, useRef, useState, type ReactNode } from "react";
 import { useCartExperience } from "../cart/CartExperience";
 import { CartConflictDialog } from "../cart/CartConflictDialog";
 import { productImageDeliveryUrl } from "../../lib/cloudinary-url";
-import { BASE_GROUPS, EXTRA_GROUPS, GROUP_LABELS, extraLimit, foodPriceLabel, hasExtraLimit, priceLine, soupRule, type FoodGroup, type LineRequest } from "../../lib/food/plate";
+import { BASE_GROUPS, EXTRA_GROUPS, GROUP_LABELS, MAX_BASE_QUANTITY, MAX_DISTINCT_BASES, extraLimit, foodPriceLabel, hasExtraLimit, portionUnit, priceLine, soupRule, type FoodGroup, type LineRequest } from "../../lib/food/plate";
 import type { PublicMenuItem } from "../../lib/food/shops";
 
 type Shop = { id: string; name: string; description: string | null; imageUrl: string | null; location: string | null; isOpen: boolean };
@@ -34,6 +34,46 @@ function StepTitle({ number, done, children }: { number: number; done: boolean; 
       </span>
       <span>{children}</span>
     </legend>
+  );
+}
+
+/**
+ * A plate item in the checklist. Tapping it ticks it (one spoon, or one wrap of swallow); the stepper then sets how
+ * many, and taking it down to 0 unticks it. The tick and the count pop; the card lifts on hover and presses on tap.
+ */
+function PortionCard({ item, quantity, disabled, note, onChange }: { item: PublicMenuItem; quantity: number; disabled: boolean; note?: string | null; onChange: (quantity: number) => void }) {
+  const selected = quantity > 0;
+  const unit = portionUnit(item.group);
+  return (
+    <div className={`flex items-center gap-2 rounded-2xl border p-2.5 transition duration-200 ${
+      disabled && !selected ? "border-black/10 bg-white/60 opacity-60"
+        : selected ? "border-[#feb80a] bg-[#fffbea] shadow-[0_0_0_2px_#feb80a,0_14px_30px_-18px_rgba(135,90,0,0.55)]"
+          : "border-black/10 bg-white shadow-[0_1px_2px_rgba(8,8,8,0.04)] hover:border-black/25 hover:shadow-[0_12px_26px_-18px_rgba(135,90,0,0.5)] motion-safe:hover:-translate-y-0.5"
+    }`}>
+      <button
+        type="button"
+        role="checkbox"
+        aria-checked={selected}
+        aria-label={`${item.name}, ${naira(item.price)} per ${unit}`}
+        disabled={disabled && !selected}
+        onClick={() => onChange(selected ? 0 : 1)}
+        className="flex min-h-14 min-w-0 flex-1 items-center gap-3 rounded-xl text-left disabled:cursor-not-allowed focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black motion-safe:active:scale-[0.98]"
+      >
+        <span aria-hidden="true" className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border-2 transition-colors duration-200 ${selected ? "border-black bg-black text-[#feb80a]" : "border-black/25 bg-white"}`}>
+          {selected && <span className="pk-anim-pop text-xs font-black">✓</span>}
+        </span>
+        <Thumb item={item} size="h-12 w-12" />
+        <span className="min-w-0 flex-1">
+          <span className="block font-black leading-5">{item.name}</span>
+          <span className="block text-xs text-black/55">{naira(item.price)} per {unit}</span>
+          {selected
+            ? <span key={quantity} className="pk-anim-pop mt-0.5 inline-block text-xs font-black text-black">{quantity} {portionUnit(item.group, quantity)} = {naira(item.price * quantity)}</span>
+            : note ? <span className="mt-0.5 block text-[0.6875rem] font-semibold text-[#a15c00]">{note}</span>
+              : item.group === "SWALLOW" ? <span className="mt-1 inline-flex rounded-full bg-[#e9f8ee] px-2 py-0.5 text-[0.6875rem] font-black text-[#16803c]">+ free soup</span> : null}
+        </span>
+      </button>
+      {selected && <Stepper value={quantity} min={0} max={MAX_BASE_QUANTITY} onChange={onChange} label={`${portionUnit(item.group, 2)} of ${item.name}`} disabled={disabled && quantity === 0} highlight />}
+    </div>
   );
 }
 
@@ -98,7 +138,8 @@ export function FoodMenu({ shop, menu, delivery }: { shop: Shop; menu: PublicMen
   const extras = menu.filter((item) => item.role === "EXTRA");
   const [mode, setMode] = useState<"meals" | "plate">(meals.length ? "meals" : "plate");
   const [mealQuantity, setMealQuantity] = useState<Record<string, number>>({});
-  const [baseId, setBaseId] = useState<string>("");
+  // Spoons (or wraps) of each plate item ticked; 0 or absent means not on the plate.
+  const [baseQuantity, setBaseQuantity] = useState<Record<string, number>>({});
   // The plate tabs that have something in them, in a fixed order.
   // The groups that have something in them, in a fixed order; "All" first shows every one of them.
   const baseGroups: BaseTab[] = [...BASE_GROUPS.filter((group) => bases.some((base) => base.group === group)), ...(bases.some((base) => !base.group) ? ["MORE" as const] : [])];
@@ -118,10 +159,11 @@ export function FoodMenu({ shop, menu, delivery }: { shop: Shop; menu: PublicMen
   const [conflict, setConflict] = useState<{ message: string; line: LineRequest; key: string } | null>(null);
   const sending = useRef(false);
 
-  const plateRequest = useMemo<LineRequest | null>(() => (baseId ? {
-    kind: "PLATE", baseId, soupId: soupId || null, quantity: plates,
+  const chosenBases = useMemo(() => menu.filter((item) => item.role === "BASE" && (baseQuantity[item.id] ?? 0) > 0).map((item) => ({ productId: item.id, quantity: baseQuantity[item.id] })), [menu, baseQuantity]);
+  const plateRequest = useMemo<LineRequest | null>(() => (chosenBases.length ? {
+    kind: "PLATE", bases: chosenBases, soupId: soupId || null, quantity: plates,
     extras: Object.entries(extraQuantity).filter(([, quantity]) => quantity > 0).map(([productId, quantity]) => ({ productId, quantity })),
-  } : null), [baseId, soupId, plates, extraQuantity]);
+  } : null), [chosenBases, soupId, plates, extraQuantity]);
   // For display only: the server prices the plate again when it is added, and again at payment.
   const platePreview = useMemo(() => (plateRequest ? priceLine(menu, plateRequest) : null), [menu, plateRequest]);
 
@@ -138,7 +180,7 @@ export function FoodMenu({ shop, menu, delivery }: { shop: Shop; menu: PublicMen
       setConflict(null);
       if (data.summary) setSummary(data.summary);
       setAdded(`${data.added?.name ?? "Food"} added${data.cleared ? " (your old cart was cleared)" : ""}.`);
-      if (line.kind === "PLATE") { setBaseId(""); setSoupId(""); setSoupTouched(false); setExtraQuantity({}); setPlates(1); }
+      if (line.kind === "PLATE") { setBaseQuantity({}); setSoupId(""); setSoupTouched(false); setExtraQuantity({}); setPlates(1); }
       else setMealQuantity((current) => ({ ...current, [line.productId]: 1 }));
     } catch (cause) {
       setError(cause instanceof TypeError ? "No connection. Check your internet and try again." : cause instanceof Error ? cause.message : "We couldn’t add that. Try again.");
@@ -150,8 +192,22 @@ export function FoodMenu({ shop, menu, delivery }: { shop: Shop; menu: PublicMen
 
   const closed = !shop.isOpen;
   const canBuild = bases.length > 0;
-  const base = bases.find((item) => item.id === baseId) ?? null;
-  const rule = base ? soupRule(base) : null;
+  const selectedBases = bases.filter((item) => (baseQuantity[item.id] ?? 0) > 0);
+  const base = selectedBases[0] ?? null;
+  const selectedSwallow = selectedBases.filter((item) => item.group === "SWALLOW");
+  const selectedNonSwallow = selectedBases.some((item) => item.group === "RICE" || item.group === "OTHER");
+  // The plate's soup rule: any swallow needs one; only rice/others take none; items without a group keep it optional.
+  const rule: "required" | "none" | "optional" | null = !base ? null : selectedSwallow.length ? "required" : selectedBases.every((item) => soupRule(item) === "none") ? "none" : "optional";
+  const atItemLimit = selectedBases.length >= MAX_DISTINCT_BASES;
+  /** Why an unticked plate item can't be added to this plate right now (null: it can). */
+  const blockedReason = (item: PublicMenuItem) => {
+    if ((baseQuantity[item.id] ?? 0) > 0) return null;
+    if (item.group === "SWALLOW" && soups.length === 0) return "No soup today";
+    if (item.group === "SWALLOW" && selectedNonSwallow) return "Swallow goes on its own plate";
+    if ((item.group === "RICE" || item.group === "OTHER") && selectedSwallow.length) return "Not with swallow \u2014 add it as another plate";
+    if (atItemLimit) return `Up to ${MAX_DISTINCT_BASES} different items per plate`;
+    return null;
+  };
   const extrasIn = (key: FoodGroup | "MORE") => extras.filter((extra) => (key === "MORE" ? !extra.group || !(EXTRA_GROUPS as readonly string[]).includes(extra.group) : extra.group === key));
   const proteins = extrasIn("PROTEIN");
   const hasProtein = proteins.some((extra) => (extraQuantity[extra.id] ?? 0) > 0);
@@ -159,13 +215,16 @@ export function FoodMenu({ shop, menu, delivery }: { shop: Shop; menu: PublicMen
   const addOnStep = showSoupStep ? 3 : 2;
   const addOnCount = Object.values(extraQuantity).reduce((sum, quantity) => sum + quantity, 0);
 
-  function chooseBase(id: string) {
-    setBaseId(id);
-    const next = bases.find((item) => item.id === id);
-    // Rice and others take no soup: drop one picked for a swallow before.
-    if (next && soupRule(next) === "none") { setSoupId(""); setSoupTouched(false); }
-    // A swallow needs a soup next: bring that step into view if it's below the screen.
-    if (next && soupRule(next) === "required" && !soupId) {
+  function setPortion(id: string, quantity: number) {
+    const next = { ...baseQuantity, [id]: quantity };
+    if (quantity <= 0) delete next[id];
+    setBaseQuantity(next);
+    const item = bases.find((candidate) => candidate.id === id);
+    const nowSelected = bases.filter((candidate) => (next[candidate.id] ?? 0) > 0);
+    // Only rice/others left: they take no soup, so drop one chosen for a swallow before.
+    if (nowSelected.length && nowSelected.every((candidate) => soupRule(candidate) === "none")) { setSoupId(""); setSoupTouched(false); }
+    // The first swallow ticked needs a soup next: bring that step into view if it's below the screen.
+    if (item && item.group === "SWALLOW" && quantity === 1 && !soupId && !selectedSwallow.length) {
       window.setTimeout(() => {
         const step = soupStepRef.current;
         if (!step || step.getBoundingClientRect().top < window.innerHeight * 0.75) return;
@@ -242,7 +301,7 @@ export function FoodMenu({ shop, menu, delivery }: { shop: Shop; menu: PublicMen
           {mode === "plate" && canBuild && (
             <section className="mt-4 space-y-5" aria-label="Build your plate">
               <fieldset>
-                <StepTitle number={1} done={Boolean(base)}>Choose your plate</StepTitle>
+                <StepTitle number={1} done={Boolean(base)}>Choose your plate <span className="font-medium text-black/50">(tick one or more)</span></StepTitle>
                 {baseTabs.length > 2 && (
                   <div role="tablist" aria-label="Plate type" className="-mx-1 mt-2.5 flex gap-1.5 overflow-x-auto px-1 pb-1">
                     {baseTabs.map((tab) => (
@@ -267,15 +326,7 @@ export function FoodMenu({ shop, menu, delivery }: { shop: Shop; menu: PublicMen
                         )}
                         <div className="grid gap-2 sm:grid-cols-2">
                           {items.map((item) => (
-                            <ChoiceCard key={item.id} name="base" checked={baseId === item.id} disabled={closed || noSoupToday} onSelect={() => chooseBase(item.id)}>
-                              <Thumb item={item} size="h-14 w-14" />
-                              <span className="min-w-0 flex-1">
-                                <span className="block font-black leading-5">{item.name}</span>
-                                {item.description && <span className="block truncate text-xs text-black/55">{item.description}</span>}
-                                {item.group === "SWALLOW" && !noSoupToday && <span className="mt-1 inline-flex rounded-full bg-[#e9f8ee] px-2 py-0.5 text-[0.6875rem] font-black text-[#16803c]">+ free soup</span>}
-                              </span>
-                              <span className="pr-6 text-base font-black">{naira(item.price)}</span>
-                            </ChoiceCard>
+                            <PortionCard key={item.id} item={item} quantity={baseQuantity[item.id] ?? 0} disabled={closed || blockedReason(item) !== null} note={noSoupToday ? null : blockedReason(item)} onChange={(quantity) => setPortion(item.id, quantity)} />
                           ))}
                         </div>
                       </div>
@@ -290,7 +341,7 @@ export function FoodMenu({ shop, menu, delivery }: { shop: Shop; menu: PublicMen
                     Choose your soup {rule === "required" ? <span className="ml-1 rounded-full bg-[#e9f8ee] px-2 py-0.5 align-middle text-[0.6875rem] font-black text-[#16803c]">Free</span> : <span className="font-medium text-black/50">(optional)</span>}
                   </StepTitle>
                   {soups.length === 0 ? (
-                    <p className="mt-2 rounded-2xl bg-[#fff3d6] px-3 py-2.5 text-sm font-semibold text-[#6b4700]">No soup is available right now, so {base?.name} can’t be ordered. Try a rice plate or a ready-made meal.</p>
+                    <p className="mt-2 rounded-2xl bg-[#fff3d6] px-3 py-2.5 text-sm font-semibold text-[#6b4700]">No soup is available right now, so {selectedSwallow.map((item) => item.name).join(" and ") || "swallow"} can’t be ordered. Try a rice plate or a ready-made meal.</p>
                   ) : (
                     <div className="mt-2.5 grid grid-cols-2 gap-2 sm:grid-cols-3">
                       {[...(rule === "optional" ? [{ id: "", name: "No soup", price: 0 }] : []), ...soups].map((soup) => (
@@ -341,7 +392,10 @@ export function FoodMenu({ shop, menu, delivery }: { shop: Shop; menu: PublicMen
                   <dl className="space-y-1.5 text-sm">
                     <p className="text-xs font-black uppercase tracking-[0.08em] text-black/50">Your plate</p>
                     {platePreview.line.details.kind === "PLATE" && <>
-                      <div className="flex justify-between gap-3"><dt>{platePreview.line.details.base.name}</dt><dd className="font-bold">{naira(platePreview.line.details.base.price)}</dd></div>
+                      {(platePreview.line.details.bases ?? [{ ...platePreview.line.details.base, quantity: 1, total: platePreview.line.details.base.price }]).map((item) => {
+                        const group = bases.find((candidate) => candidate.id === item.id)?.group;
+                        return <div key={item.id} className="flex justify-between gap-3"><dt>{item.name} <span className="text-black/50">· {item.quantity} {portionUnit(group, item.quantity)}</span></dt><dd className="font-bold">{naira(item.total)}</dd></div>;
+                      })}
                       {platePreview.line.details.soup && <div className="flex justify-between gap-3"><dt>{platePreview.line.details.soup.name}</dt><dd className={`font-bold ${platePreview.line.details.soup.price === 0 ? "text-[#16803c]" : ""}`}>{foodPriceLabel(platePreview.line.details.soup.price)}</dd></div>}
                       {platePreview.line.details.extras.map((extra) => <div key={extra.id} className="flex justify-between gap-3"><dt>{extra.name}{extra.quantity > 1 ? ` × ${extra.quantity}` : ""}</dt><dd className="font-bold">{naira(extra.total)}</dd></div>)}
                     </>}

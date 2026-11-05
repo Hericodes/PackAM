@@ -22,6 +22,7 @@ import {
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, test } from "node:test";
+import { describeDetails } from "./plate";
 
 type User = Awaited<ReturnType<typeof createTestUser>>;
 type App = {
@@ -331,4 +332,42 @@ test("food groups: free soups, swallow needs soup, rice takes none, and the data
   await assert.rejects(app.db.product.update({ where: { id: ids.rice }, data: { foodGroup: "PROTEIN" } }), /Product_food_group_matches_role_check|check constraint/i);
   await assert.rejects(app.db.product.update({ where: { id: ids.meal }, data: { foodGroup: "RICE" } }), /Product_food_group_matches_role_check|check constraint/i);
   await assert.rejects(app.db.product.update({ where: { id: ids.meat }, data: { customerPrice: 0 } }), /Product_active_requires_price_check|check constraint/i);
+});
+
+test("mixed plates: several items by the spoon, stored and re-priced exactly, merged when identical; swallow stays on its own plate", { skip }, async () => {
+  const admin = await createTestUser("ADMIN");
+  const student = await createTestUser("STUDENT");
+  const { shopId, ids } = await buildShop(admin, "Mixing kitchen");
+  signInAs(admin);
+  const beansResponse = await callRoute(app.items.POST, { method: "POST", params: { id: shopId }, body: { name: "Beans", role: "BASE", group: "OTHER", price: 250, available: true } });
+  assert.equal(beansResponse.status, 201, JSON.stringify(beansResponse.json));
+  const beans = beansResponse.json.id as string;
+  trackForCleanup({ products: [beans] });
+
+  const mixed = (order: Array<[string, number]>) => ({ kind: "PLATE", bases: order.map(([productId, quantity]) => ({ productId, quantity })), extras: [{ productId: ids.meat, quantity: 3 }], quantity: 1 });
+  const first = await addFood(student, shopId, mixed([[ids.rice, 2], [beans, 1]]));
+  assert.equal(first.status, 200, JSON.stringify(first.json));
+  assert.equal((first.json as { added: { unitPrice: number } }).added.unitPrice, 2 * 500 + 250 + 3 * 300, "priced per spoon");
+  const lines = await cartLines(student.userId);
+  assert.equal(lines.length, 1);
+  assert.deepEqual([...lines[0].extras].sort((a, b) => a.productId.localeCompare(b.productId)), [{ productId: ids.rice, quantity: 2 }, { productId: beans, quantity: 1 }, { productId: ids.meat, quantity: 3 }].sort((a, b) => a.productId.localeCompare(b.productId)), "every item is stored with its spoons");
+
+  // The same plate picked in the other order merges into the same line.
+  assert.equal((await addFood(student, shopId, mixed([[beans, 1], [ids.rice, 2]]))).status, 200);
+  const merged = await cartLines(student.userId);
+  assert.deepEqual(merged.map((line) => line.quantity), [2], "two identical plates, one line");
+
+  // Re-priced from the stored rows, as checkout does.
+  const { priceCart } = await import("../cart-pricing");
+  const priced = await priceCart(app.db, student.userId);
+  assert.deepEqual(priced.lines.map((line) => [line.unitPrice, line.quantity, line.problem]), [[2150, 2, null]]);
+  assert.equal(priced.lines[0].details?.kind === "PLATE" && describeDetails(priced.lines[0].details), "White rice \u00d72 + Beans + Meat \u00d73");
+
+  // Swallow can't share a plate with rice or others.
+  const swallowAndRice = await addFood(student, shopId, { kind: "PLATE", bases: [{ productId: ids.amala, quantity: 1 }, { productId: ids.rice, quantity: 1 }], soupId: ids.ewedu, quantity: 1 });
+  assert.equal(swallowAndRice.status, 400);
+  assert.match(String(swallowAndRice.json.error), /Swallow comes on its own plate/);
+  // Wraps of swallow with soup are fine, and an old tab sending baseId still works.
+  assert.equal((await addFood(student, shopId, { kind: "PLATE", bases: [{ productId: ids.amala, quantity: 3 }], soupId: ids.ewedu, quantity: 1 })).status, 200);
+  assert.equal((await addFood(student, shopId, { kind: "PLATE", baseId: ids.amala, soupId: ids.ewedu, quantity: 1 })).status, 200);
 });

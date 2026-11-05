@@ -42,6 +42,19 @@ export function foodPriceLabel(price: number) {
 export const MAX_EXTRA_QUANTITY = 99;
 /** Distinct extras on one plate. Keeps the plate key (and the cart line) bounded. */
 export const MAX_DISTINCT_EXTRAS = 12;
+/**
+ * Different plate items (e.g. Jollof + Fried rice + Beans) on one plate. With 12 extras and a soup the plate key
+ * stays under the database's 500-character limit (CartItem_config_key_length_check).
+ */
+export const MAX_DISTINCT_BASES = 3;
+/** Spoons (or wraps) of one plate item: no real limit, the same safety ceiling as add-ons. */
+export const MAX_BASE_QUANTITY = 99;
+
+/** What one portion of a plate item is called: wraps of swallow, spoons of everything else. */
+export function portionUnit(group: FoodGroup | null | undefined, count = 1) {
+  const word = group === "SWALLOW" ? "wrap" : "spoon";
+  return count === 1 ? word : `${word}s`;
+}
 /** Matches the existing cart rule for any product. */
 export const MAX_LINE_QUANTITY = 99;
 
@@ -61,14 +74,26 @@ export type MenuItem = {
 
 export type LineRequest =
   | { kind: "MEAL"; productId: string; quantity: number }
-  | { kind: "PLATE"; baseId: string; soupId?: string | null; extras?: Array<{ productId: string; quantity: number }>; quantity: number };
+  | {
+      kind: "PLATE";
+      /** The plate items and how many spoons (or wraps) of each. */
+      bases?: Array<{ productId: string; quantity: number }>;
+      /** One spoon of one item: what menus sent before plates could mix items. Used only when `bases` is absent. */
+      baseId?: string;
+      soupId?: string | null;
+      extras?: Array<{ productId: string; quantity: number }>;
+      quantity: number;
+    };
 
 /** What a priced line is made of, frozen into the payment snapshot and the order. */
 export type LineDetails =
   | { kind: "MEAL"; meal: { id: string; name: string; price: number } }
   | {
       kind: "PLATE";
+      /** The first plate item (all that plates from before mixing have). */
       base: { id: string; name: string; price: number };
+      /** Every plate item with its spoons (or wraps) and their total. Absent on plates from before mixing. */
+      bases?: Array<{ id: string; name: string; price: number; quantity: number; total: number }>;
       soup: { id: string; name: string; price: number } | null;
       extras: Array<{ id: string; name: string; price: number; quantity: number; total: number }>;
     };
@@ -101,9 +126,11 @@ export function hasExtraLimit(item: Pick<MenuItem, "maxPerPlate">) {
  * The plate key: everything that makes two plates on the same base different. Order-independent, so
  * the same choices always give the same key, and identical plates merge into one cart line.
  */
-export function plateConfigKey(soupId: string | null, extras: Array<{ productId: string; quantity: number }>) {
-  const parts = [...extras].sort((a, b) => a.productId.localeCompare(b.productId)).map((extra) => `${extra.productId}x${extra.quantity}`);
-  return `plate|soup:${soupId ?? "-"}|extras:${parts.join(",")}`;
+export function plateConfigKey(soupId: string | null, extras: Array<{ productId: string; quantity: number }>, bases?: Array<{ productId: string; quantity: number }>) {
+  const list = (items: Array<{ productId: string; quantity: number }>) => [...items].sort((a, b) => a.productId.localeCompare(b.productId)).map((item) => `${item.productId}x${item.quantity}`).join(",");
+  // One spoon of one item keeps the key plates had before mixing, so carts from then still match.
+  const basesPart = bases && !(bases.length === 1 && bases[0].quantity === 1) ? `|bases:${list(bases)}` : "";
+  return `plate${basesPart}|soup:${soupId ?? "-"}|extras:${list(extras)}`;
 }
 
 const isQuantity = (value: unknown, max: number): value is number => typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= max;
@@ -134,13 +161,31 @@ export function priceLine(menu: MenuItem[], request: LineRequest): LineResult {
   }
 
   if (request.kind !== "PLATE") return { ok: false, error: "Choose a meal or build a plate." };
-  const base = usable(request.baseId, "BASE");
-  if (!base) return { ok: false, error: "Choose a base for your plate from this shop’s menu." };
+
+  // The plate items: several, each with spoons (or wraps); or one spoon of one, from a menu from before mixing.
+  const requestedBases = request.bases ?? (request.baseId ? [{ productId: request.baseId, quantity: 1 }] : []);
+  if (!Array.isArray(requestedBases) || requestedBases.length === 0) return { ok: false, error: "Choose what you want on your plate." };
+  if (requestedBases.length > MAX_DISTINCT_BASES) return { ok: false, error: `Choose up to ${MAX_DISTINCT_BASES} different items for one plate. For more, add another plate.` };
+  const bases: Array<{ item: MenuItem; quantity: number }> = [];
+  const seenBases = new Set<string>();
+  for (const entry of requestedBases) {
+    const item = usable(entry?.productId, "BASE");
+    if (!item) return { ok: false, error: "Choose your plate from this shop’s menu. One of the items isn’t available right now." };
+    if (seenBases.has(item.id)) return { ok: false, error: `${item.name} is listed twice. Set how many ${portionUnit(item.group, 2)} instead.` };
+    seenBases.add(item.id);
+    if (!isQuantity(entry.quantity, MAX_BASE_QUANTITY)) return { ok: false, error: `Choose how many ${portionUnit(item.group, 2)} of ${item.name} you want, from 1 to ${MAX_BASE_QUANTITY}.` };
+    bases.push({ item, quantity: entry.quantity });
+  }
+  // Swallow goes on its own plate (with its soup); rice and others mix freely.
+  const swallow = bases.filter(({ item }) => item.group === "SWALLOW");
+  const notSwallow = bases.find(({ item }) => item.group === "RICE" || item.group === "OTHER");
+  if (swallow.length && notSwallow) return { ok: false, error: `Swallow comes on its own plate with soup. Put ${notSwallow.item.name} on another plate.` };
+  const base = bases[0].item;
 
   let soup: MenuItem | null = null;
-  const rule = soupRule(base);
-  if (rule === "none" && request.soupId) return { ok: false, error: `${base.name} doesn’t come with soup. Remove the soup and try again.` };
-  if (rule === "required" && !request.soupId) return { ok: false, error: `Choose a soup for your ${base.name}. Soup is free.` };
+  const rule = swallow.length ? "required" : bases.every(({ item }) => soupRule(item) === "none") ? "none" : "optional";
+  if (rule === "none" && request.soupId) return { ok: false, error: `${bases.length > 1 ? "These don’t" : `${base.name} doesn’t`} come with soup. Remove the soup and try again.` };
+  if (rule === "required" && !request.soupId) return { ok: false, error: `Choose a soup for your ${swallow.map(({ item }) => item.name).join(" and ")}. Soup is free.` };
   if (request.soupId) {
     soup = usable(request.soupId, "SOUP");
     if (!soup) return { ok: false, error: "That soup isn’t available right now. Choose another or skip soup." };
@@ -164,22 +209,30 @@ export function priceLine(menu: MenuItem[], request: LineRequest): LineResult {
     extras.push({ item, quantity: entry.quantity });
   }
 
-  const unitPrice = base.price + (soup?.price ?? 0) + extras.reduce((sum, extra) => sum + extra.item.price * extra.quantity, 0);
+  const basesTotal = bases.reduce((sum, { item, quantity }) => sum + item.price * quantity, 0);
+  const unitPrice = basesTotal + (soup?.price ?? 0) + extras.reduce((sum, extra) => sum + extra.item.price * extra.quantity, 0);
   if (!Number.isSafeInteger(unitPrice * request.quantity)) return { ok: false, error: "That plate is too large to price." };
-  const stored = [...(soup ? [{ productId: soup.id, quantity: 1 }] : []), ...extras.map((extra) => ({ productId: extra.item.id, quantity: extra.quantity }))];
+  const simple = bases.length === 1 && bases[0].quantity === 1;
+  // The cart line belongs to the first item by id (stable whatever order they were picked in). A mixed or bigger plate
+  // also stores every item with its spoons beside the soup and extras; one spoon of one item is stored as before.
+  const basesById = [...bases].sort((a, b) => a.item.id.localeCompare(b.item.id));
+  const baseRows = bases.map(({ item, quantity }) => ({ productId: item.id, quantity }));
+  const extraRows = extras.map((extra) => ({ productId: extra.item.id, quantity: extra.quantity }));
+  const stored = [...(simple ? [] : baseRows), ...(soup ? [{ productId: soup.id, quantity: 1 }] : []), ...extraRows];
   return {
     ok: true,
     line: {
-      productId: base.id,
-      configKey: plateConfigKey(soup?.id ?? null, extras.map((extra) => ({ productId: extra.item.id, quantity: extra.quantity }))),
+      productId: basesById[0].item.id,
+      configKey: plateConfigKey(soup?.id ?? null, extraRows, baseRows),
       extras: stored,
-      name: base.name,
+      name: bases.map(({ item }) => item.name).join(" + "),
       unitPrice,
       quantity: request.quantity,
       total: unitPrice * request.quantity,
       details: {
         kind: "PLATE",
         base: { id: base.id, name: base.name, price: base.price },
+        ...(simple ? {} : { bases: bases.map(({ item, quantity }) => ({ id: item.id, name: item.name, price: item.price, quantity, total: item.price * quantity })) }),
         soup: soup ? { id: soup.id, name: soup.name, price: soup.price } : null,
         extras: extras.map(({ item, quantity }) => ({ id: item.id, name: item.name, price: item.price, quantity, total: item.price * quantity })),
       },
@@ -194,7 +247,15 @@ export function priceLine(menu: MenuItem[], request: LineRequest): LineResult {
 export function storedLineRequest(line: { productId: string; quantity: number; productRole: FoodRole | null; extras: Array<{ productId: string; quantity: number; role: FoodRole | null }> }): LineRequest {
   if (line.productRole === "BASE") {
     const soup = line.extras.find((extra) => extra.role === "SOUP");
-    return { kind: "PLATE", baseId: line.productId, soupId: soup?.productId ?? null, extras: line.extras.filter((extra) => extra.role !== "SOUP").map(({ productId, quantity }) => ({ productId, quantity })), quantity: line.quantity };
+    // A mixed or bigger plate stores every item (the line's own included) with its spoons; otherwise it is one spoon of the line's item.
+    const baseRows = line.extras.filter((extra) => extra.role === "BASE").map(({ productId, quantity }) => ({ productId, quantity }));
+    return {
+      kind: "PLATE",
+      bases: baseRows.length ? baseRows : [{ productId: line.productId, quantity: 1 }],
+      soupId: soup?.productId ?? null,
+      extras: line.extras.filter((extra) => extra.role !== "SOUP" && extra.role !== "BASE").map(({ productId, quantity }) => ({ productId, quantity })),
+      quantity: line.quantity,
+    };
   }
   return { kind: "MEAL", productId: line.productId, quantity: line.quantity };
 }
@@ -202,7 +263,8 @@ export function storedLineRequest(line: { productId: string; quantity: number; p
 /** One short line describing a plate, for the cart, checkout, order and runner. */
 export function describeDetails(details: LineDetails) {
   if (details.kind === "MEAL") return details.meal.name;
-  const parts = [details.base.name, ...(details.soup ? [details.soup.name] : []), ...details.extras.map((extra) => (extra.quantity > 1 ? `${extra.name} ×${extra.quantity}` : extra.name))];
+  const bases = details.bases ?? [{ ...details.base, quantity: 1, total: details.base.price }];
+  const parts = [...bases.map((item) => (item.quantity > 1 ? `${item.name} ×${item.quantity}` : item.name)), ...(details.soup ? [details.soup.name] : []), ...details.extras.map((extra) => (extra.quantity > 1 ? `${extra.name} ×${extra.quantity}` : extra.name))];
   return parts.join(" + ");
 }
 

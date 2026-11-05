@@ -670,12 +670,13 @@ select:-webkit-autofill {
 
 /* Food ordering: steps and cards rise in, numbers and ticks pop. Short, and off for reduced motion (below). */
 @keyframes pk-rise {
-  from { opacity: 0; transform: translateY(8px); }
+  from { opacity: 0.35; transform: translateY(8px); }
   to { opacity: 1; transform: none; }
 }
+/* Never starts invisible: a number or tick is readable even if the animation is paused or slow. */
 @keyframes pk-pop {
-  0% { transform: scale(0.6); opacity: 0; }
-  60% { transform: scale(1.12); opacity: 1; }
+  0% { transform: scale(0.8); }
+  60% { transform: scale(1.12); }
   100% { transform: scale(1); }
 }
 .pk-anim-rise { animation: pk-rise 260ms cubic-bezier(0.2, 0.8, 0.2, 1) both; }

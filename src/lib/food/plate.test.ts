@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { MAX_EXTRA_QUANTITY, describeDetails, hasExtraLimit, foodPriceLabel, isSellablePrice, parseLineDetails, plateConfigKey, priceLine, soupRule, storedLineRequest, type MenuItem } from "./plate";
+import { MAX_DISTINCT_BASES, MAX_EXTRA_QUANTITY, describeDetails, hasExtraLimit, portionUnit, foodPriceLabel, isSellablePrice, parseLineDetails, plateConfigKey, priceLine, soupRule, storedLineRequest, type MenuItem } from "./plate";
 import { addConflict, cartContext, isMixedCart } from "./cart-context";
 
 // A shop's menu as an admin might configure it. Names and prices are test fixtures, not real data.
@@ -42,7 +42,7 @@ test("invalid or unavailable choices are refused with a reason, never priced", (
   };
   refuse({ kind: "MEAL", productId: "base-rice", quantity: 1 }, /meal isn’t available/);
   refuse({ kind: "MEAL", productId: "other-shop-item", quantity: 1 }, /meal isn’t available/);
-  refuse({ kind: "PLATE", baseId: "meal-jollof", quantity: 1 }, /Choose a base/);
+  refuse({ kind: "PLATE", baseId: "meal-jollof", quantity: 1 }, /Choose your plate from this shop’s menu/);
   refuse({ kind: "PLATE", baseId: "base-rice", soupId: "soup-off", quantity: 1 }, /soup isn’t available/);
   refuse({ kind: "PLATE", baseId: "base-rice", soupId: "extra-meat", quantity: 1 }, /soup isn’t available/);
   refuse({ kind: "PLATE", baseId: "base-rice", extras: [{ productId: "extra-egg", quantity: 1 }], quantity: 1 }, /isn’t available/);
@@ -82,7 +82,7 @@ test("identical plates share a key (choices in any order); different plates don'
 
 test("a stored cart line re-prices to the same plate from the current menu", () => {
   const stored = storedLineRequest({ productId: "base-amala", quantity: 2, productRole: "BASE", extras: [{ productId: "soup-ewedu", quantity: 1, role: "SOUP" }, { productId: "extra-meat", quantity: 2, role: "EXTRA" }] });
-  assert.deepEqual(stored, { kind: "PLATE", baseId: "base-amala", soupId: "soup-ewedu", extras: [{ productId: "extra-meat", quantity: 2 }], quantity: 2 });
+  assert.deepEqual(stored, { kind: "PLATE", bases: [{ productId: "base-amala", quantity: 1 }], soupId: "soup-ewedu", extras: [{ productId: "extra-meat", quantity: 2 }], quantity: 2 });
   const repriced = priceLine(menu.map((item) => (item.id === "extra-meat" ? { ...item, price: 350 } : item)), stored);
   assert.ok(repriced.ok && repriced.line.unitPrice === 400 + 200 + 700, "a menu price change shows up when the cart is priced again");
   assert.deepEqual(storedLineRequest({ productId: "meal-jollof", quantity: 1, productRole: "MEAL", extras: [] }), { kind: "MEAL", productId: "meal-jollof", quantity: 1 });
@@ -159,4 +159,67 @@ test("only soups may be free; the label says so", () => {
   assert.equal(priceLine([{ ...grouped[6], price: 0 }, grouped[1]], { kind: "PLATE", baseId: "jollof", extras: [{ productId: "beef", quantity: 1 }], quantity: 1 }).ok, false, "a ₦0 add-on is never sold");
   assert.equal(foodPriceLabel(0), "Free");
   assert.equal(foodPriceLabel(1500), "₦1,500");
+});
+
+test("a plate can mix items, each by the spoon (or wrap), priced per spoon", () => {
+  const mixed = priceLine(grouped, { kind: "PLATE", bases: [{ productId: "jollof", quantity: 2 }, { productId: "beans", quantity: 1 }], extras: [{ productId: "beef", quantity: 3 }], quantity: 1 });
+  assert.ok(mixed.ok);
+  assert.equal(mixed.line.unitPrice, 2 * 500 + 300 + 3 * 300, "2 spoons of jollof + 1 of beans + 3 beef");
+  assert.equal(mixed.line.name, "Jollof rice + Beans");
+  assert.equal(describeDetails(mixed.line.details), "Jollof rice ×2 + Beans + Beef ×3");
+  assert.equal(mixed.line.productId, "beans", "the cart line belongs to the first item by id, whatever order they were picked in");
+  assert.deepEqual(mixed.line.extras, [{ productId: "jollof", quantity: 2 }, { productId: "beans", quantity: 1 }, { productId: "beef", quantity: 3 }], "every item is stored with its spoons");
+  const sameOtherOrder = priceLine(grouped, { kind: "PLATE", bases: [{ productId: "beans", quantity: 1 }, { productId: "jollof", quantity: 2 }], extras: [{ productId: "beef", quantity: 3 }], quantity: 1 });
+  assert.ok(sameOtherOrder.ok && sameOtherOrder.line.configKey === mixed.line.configKey, "the same plate picked in another order merges in the cart");
+  const fewerSpoons = priceLine(grouped, { kind: "PLATE", bases: [{ productId: "jollof", quantity: 1 }, { productId: "beans", quantity: 1 }], extras: [{ productId: "beef", quantity: 3 }], quantity: 1 });
+  assert.ok(fewerSpoons.ok && fewerSpoons.line.configKey !== mixed.line.configKey, "a different number of spoons is a different plate");
+
+  // Swallow by the wrap, with several swallows together and a soup.
+  const wraps = priceLine(grouped, { kind: "PLATE", bases: [{ productId: "amala", quantity: 3 }], soupId: "ewedu", quantity: 1 });
+  assert.ok(wraps.ok && wraps.line.unitPrice === 3 * 400 && describeDetails(wraps.line.details) === "Amala ×3 + Ewedu");
+  assert.deepEqual([portionUnit("SWALLOW"), portionUnit("SWALLOW", 3), portionUnit("RICE"), portionUnit("OTHER", 2), portionUnit(null)], ["wrap", "wraps", "spoon", "spoons", "spoon"]);
+});
+
+test("one spoon of one item is stored and keyed exactly as before mixing existed", () => {
+  const viaBases = priceLine(grouped, { kind: "PLATE", bases: [{ productId: "jollof", quantity: 1 }], extras: [{ productId: "beef", quantity: 1 }], quantity: 2 });
+  const viaBaseId = priceLine(grouped, { kind: "PLATE", baseId: "jollof", extras: [{ productId: "beef", quantity: 1 }], quantity: 2 });
+  assert.ok(viaBases.ok && viaBaseId.ok);
+  assert.deepEqual(viaBases.line, viaBaseId.line, "an old checkout tab and the new menu make the same line");
+  assert.equal(viaBases.line.configKey, plateConfigKey(null, [{ productId: "beef", quantity: 1 }]), "the old key");
+  assert.deepEqual(viaBases.line.extras, [{ productId: "beef", quantity: 1 }], "no extra rows for the item itself");
+  assert.equal(viaBases.line.details.kind === "PLATE" && viaBases.line.details.bases, undefined, "details look like before");
+  // A stored mixed plate comes back as the same request.
+  const mixed = priceLine(grouped, { kind: "PLATE", bases: [{ productId: "jollof", quantity: 2 }, { productId: "beans", quantity: 1 }], quantity: 1 });
+  assert.ok(mixed.ok);
+  const roles = new Map(grouped.map((item) => [item.id, item.role]));
+  const back = storedLineRequest({ productId: mixed.line.productId, quantity: 1, productRole: "BASE", extras: mixed.line.extras.map((row) => ({ ...row, role: roles.get(row.productId)! })) });
+  const again = priceLine(grouped, back);
+  assert.ok(again.ok && again.line.configKey === mixed.line.configKey && again.line.unitPrice === mixed.line.unitPrice);
+});
+
+test("mixing rules: swallow on its own plate; at most 3 different items; spoons from 1 to 99", () => {
+  const refuse = (request: Parameters<typeof priceLine>[1], pattern: RegExp) => {
+    const result = priceLine(grouped, request);
+    assert.ok(!result.ok && pattern.test(result.error), `${JSON.stringify(request)} → ${result.ok ? "ok" : result.error}`);
+  };
+  refuse({ kind: "PLATE", bases: [{ productId: "amala", quantity: 1 }, { productId: "jollof", quantity: 1 }], soupId: "ewedu", quantity: 1 }, /Swallow comes on its own plate with soup\. Put Jollof rice on another plate\./);
+  refuse({ kind: "PLATE", bases: [{ productId: "jollof", quantity: 1 }, { productId: "beans", quantity: 1 }], soupId: "ewedu", quantity: 1 }, /These don’t come with soup/);
+  refuse({ kind: "PLATE", bases: [{ productId: "amala", quantity: 2 }], quantity: 1 }, /Choose a soup for your Amala/);
+  refuse({ kind: "PLATE", bases: [], quantity: 1 }, /Choose what you want on your plate/);
+  refuse({ kind: "PLATE", bases: [{ productId: "jollof", quantity: 0 }], quantity: 1 }, /how many spoons of Jollof rice/);
+  refuse({ kind: "PLATE", bases: [{ productId: "amala", quantity: 100 }], soupId: "ewedu", quantity: 1 }, /how many wraps of Amala you want, from 1 to 99/);
+  refuse({ kind: "PLATE", bases: [{ productId: "jollof", quantity: 1 }, { productId: "jollof", quantity: 2 }], quantity: 1 }, /listed twice\. Set how many spoons/);
+  const four = [...grouped.filter((item) => item.role === "BASE" && item.group !== "SWALLOW"), { id: "spag", name: "Spaghetti", role: "BASE" as const, group: "OTHER" as const, price: 300, available: true, maxPerPlate: null }];
+  const tooMany = priceLine([...grouped, four[3]], { kind: "PLATE", bases: four.map((item) => ({ productId: item.id, quantity: 1 })), quantity: 1 });
+  assert.ok(!tooMany.ok && new RegExp(`up to ${MAX_DISTINCT_BASES} different items`).test(tooMany.error));
+  // Several swallows together are fine.
+  const eba = { id: "eba", name: "Eba", role: "BASE" as const, group: "SWALLOW" as const, price: 200, available: true, maxPerPlate: null };
+  const two = priceLine([...grouped, eba], { kind: "PLATE", bases: [{ productId: "amala", quantity: 1 }, { productId: "eba", quantity: 2 }], soupId: "ewedu", quantity: 1 });
+  assert.ok(two.ok && two.line.unitPrice === 400 + 400);
+});
+
+test("the longest possible plate key fits the database limit", () => {
+  const id = (n: number) => `c${String(n).padStart(24, "0")}`;
+  const key = plateConfigKey(id(0), Array.from({ length: 12 }, (_, i) => ({ productId: id(i + 1), quantity: 99 })), Array.from({ length: MAX_DISTINCT_BASES }, (_, i) => ({ productId: id(i + 20), quantity: 99 })));
+  assert.ok(key.length <= 500, `${key.length} characters`);
 });
