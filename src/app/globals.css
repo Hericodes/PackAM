@@ -668,8 +668,22 @@ select:-webkit-autofill {
   to { opacity: 1; }
 }
 
+/* Food ordering: steps and cards rise in, numbers and ticks pop. Short, and off for reduced motion (below). */
+@keyframes pk-rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes pk-pop {
+  0% { transform: scale(0.6); opacity: 0; }
+  60% { transform: scale(1.12); opacity: 1; }
+  100% { transform: scale(1); }
+}
+.pk-anim-rise { animation: pk-rise 260ms cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.pk-anim-pop { animation: pk-pop 240ms cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+
 @media (prefers-reduced-motion: reduce) {
   .pk-skeleton { animation: none; }
+  .pk-anim-rise, .pk-anim-pop { animation: none; }
   .pk-card-interactive, .pk-btn, .pk-chip { transition: none; }
 }
 

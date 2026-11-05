@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
 import { useCartExperience } from "../cart/CartExperience";
 import { CartConflictDialog } from "../cart/CartConflictDialog";
 import { productImageDeliveryUrl } from "../../lib/cloudinary-url";
@@ -14,13 +14,48 @@ type Shop = { id: string; name: string; description: string | null; imageUrl: st
 
 const naira = (amount: number) => `₦${amount.toLocaleString()}`;
 
-function Stepper({ value, min, max, onChange, label, disabled }: { value: number; min: number; max: number; onChange: (value: number) => void; label: string; disabled?: boolean }) {
+function Stepper({ value, min, max, onChange, label, disabled, highlight = false }: { value: number; min: number; max: number; onChange: (value: number) => void; label: string; disabled?: boolean; highlight?: boolean }) {
+  const press = "h-10 w-10 text-lg font-black transition duration-150 hover:bg-black/5 disabled:opacity-30 motion-safe:active:scale-90";
   return (
-    <div className="flex h-10 items-center rounded-full border border-black/10 bg-white" role="group" aria-label={label}>
-      <button type="button" onClick={() => onChange(Math.max(min, value - 1))} disabled={disabled || value <= min} aria-label={`Fewer: ${label}`} className="h-10 w-10 rounded-l-full text-lg font-black hover:bg-black/5 disabled:opacity-30">−</button>
-      <span className="w-6 text-center text-sm font-black" aria-live="polite">{value}</span>
-      <button type="button" onClick={() => onChange(Math.min(max, value + 1))} disabled={disabled || value >= max} aria-label={`More: ${label}`} className="h-10 w-10 rounded-r-full text-lg font-black hover:bg-black/5 disabled:opacity-30">+</button>
+    <div className={`flex h-10 shrink-0 items-center rounded-full border transition-colors duration-200 ${highlight ? "border-[#feb80a] bg-white shadow-[0_0_0_3px_rgba(254,184,10,0.25)]" : "border-black/10 bg-white"}`} role="group" aria-label={label}>
+      <button type="button" onClick={() => onChange(Math.max(min, value - 1))} disabled={disabled || value <= min} aria-label={`Fewer: ${label}`} className={`${press} rounded-l-full`}>−</button>
+      <span key={value} className="pk-anim-pop w-7 text-center text-sm font-black tabular-nums" aria-live="polite">{value}</span>
+      <button type="button" onClick={() => onChange(Math.min(max, value + 1))} disabled={disabled || value >= max} aria-label={`More: ${label}`} className={`${press} rounded-r-full`}>+</button>
     </div>
+  );
+}
+
+/** A numbered step heading that turns into a green tick once the step is done. */
+function StepTitle({ number, done, children }: { number: number; done: boolean; children: ReactNode }) {
+  return (
+    <legend className="flex items-center gap-2 text-base font-black">
+      <span aria-hidden="true" className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-black transition-colors duration-300 ${done ? "bg-[#16803c] text-white" : "bg-black text-white"}`}>
+        {done ? <span key="done" className="pk-anim-pop">✓</span> : number}
+      </span>
+      <span>{children}</span>
+    </legend>
+  );
+}
+
+/**
+ * A tappable choice (a plate or a soup): a radio inside a card. Selected: yellow outline, warm fill and a tick that
+ * pops in. Lifts a little on hover, presses in on tap; still for anyone who asks for reduced motion.
+ */
+function ChoiceCard({ name, checked, disabled, onSelect, compact = false, children }: { name: string; checked: boolean; disabled?: boolean; onSelect: () => void; compact?: boolean; children: ReactNode }) {
+  return (
+    <label className={`relative flex items-center gap-3 rounded-2xl border transition duration-200 has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-black ${compact ? "min-h-12 p-2.5 text-sm" : "min-h-16 p-2.5"} ${
+      disabled ? "cursor-not-allowed border-black/10 bg-white/60 opacity-60"
+        : checked ? "cursor-pointer border-[#feb80a] bg-[#fffbea] shadow-[0_0_0_2px_#feb80a,0_14px_30px_-18px_rgba(135,90,0,0.55)]"
+          : "cursor-pointer border-black/10 bg-white shadow-[0_1px_2px_rgba(8,8,8,0.04)] hover:border-black/25 hover:shadow-[0_12px_26px_-18px_rgba(135,90,0,0.5)] motion-safe:hover:-translate-y-0.5 motion-safe:active:translate-y-0 motion-safe:active:scale-[0.98]"
+    }`}>
+      <input type="radio" name={name} checked={checked} onChange={onSelect} disabled={disabled} className="sr-only" />
+      {children}
+      {checked && (
+        <span aria-hidden="true" className={`absolute right-2.5 ${compact ? "top-1/2 -translate-y-1/2" : "top-2.5"}`}>
+          <span className="pk-anim-pop flex h-5 w-5 items-center justify-center rounded-full bg-black text-[0.6875rem] font-black text-[#feb80a]">✓</span>
+        </span>
+      )}
+    </label>
   );
 }
 
@@ -34,6 +69,7 @@ function Thumb({ item, size = "h-16 w-16" }: { item: PublicMenuItem; size?: stri
 
 /** Plate tabs: Swallow, Rice, Others, then "More" for bases made before groups existed. */
 type BaseTab = FoodGroup | "MORE";
+type PlateTab = BaseTab | "ALL";
 const BASE_TAB_HINT: Partial<Record<BaseTab, string>> = { SWALLOW: "Comes with a free soup", RICE: "No soup needed", OTHER: "No soup needed" };
 const EXTRA_SECTIONS: Array<{ key: FoodGroup | "MORE"; title: string; hint: string }> = [
   { key: "PROTEIN", title: GROUP_LABELS.PROTEIN, hint: "Beef, chicken, fish, egg…" },
@@ -64,12 +100,15 @@ export function FoodMenu({ shop, menu, delivery }: { shop: Shop; menu: PublicMen
   const [mealQuantity, setMealQuantity] = useState<Record<string, number>>({});
   const [baseId, setBaseId] = useState<string>("");
   // The plate tabs that have something in them, in a fixed order.
-  const baseTabs = useMemo(() => {
-    const tabs: BaseTab[] = [...BASE_GROUPS.filter((group) => bases.some((base) => base.group === group)), ...(bases.some((base) => !base.group) ? ["MORE" as const] : [])];
-    return tabs;
-  }, [bases]);
-  const [baseTab, setBaseTab] = useState<BaseTab | null>(null);
-  const activeTab = baseTab && baseTabs.includes(baseTab) ? baseTab : baseTabs[0] ?? null;
+  // The groups that have something in them, in a fixed order; "All" first shows every one of them.
+  const baseGroups: BaseTab[] = [...BASE_GROUPS.filter((group) => bases.some((base) => base.group === group)), ...(bases.some((base) => !base.group) ? ["MORE" as const] : [])];
+  const baseTabs: PlateTab[] = ["ALL", ...baseGroups];
+  const [baseTab, setBaseTab] = useState<PlateTab>("ALL");
+  const activeTab: PlateTab = baseTabs.includes(baseTab) ? baseTab : "ALL";
+  const visibleGroups = activeTab === "ALL" ? baseGroups : [activeTab];
+  const basesIn = (group: BaseTab) => bases.filter((item) => (group === "MORE" ? !item.group : item.group === group));
+  const soupStepRef = useRef<HTMLFieldSetElement>(null);
+  const [soupTouched, setSoupTouched] = useState(false);
   const [soupId, setSoupId] = useState<string>("");
   const [extraQuantity, setExtraQuantity] = useState<Record<string, number>>({});
   const [plates, setPlates] = useState(1);
@@ -99,7 +138,7 @@ export function FoodMenu({ shop, menu, delivery }: { shop: Shop; menu: PublicMen
       setConflict(null);
       if (data.summary) setSummary(data.summary);
       setAdded(`${data.added?.name ?? "Food"} added${data.cleared ? " (your old cart was cleared)" : ""}.`);
-      if (line.kind === "PLATE") { setBaseId(""); setSoupId(""); setExtraQuantity({}); setPlates(1); }
+      if (line.kind === "PLATE") { setBaseId(""); setSoupId(""); setSoupTouched(false); setExtraQuantity({}); setPlates(1); }
       else setMealQuantity((current) => ({ ...current, [line.productId]: 1 }));
     } catch (cause) {
       setError(cause instanceof TypeError ? "No connection. Check your internet and try again." : cause instanceof Error ? cause.message : "We couldn’t add that. Try again.");
@@ -113,18 +152,27 @@ export function FoodMenu({ shop, menu, delivery }: { shop: Shop; menu: PublicMen
   const canBuild = bases.length > 0;
   const base = bases.find((item) => item.id === baseId) ?? null;
   const rule = base ? soupRule(base) : null;
-  const tabBases = bases.filter((item) => (activeTab === "MORE" ? !item.group : item.group === activeTab));
   const extrasIn = (key: FoodGroup | "MORE") => extras.filter((extra) => (key === "MORE" ? !extra.group || !(EXTRA_GROUPS as readonly string[]).includes(extra.group) : extra.group === key));
   const proteins = extrasIn("PROTEIN");
   const hasProtein = proteins.some((extra) => (extraQuantity[extra.id] ?? 0) > 0);
   const showSoupStep = Boolean(base) && rule !== "none";
   const addOnStep = showSoupStep ? 3 : 2;
+  const addOnCount = Object.values(extraQuantity).reduce((sum, quantity) => sum + quantity, 0);
 
   function chooseBase(id: string) {
     setBaseId(id);
     const next = bases.find((item) => item.id === id);
     // Rice and others take no soup: drop one picked for a swallow before.
-    if (next && soupRule(next) === "none") setSoupId("");
+    if (next && soupRule(next) === "none") { setSoupId(""); setSoupTouched(false); }
+    // A swallow needs a soup next: bring that step into view if it's below the screen.
+    if (next && soupRule(next) === "required" && !soupId) {
+      window.setTimeout(() => {
+        const step = soupStepRef.current;
+        if (!step || step.getBoundingClientRect().top < window.innerHeight * 0.75) return;
+        const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        step.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" });
+      }, 60);
+    }
   }
 
   return (
@@ -145,7 +193,7 @@ export function FoodMenu({ shop, menu, delivery }: { shop: Shop; menu: PublicMen
       </header>
 
       {closed && <p role="status" className="mt-3 rounded-2xl bg-[#fff3d6] px-4 py-3 text-sm font-semibold text-[#6b4700]">{shop.name} is closed right now. You can look at the menu, but orders open when the shop does.</p>}
-      {added && <p role="status" className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-[#e9f8ee] px-4 py-3 text-sm font-semibold text-[#16803c]"><span>✓ {added}</span><Link href="/checkout" className="font-black text-black underline underline-offset-4">Go to checkout</Link></p>}
+      {added && <p role="status" className="pk-anim-rise mt-3 flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-[#e9f8ee] px-4 py-3 text-sm font-semibold text-[#16803c]"><span>✓ {added}</span><Link href="/checkout" className="font-black text-black underline underline-offset-4">Go to checkout</Link></p>}
       {error && <p role="alert" className="mt-3 rounded-2xl bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{error}</p>}
 
       {menu.length === 0 ? (
@@ -171,7 +219,7 @@ export function FoodMenu({ shop, menu, delivery }: { shop: Shop; menu: PublicMen
                 {items.map((meal) => {
                   const quantity = mealQuantity[meal.id] ?? 1;
                   return (
-                    <li key={meal.id} className="flex gap-3 rounded-2xl border bg-white p-2.5 border-black/[0.11] shadow-[0_1px_2px_rgba(8,8,8,0.05),0_10px_24px_-16px_rgba(135,90,0,0.38)]">
+                    <li key={meal.id} className="pk-anim-rise flex gap-3 rounded-2xl border border-black/[0.11] bg-white p-2.5 shadow-[0_1px_2px_rgba(8,8,8,0.05),0_10px_24px_-16px_rgba(135,90,0,0.38)] transition duration-200 hover:border-black/20 hover:shadow-[0_2px_4px_rgba(8,8,8,0.05),0_18px_34px_-16px_rgba(135,90,0,0.5)] motion-safe:hover:-translate-y-0.5">
                       <Thumb item={meal} />
                       <div className="flex min-w-0 flex-1 flex-col">
                         <p className="font-black leading-5">{meal.name}</p>
@@ -192,44 +240,64 @@ export function FoodMenu({ shop, menu, delivery }: { shop: Shop; menu: PublicMen
           ))}
 
           {mode === "plate" && canBuild && (
-            <section className="mt-4 space-y-4" aria-label="Build your plate">
+            <section className="mt-4 space-y-5" aria-label="Build your plate">
               <fieldset>
-                <legend className="text-base font-black">1. Choose your plate</legend>
-                {baseTabs.length > 1 && (
-                  <div role="tablist" aria-label="Plate type" className="mt-2 flex gap-1.5 overflow-x-auto pb-1">
+                <StepTitle number={1} done={Boolean(base)}>Choose your plate</StepTitle>
+                {baseTabs.length > 2 && (
+                  <div role="tablist" aria-label="Plate type" className="-mx-1 mt-2.5 flex gap-1.5 overflow-x-auto px-1 pb-1">
                     {baseTabs.map((tab) => (
-                      <button key={tab} type="button" role="tab" aria-selected={activeTab === tab} onClick={() => setBaseTab(tab)} className={`min-h-10 shrink-0 rounded-full border px-4 text-sm font-black transition ${activeTab === tab ? "border-black bg-black text-white" : "border-black/10 bg-white text-black/70 hover:border-black/30"}`}>
-                        {tab === "MORE" ? "More" : GROUP_LABELS[tab]}
+                      <button key={tab} type="button" role="tab" aria-selected={activeTab === tab} onClick={() => setBaseTab(tab)} className={`min-h-10 shrink-0 rounded-full border px-4 text-sm font-black transition duration-200 motion-safe:active:scale-95 ${activeTab === tab ? "border-black bg-black text-white shadow-[0_6px_16px_-8px_rgba(8,8,8,0.6)]" : "border-black/10 bg-white text-black/70 hover:border-black/30 hover:text-black"}`}>
+                        {tab === "ALL" ? "All" : tab === "MORE" ? "More" : GROUP_LABELS[tab]}
+                        <span className={`ml-1.5 text-xs font-bold ${activeTab === tab ? "text-white/60" : "text-black/40"}`}>{tab === "ALL" ? bases.length : basesIn(tab).length}</span>
                       </button>
                     ))}
                   </div>
                 )}
-                {activeTab && BASE_TAB_HINT[activeTab] && <p className="mt-1.5 text-xs font-semibold text-black/55">{BASE_TAB_HINT[activeTab]}</p>}
-                <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                  {tabBases.map((item) => (
-                    <label key={item.id} className={`flex min-h-14 cursor-pointer items-center gap-3 rounded-2xl border bg-white p-2.5 transition ${baseId === item.id ? "border-black ring-1 ring-black" : "border-black/10 hover:border-black/25"}`}>
-                      <input type="radio" name="base" value={item.id} checked={baseId === item.id} onChange={() => chooseBase(item.id)} disabled={closed} className="h-5 w-5 accent-black" />
-                      <Thumb item={item} size="h-11 w-11" />
-                      <span className="min-w-0 flex-1"><span className="block font-black leading-5">{item.name}</span>{item.description && <span className="block truncate text-xs text-black/55">{item.description}</span>}</span>
-                      <span className="text-sm font-black">{naira(item.price)}</span>
-                    </label>
-                  ))}
+                <div key={activeTab ?? "none"} className="pk-anim-rise mt-2 space-y-3">
+                  {visibleGroups.map((group) => {
+                    const items = basesIn(group);
+                    const noSoupToday = group === "SWALLOW" && soups.length === 0;
+                    return (
+                      <div key={group}>
+                        {(activeTab === "ALL" || BASE_TAB_HINT[group]) && (
+                          <p className="mb-1.5 flex flex-wrap items-baseline gap-x-2 px-1">
+                            {activeTab === "ALL" && <span className="text-xs font-black uppercase tracking-[0.08em] text-black/55">{group === "MORE" ? "More" : GROUP_LABELS[group]}</span>}
+                            {BASE_TAB_HINT[group] && <span className={`text-xs font-semibold ${noSoupToday ? "text-[#a15c00]" : "text-black/50"}`}>{noSoupToday ? "No soup today, so swallow can’t be ordered right now" : BASE_TAB_HINT[group]}</span>}
+                          </p>
+                        )}
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          {items.map((item) => (
+                            <ChoiceCard key={item.id} name="base" checked={baseId === item.id} disabled={closed || noSoupToday} onSelect={() => chooseBase(item.id)}>
+                              <Thumb item={item} size="h-14 w-14" />
+                              <span className="min-w-0 flex-1">
+                                <span className="block font-black leading-5">{item.name}</span>
+                                {item.description && <span className="block truncate text-xs text-black/55">{item.description}</span>}
+                                {item.group === "SWALLOW" && !noSoupToday && <span className="mt-1 inline-flex rounded-full bg-[#e9f8ee] px-2 py-0.5 text-[0.6875rem] font-black text-[#16803c]">+ free soup</span>}
+                              </span>
+                              <span className="pr-6 text-base font-black">{naira(item.price)}</span>
+                            </ChoiceCard>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </fieldset>
 
               {showSoupStep && (
-                <fieldset>
-                  <legend className="text-base font-black">2. Choose your soup {rule === "required" ? <span className="ml-1 rounded-full bg-[#e9f8ee] px-2 py-0.5 align-middle text-[0.6875rem] font-black text-[#16803c]">Free</span> : <span className="font-medium text-black/50">(optional)</span>}</legend>
+                <fieldset ref={soupStepRef} className="pk-anim-rise scroll-mt-24">
+                  <StepTitle number={2} done={Boolean(soupId) || (rule === "optional" && soupTouched)}>
+                    Choose your soup {rule === "required" ? <span className="ml-1 rounded-full bg-[#e9f8ee] px-2 py-0.5 align-middle text-[0.6875rem] font-black text-[#16803c]">Free</span> : <span className="font-medium text-black/50">(optional)</span>}
+                  </StepTitle>
                   {soups.length === 0 ? (
                     <p className="mt-2 rounded-2xl bg-[#fff3d6] px-3 py-2.5 text-sm font-semibold text-[#6b4700]">No soup is available right now, so {base?.name} can’t be ordered. Try a rice plate or a ready-made meal.</p>
                   ) : (
-                    <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                    <div className="mt-2.5 grid grid-cols-2 gap-2 sm:grid-cols-3">
                       {[...(rule === "optional" ? [{ id: "", name: "No soup", price: 0 }] : []), ...soups].map((soup) => (
-                        <label key={soup.id || "none"} className={`flex min-h-12 cursor-pointer items-center gap-3 rounded-2xl border bg-white p-2.5 transition ${soupId === soup.id ? "border-black ring-1 ring-black" : "border-black/10 hover:border-black/25"}`}>
-                          <input type="radio" name="soup" value={soup.id} checked={soupId === soup.id} onChange={() => setSoupId(soup.id)} disabled={closed} className="h-5 w-5 accent-black" />
-                          <span className="flex-1 font-bold">{soup.name}</span>
-                          {soup.id && <span className={`text-sm font-black ${soup.price === 0 ? "text-[#16803c]" : ""}`}>{foodPriceLabel(soup.price)}</span>}
-                        </label>
+                        <ChoiceCard key={soup.id || "none"} name="soup" compact checked={soupId === soup.id && (soup.id !== "" || soupTouched)} disabled={closed} onSelect={() => { setSoupId(soup.id); setSoupTouched(true); }}>
+                          <span className="min-w-0 flex-1 font-bold leading-5">{soup.name}</span>
+                          {soup.id && <span className={`pr-7 text-xs font-black ${soup.price === 0 ? "text-[#16803c]" : ""}`}>{foodPriceLabel(soup.price)}</span>}
+                        </ChoiceCard>
                       ))}
                     </div>
                   )}
@@ -237,23 +305,29 @@ export function FoodMenu({ shop, menu, delivery }: { shop: Shop; menu: PublicMen
               )}
 
               {extras.length > 0 && (
-                <fieldset>
-                  <legend className="text-base font-black">{addOnStep}. Add protein &amp; more <span className="font-medium text-black/50">(optional)</span></legend>
+                <fieldset className={base ? "pk-anim-rise" : ""}>
+                  <StepTitle number={addOnStep} done={addOnCount > 0}>Add protein &amp; more <span className="font-medium text-black/50">(optional)</span></StepTitle>
                   {base && proteins.length > 0 && !hasProtein && <p className="mt-1.5 text-xs font-semibold text-[#7a4a00]">Add some protein? Most plates go with beef, fish or egg.</p>}
-                  <div className="mt-2 space-y-3">
+                  <div className="mt-2.5 space-y-3">
                     {EXTRA_SECTIONS.map(({ key, title, hint }) => {
                       const rows = extrasIn(key);
                       if (!rows.length) return null;
                       return (
                         <div key={key}>
                           <p className="px-1 text-xs font-black uppercase tracking-[0.08em] text-black/55">{title}{hint && <span className="ml-1.5 font-semibold normal-case tracking-normal text-black/45">{hint}</span>}</p>
-                          <ul className="mt-1.5 divide-y divide-black/5 rounded-2xl border border-black/10 bg-white">
-                            {rows.map((extra) => (
-                              <li key={extra.id} className="flex items-center gap-3 px-3 py-2">
-                                <span className="min-w-0 flex-1"><span className="block font-bold leading-5">{extra.name}</span><span className="text-xs text-black/55">{naira(extra.price)} each{hasExtraLimit(extra) ? ` · max ${extraLimit(extra)}` : ""}</span></span>
-                                <Stepper value={extraQuantity[extra.id] ?? 0} min={0} max={extraLimit(extra)} onChange={(value) => setExtraQuantity((current) => ({ ...current, [extra.id]: value }))} label={extra.name} disabled={closed} />
-                              </li>
-                            ))}
+                          <ul className="mt-1.5 overflow-hidden rounded-2xl border border-black/10 bg-white shadow-[0_1px_2px_rgba(8,8,8,0.04)]">
+                            {rows.map((extra) => {
+                              const quantity = extraQuantity[extra.id] ?? 0;
+                              return (
+                                <li key={extra.id} className={`flex items-center gap-3 border-b border-black/5 px-3 py-2.5 transition-colors duration-200 last:border-0 ${quantity > 0 ? "bg-[#fffbea] shadow-[inset_3px_0_0_#feb80a]" : ""}`}>
+                                  <span className="min-w-0 flex-1">
+                                    <span className="block font-bold leading-5">{extra.name}</span>
+                                    <span className="text-xs text-black/55">{naira(extra.price)} each{hasExtraLimit(extra) ? ` · max ${extraLimit(extra)}` : ""}{quantity > 0 && <span key={quantity} className="pk-anim-pop ml-1.5 inline-block font-black text-black">= {naira(extra.price * quantity)}</span>}</span>
+                                  </span>
+                                  <Stepper value={quantity} min={0} max={extraLimit(extra)} onChange={(value) => setExtraQuantity((current) => ({ ...current, [extra.id]: value }))} label={extra.name} disabled={closed} highlight={quantity > 0} />
+                                </li>
+                              );
+                            })}
                           </ul>
                         </div>
                       );
@@ -262,26 +336,27 @@ export function FoodMenu({ shop, menu, delivery }: { shop: Shop; menu: PublicMen
                 </fieldset>
               )}
 
-              <div className="rounded-2xl border border-black/10 bg-[#fffdf7] p-3.5" aria-live="polite">
+              <div className={`rounded-[22px] border bg-white p-4 transition-shadow duration-300 ${platePreview?.ok ? "border-black/15 shadow-[0_18px_40px_-24px_rgba(135,90,0,0.55)]" : "border-black/10"}`} aria-live="polite">
                 {platePreview?.ok ? (
-                  <dl className="space-y-1 text-sm">
+                  <dl className="space-y-1.5 text-sm">
+                    <p className="text-xs font-black uppercase tracking-[0.08em] text-black/50">Your plate</p>
                     {platePreview.line.details.kind === "PLATE" && <>
-                      <div className="flex justify-between"><dt>{platePreview.line.details.base.name}</dt><dd className="font-bold">{naira(platePreview.line.details.base.price)}</dd></div>
-                      {platePreview.line.details.soup && <div className="flex justify-between"><dt>{platePreview.line.details.soup.name}</dt><dd className="font-bold">{foodPriceLabel(platePreview.line.details.soup.price)}</dd></div>}
-                      {platePreview.line.details.extras.map((extra) => <div key={extra.id} className="flex justify-between"><dt>{extra.name}{extra.quantity > 1 ? ` × ${extra.quantity}` : ""}</dt><dd className="font-bold">{naira(extra.total)}</dd></div>)}
+                      <div className="flex justify-between gap-3"><dt>{platePreview.line.details.base.name}</dt><dd className="font-bold">{naira(platePreview.line.details.base.price)}</dd></div>
+                      {platePreview.line.details.soup && <div className="flex justify-between gap-3"><dt>{platePreview.line.details.soup.name}</dt><dd className={`font-bold ${platePreview.line.details.soup.price === 0 ? "text-[#16803c]" : ""}`}>{foodPriceLabel(platePreview.line.details.soup.price)}</dd></div>}
+                      {platePreview.line.details.extras.map((extra) => <div key={extra.id} className="flex justify-between gap-3"><dt>{extra.name}{extra.quantity > 1 ? ` × ${extra.quantity}` : ""}</dt><dd className="font-bold">{naira(extra.total)}</dd></div>)}
                     </>}
-                    <div className="flex items-center justify-between border-t border-black/10 pt-2">
+                    <div className="flex items-center justify-between border-t border-dashed border-black/15 pt-2.5">
                       <dt className="font-black">Plate {naira(platePreview.line.unitPrice)}{plates > 1 ? ` × ${plates}` : ""}</dt>
-                      <dd className="text-lg font-black">{naira(platePreview.line.total)}</dd>
+                      <dd key={platePreview.line.total} className="pk-anim-pop text-xl font-black">{naira(platePreview.line.total)}</dd>
                     </div>
                     <p className="text-xs text-black/55">{!delivery ? "+ delivery, shown at checkout." : delivery.options > 1 ? `Choose how fast you need it. Delivery starts from ${naira(delivery.fromFee)}.` : `+ ${naira(delivery.fromFee)} delivery, shown at checkout.`}</p>
                   </dl>
                 ) : (
-                  <p className="text-sm text-black/60">{platePreview && !platePreview.ok ? platePreview.error : "Choose your plate to see the price."}</p>
+                  <p className="flex items-center gap-2 text-sm text-black/60"><span aria-hidden="true">🍽️</span>{platePreview && !platePreview.ok ? platePreview.error : "Choose your plate to see the price."}</p>
                 )}
                 <div className="mt-3 flex items-center gap-2">
                   <Stepper value={plates} min={1} max={20} onChange={setPlates} label="Number of plates" disabled={closed} />
-                  <button type="button" onClick={() => plateRequest && void add(plateRequest, "plate")} disabled={closed || busy !== null || !platePreview?.ok} aria-busy={busy === "plate"} className="pk-btn pk-btn-primary min-h-11 flex-1">
+                  <button type="button" onClick={() => plateRequest && void add(plateRequest, "plate")} disabled={closed || busy !== null || !platePreview?.ok} aria-busy={busy === "plate"} className="pk-btn pk-btn-primary min-h-12 flex-1 transition duration-200 motion-safe:active:scale-[0.98]">
                     {busy === "plate" ? "Adding…" : platePreview?.ok ? `Add plate · ${naira(platePreview.line.total)}` : "Add plate"}
                   </button>
                 </div>
