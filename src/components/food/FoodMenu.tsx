@@ -10,7 +10,7 @@ import { productImageDeliveryUrl } from "../../lib/cloudinary-url";
 import { BASE_GROUPS, EXTRA_GROUPS, GROUP_LABELS, MAX_BASE_QUANTITY, MAX_DISTINCT_BASES, extraLimit, foodPriceLabel, hasExtraLimit, portionUnit, priceLine, soupRule, type FoodGroup, type LineRequest } from "../../lib/food/plate";
 import type { PublicMenuItem } from "../../lib/food/shops";
 
-type Shop = { id: string; name: string; description: string | null; imageUrl: string | null; location: string | null; isOpen: boolean };
+type Shop = { id: string; name: string; description: string | null; imageUrl: string | null; location: string | null; isOpen: boolean; foodPackFee: number };
 
 const naira = (amount: number) => `₦${amount.toLocaleString()}`;
 
@@ -165,7 +165,7 @@ export function FoodMenu({ shop, menu, delivery }: { shop: Shop; menu: PublicMen
     extras: Object.entries(extraQuantity).filter(([, quantity]) => quantity > 0).map(([productId, quantity]) => ({ productId, quantity })),
   } : null), [chosenBases, soupId, plates, extraQuantity]);
   // For display only: the server prices the plate again when it is added, and again at payment.
-  const platePreview = useMemo(() => (plateRequest ? priceLine(menu, plateRequest) : null), [menu, plateRequest]);
+  const platePreview = useMemo(() => (plateRequest ? priceLine(menu, plateRequest, shop.foodPackFee) : null), [menu, plateRequest, shop.foodPackFee]);
 
   async function add(line: LineRequest, key: string, clearCart = false) {
     if (sending.current) return;
@@ -246,6 +246,7 @@ export function FoodMenu({ shop, menu, delivery }: { shop: Shop; menu: PublicMen
             <span className={`rounded-full px-2 py-0.5 text-[0.6875rem] font-black ${shop.isOpen ? "bg-[#e9f8ee] text-[#16803c]" : "bg-black/6 text-black/60"}`}>{shop.isOpen ? "Open" : "Closed"}</span>
             {shop.location && <span>{shop.location}</span>}
             {delivery && <span>Delivery {delivery.options > 1 ? "from " : ""}{naira(delivery.fromFee)}</span>}
+            {shop.foodPackFee > 0 && <span className="inline-flex items-center gap-1"><span aria-hidden="true">🥡</span>Takeaway pack {naira(shop.foodPackFee)} per plate</span>}
           </p>
           {shop.description && <p className="mt-1.5 text-sm leading-5 text-black/70">{shop.description}</p>}
         </div>
@@ -284,7 +285,7 @@ export function FoodMenu({ shop, menu, delivery }: { shop: Shop; menu: PublicMen
                         <p className="font-black leading-5">{meal.name}</p>
                         {meal.description && <p className="mt-0.5 line-clamp-2 text-xs leading-4 text-black/60">{meal.description}</p>}
                         <div className="mt-auto flex flex-wrap items-center justify-between gap-2 pt-2">
-                          <p className="text-lg font-black">{naira(meal.price)}</p>
+                          <p className="text-lg font-black">{naira(meal.price)}{shop.foodPackFee > 0 && <span className="ml-1 text-xs font-bold text-black/50">+ {naira(shop.foodPackFee)} pack</span>}</p>
                           <div className="flex items-center gap-1.5">
                             <Stepper value={quantity} min={1} max={20} onChange={(value) => setMealQuantity((current) => ({ ...current, [meal.id]: value }))} label={`${meal.name} quantity`} disabled={closed} />
                             <button type="button" onClick={() => void add({ kind: "MEAL", productId: meal.id, quantity }, meal.id)} disabled={closed || busy !== null} aria-busy={busy === meal.id} className="pk-btn pk-btn-primary min-h-10 px-4">{busy === meal.id ? "Adding…" : "Add"}</button>
@@ -398,6 +399,7 @@ export function FoodMenu({ shop, menu, delivery }: { shop: Shop; menu: PublicMen
                       })}
                       {platePreview.line.details.soup && <div className="flex justify-between gap-3"><dt>{platePreview.line.details.soup.name}</dt><dd className={`font-bold ${platePreview.line.details.soup.price === 0 ? "text-[#16803c]" : ""}`}>{foodPriceLabel(platePreview.line.details.soup.price)}</dd></div>}
                       {platePreview.line.details.extras.map((extra) => <div key={extra.id} className="flex justify-between gap-3"><dt>{extra.name}{extra.quantity > 1 ? ` × ${extra.quantity}` : ""}</dt><dd className="font-bold">{naira(extra.total)}</dd></div>)}
+                      {platePreview.line.details.pack && <div className="flex justify-between gap-3"><dt>Takeaway pack</dt><dd className="font-bold">{naira(platePreview.line.details.pack.price)}</dd></div>}
                     </>}
                     <div className="flex items-center justify-between border-t border-dashed border-black/15 pt-2.5">
                       <dt className="font-black">Plate {naira(platePreview.line.unitPrice)}{plates > 1 ? ` × ${plates}` : ""}</dt>

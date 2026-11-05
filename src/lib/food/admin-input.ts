@@ -2,7 +2,7 @@
  * Validation for Admin → Food. Pure, so every rule is unit-tested; the admin API applies it on the
  * server. Nothing is filled in for the admin: every price, name and role must be set explicitly.
  */
-import { BASE_GROUPS, EXTRA_GROUPS, GROUP_LABELS, MAX_EXTRA_QUANTITY, isSellablePrice, type FoodGroup, type FoodRole } from "./plate";
+import { BASE_GROUPS, EXTRA_GROUPS, GROUP_LABELS, MAX_EXTRA_QUANTITY, MAX_PACK_FEE, isSellablePrice, isValidPackFee, type FoodGroup, type FoodRole } from "./plate";
 
 export const FOOD_ROLES: readonly FoodRole[] = ["MEAL", "BASE", "SOUP", "EXTRA"];
 export const ROLE_LABELS: Record<FoodRole, string> = { MEAL: "Ready-made meal", BASE: "Plate base", SOUP: "Soup", EXTRA: "Add-on" };
@@ -32,7 +32,7 @@ const flag = (value: unknown, label: string): Result<boolean> | undefined => {
   return typeof value === "boolean" ? { ok: true, data: value } : { ok: false, error: `${label} must be on or off.` };
 };
 
-export type ShopInput = { name?: string; description?: string | null; location?: string | null; imageUrl?: string | null; isOpen?: boolean; listedInFood?: boolean };
+export type ShopInput = { name?: string; description?: string | null; location?: string | null; imageUrl?: string | null; isOpen?: boolean; listedInFood?: boolean; foodPackFee?: number };
 
 /** `creating`: name is required. Image URLs are checked against image storage separately. */
 export function parseShopInput(body: unknown, creating: boolean): Result<ShopInput> {
@@ -55,6 +55,10 @@ export function parseShopInput(body: unknown, creating: boolean): Result<ShopInp
     const value = flag(b[key], label);
     if (value && !value.ok) return value;
     if (value?.ok) data[key] = value.data;
+  }
+  if (b.foodPackFee !== undefined) {
+    if (!isValidPackFee(b.foodPackFee)) return { ok: false, error: `Set the takeaway pack price in whole naira, from ₦0 (no charge) to ₦${MAX_PACK_FEE.toLocaleString("en-NG")}.` };
+    data.foodPackFee = b.foodPackFee;
   }
   if (creating && (data.isOpen || data.listedInFood)) return { ok: false, error: "Create the shop first, add its menu, then open it and show it in Food." };
   return { ok: true, data };

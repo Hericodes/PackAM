@@ -72,6 +72,7 @@ async function buildShop(admin: User, name: string, options: { open?: boolean; l
   assert.equal(created.status, 201, JSON.stringify(created.json));
   const shopId = created.json.id as string;
   trackForCleanup({ vendors: [shopId] });
+  assert.equal((await callRoute(app.shop.PATCH, { method: "PATCH", params: { id: shopId }, body: { foodPackFee: 0 } })).status, 200, "test shops charge no pack unless a test sets one");
   const add = async (body: Record<string, unknown>) => {
     const response = await callRoute(app.items.POST, { method: "POST", params: { id: shopId }, body: { available: true, ...body } });
     assert.equal(response.status, 201, JSON.stringify(response.json));
@@ -370,4 +371,37 @@ test("mixed plates: several items by the spoon, stored and re-priced exactly, me
   // Wraps of swallow with soup are fine, and an old tab sending baseId still works.
   assert.equal((await addFood(student, shopId, { kind: "PLATE", bases: [{ productId: ids.amala, quantity: 3 }], soupId: ids.ewedu, quantity: 1 })).status, 200);
   assert.equal((await addFood(student, shopId, { kind: "PLATE", baseId: ids.amala, soupId: ids.ewedu, quantity: 1 })).status, 200);
+});
+
+test("takeaway pack: a new shop starts at \u20a6300, one pack per plate and meal, and re-priced when the admin changes it", { skip }, async () => {
+  const admin = await createTestUser("ADMIN");
+  const student = await createTestUser("STUDENT");
+  signInAs(admin);
+  const fresh = await callRoute(app.shops.POST, { method: "POST", body: { name: `Pack default ${runTag}` } });
+  assert.equal(fresh.status, 201);
+  trackForCleanup({ vendors: [fresh.json.id as string] });
+  assert.equal((await app.db.vendor.findUniqueOrThrow({ where: { id: fresh.json.id as string } })).foodPackFee, 300, "new shops start at \u20a6300");
+
+  const { shopId, ids } = await buildShop(admin, "Pack kitchen");
+  signInAs(admin);
+  assert.equal((await callRoute(app.shop.PATCH, { method: "PATCH", params: { id: shopId }, body: { foodPackFee: 300 } })).status, 200);
+  assert.equal((await callRoute(app.shop.PATCH, { method: "PATCH", params: { id: shopId }, body: { foodPackFee: -5 } })).status, 400);
+
+  const plate = await addFood(student, shopId, { kind: "PLATE", bases: [{ productId: ids.rice, quantity: 2 }], extras: [{ productId: ids.meat, quantity: 1 }], quantity: 2 });
+  assert.equal(plate.status, 200, JSON.stringify(plate.json));
+  assert.equal((plate.json as { added: { unitPrice: number } }).added.unitPrice, 2 * 500 + 300 + 300, "items + meat + one pack");
+  const meal = await addFood(student, shopId, { kind: "MEAL", productId: ids.meal, quantity: 1 });
+  assert.equal((meal.json as { added: { unitPrice: number } }).added.unitPrice, 1500 + 300);
+
+  const { priceCart } = await import("../cart-pricing");
+  const before = await priceCart(app.db, student.userId);
+  assert.equal(before.subtotal, 2 * 1600 + 1800, "two plates and a meal: three packs");
+  assert.ok(before.lines.every((line) => line.details && "pack" in line.details && line.details.pack?.price === 300));
+
+  // The admin changes the pack price: the cart is priced again (checkout then asks the student to confirm).
+  signInAs(admin);
+  assert.equal((await callRoute(app.shop.PATCH, { method: "PATCH", params: { id: shopId }, body: { foodPackFee: 200 } })).status, 200);
+  const after = await priceCart(app.db, student.userId);
+  assert.equal(after.subtotal, 2 * 1500 + 1700);
+  assert.equal(await app.db.auditLog.count({ where: { actorId: admin.userId, resourceId: shopId, newState: { path: ["foodPackFee"], equals: 200 } } }), 1, "audited");
 });

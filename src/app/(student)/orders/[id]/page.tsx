@@ -14,7 +14,7 @@ import { optionsText } from "../../../../lib/products/variants";
 /** A food plate's frozen contents ("Amala + Ewedu + Meat ×2"), or null for anything else. */
 function plateOf(details: unknown) {
   const parsed = parseLineDetails(details);
-  return parsed?.kind === "PLATE" ? describeDetails(parsed) : null;
+  return parsed && (parsed.kind === "PLATE" || parsed.pack) ? describeDetails(parsed) : null;
 }
 import { formatCampusTime, isFinalOrderStatus, orderEventDescription, orderNextStep, orderProgress, orderStatusLabel, orderStatusMessage, orderTimeline, shortReference } from "../../../../lib/student-copy";
 

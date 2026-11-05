@@ -1,10 +1,12 @@
 "use client";
 
 import { FormEvent, useRef, useState } from "react";
+import { DEFAULT_PACK_FEE, isValidPackFee } from "../../../lib/food/plate";
+import { parseNairaInput } from "../../../lib/products/product-form";
 import { useRouter } from "next/navigation";
 import { ProductImageUpload } from "../../products/ProductImageUpload";
 
-type Shop = { id: string; name: string; description: string | null; location: string | null; imageUrl: string | null; isOpen: boolean; listedInFood: boolean; availableItems: number };
+type Shop = { id: string; name: string; description: string | null; location: string | null; imageUrl: string | null; isOpen: boolean; listedInFood: boolean; foodPackFee: number; availableItems: number };
 
 const label = "mb-1.5 block text-sm font-black";
 
@@ -15,6 +17,7 @@ export function FoodShopForm({ shop }: { shop?: Shop }) {
   const [description, setDescription] = useState(shop?.description ?? "");
   const [location, setLocation] = useState(shop?.location ?? "");
   const [imageUrl, setImageUrl] = useState(shop?.imageUrl ?? "");
+  const [packFee, setPackFee] = useState(String(shop?.foodPackFee ?? DEFAULT_PACK_FEE));
   const [imageBusy, setImageBusy] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -42,7 +45,9 @@ export function FoodShopForm({ shop }: { shop?: Shop }) {
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!name.trim()) return setError("Enter the shop’s name.");
-    const saved = await send({ name: name.trim(), description: description.trim(), location: location.trim(), imageUrl }, "save");
+    const pack = packFee.trim() === "" ? 0 : parseNairaInput(packFee);
+    if (!isValidPackFee(pack)) return setError("Set the takeaway pack price in whole naira, or 0 for no charge.");
+    const saved = await send({ name: name.trim(), description: description.trim(), location: location.trim(), imageUrl, foodPackFee: pack }, "save");
     if (!saved) return;
     if (shop) { setNotice("Saved."); router.refresh(); }
     else router.push(`/admin/food/${saved.id}`);
@@ -77,6 +82,11 @@ export function FoodShopForm({ shop }: { shop?: Shop }) {
           <div><label htmlFor="shop-location" className={label}>Location <span className="font-medium text-black/45">Optional</span></label><input id="shop-location" value={location} onChange={(event) => setLocation(event.target.value)} maxLength={120} placeholder="Where runners find it" className="pk-input" /></div>
         </div>
         <div><label htmlFor="shop-description" className={label}>Short description <span className="font-medium text-black/45">Optional</span></label><textarea id="shop-description" value={description} onChange={(event) => setDescription(event.target.value)} maxLength={1000} rows={2} placeholder="What students should know about this shop" className="pk-input resize-y py-3" /></div>
+        <div className="max-w-xs">
+          <label htmlFor="shop-pack-fee" className={label}>Takeaway pack price</label>
+          <div className="relative"><span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 font-black text-black/55" aria-hidden="true">₦</span><input id="shop-pack-fee" value={packFee} onChange={(event) => setPackFee(event.target.value)} inputMode="numeric" className="pk-input pl-9" /></div>
+          <p className="mt-1 text-xs text-black/55">Added to every plate and ready-made meal (one pack each). 0 = no pack charge. Changing it never changes paid orders.</p>
+        </div>
         <div><p className={label}>Shop photo <span className="font-medium text-black/45">Optional</span></p><ProductImageUpload value={imageUrl} onChange={setImageUrl} onBusyChange={setImageBusy} disabled={busy !== null} /></div>
         <p className="text-xs text-black/55">Students see the name, description, location and photo only. Phone numbers and notes stay internal.</p>
         <button type="submit" disabled={busy !== null || imageBusy} className="pk-btn pk-btn-primary pk-btn-lg">{busy === "save" ? "Saving…" : imageBusy ? "Waiting for the photo…" : shop ? "Save shop details" : "Create shop"}</button>

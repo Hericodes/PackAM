@@ -57,6 +57,13 @@ export function portionUnit(group: FoodGroup | null | undefined, count = 1) {
 }
 /** Matches the existing cart rule for any product. */
 export const MAX_LINE_QUANTITY = 99;
+/** A new food shop's takeaway pack price, and the highest an admin may set (the database CHECK matches). */
+export const DEFAULT_PACK_FEE = 300;
+export const MAX_PACK_FEE = 100_000;
+
+export function isValidPackFee(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 && value <= MAX_PACK_FEE;
+}
 
 export type MenuItem = {
   id: string;
@@ -87,7 +94,12 @@ export type LineRequest =
 
 /** What a priced line is made of, frozen into the payment snapshot and the order. */
 export type LineDetails =
-  | { kind: "MEAL"; meal: { id: string; name: string; price: number } }
+  | {
+      kind: "MEAL";
+      meal: { id: string; name: string; price: number };
+      /** The takeaway pack included in the line's price; absent when the shop charges none (and on older lines). */
+      pack?: { price: number };
+    }
   | {
       kind: "PLATE";
       /** The first plate item (all that plates from before mixing have). */
@@ -96,6 +108,8 @@ export type LineDetails =
       bases?: Array<{ id: string; name: string; price: number; quantity: number; total: number }>;
       soup: { id: string; name: string; price: number } | null;
       extras: Array<{ id: string; name: string; price: number; quantity: number; total: number }>;
+      /** The takeaway pack included in the plate's price; absent when the shop charges none (and on older plates). */
+      pack?: { price: number };
     };
 
 export type PricedLine = {
@@ -139,7 +153,10 @@ const isQuantity = (value: unknown, max: number): value is number => typeof valu
  * Prices one cart line against the shop's current menu. Every id must be one of this shop's available
  * items in the right role; anything else is refused with a message a student can act on.
  */
-export function priceLine(menu: MenuItem[], request: LineRequest): LineResult {
+export function priceLine(menu: MenuItem[], request: LineRequest, packFee = 0): LineResult {
+  // One takeaway pack per plate or meal, at the shop's price (0: none). Part of the unit price, frozen in the details.
+  if (!isValidPackFee(packFee)) return { ok: false, error: "This shop\u2019s pack price isn\u2019t set up right. Please try again later." };
+  const pack = packFee > 0 ? { pack: { price: packFee } } : {};
   const byId = new Map(menu.map((item) => [item.id, item]));
   const usable = (id: unknown, role: FoodRole) => {
     const item = typeof id === "string" ? byId.get(id) : undefined;
@@ -154,8 +171,8 @@ export function priceLine(menu: MenuItem[], request: LineRequest): LineResult {
       ok: true,
       line: {
         productId: meal.id, configKey: "", extras: [], name: meal.name,
-        unitPrice: meal.price, quantity: request.quantity, total: meal.price * request.quantity,
-        details: { kind: "MEAL", meal: { id: meal.id, name: meal.name, price: meal.price } },
+        unitPrice: meal.price + packFee, quantity: request.quantity, total: (meal.price + packFee) * request.quantity,
+        details: { kind: "MEAL", meal: { id: meal.id, name: meal.name, price: meal.price }, ...pack },
       },
     };
   }
@@ -210,7 +227,7 @@ export function priceLine(menu: MenuItem[], request: LineRequest): LineResult {
   }
 
   const basesTotal = bases.reduce((sum, { item, quantity }) => sum + item.price * quantity, 0);
-  const unitPrice = basesTotal + (soup?.price ?? 0) + extras.reduce((sum, extra) => sum + extra.item.price * extra.quantity, 0);
+  const unitPrice = basesTotal + (soup?.price ?? 0) + extras.reduce((sum, extra) => sum + extra.item.price * extra.quantity, 0) + packFee;
   if (!Number.isSafeInteger(unitPrice * request.quantity)) return { ok: false, error: "That plate is too large to price." };
   const simple = bases.length === 1 && bases[0].quantity === 1;
   // The cart line belongs to the first item by id (stable whatever order they were picked in). A mixed or bigger plate
@@ -235,6 +252,7 @@ export function priceLine(menu: MenuItem[], request: LineRequest): LineResult {
         ...(simple ? {} : { bases: bases.map(({ item, quantity }) => ({ id: item.id, name: item.name, price: item.price, quantity, total: item.price * quantity })) }),
         soup: soup ? { id: soup.id, name: soup.name, price: soup.price } : null,
         extras: extras.map(({ item, quantity }) => ({ id: item.id, name: item.name, price: item.price, quantity, total: item.price * quantity })),
+        ...pack,
       },
     },
   };
@@ -262,9 +280,9 @@ export function storedLineRequest(line: { productId: string; quantity: number; p
 
 /** One short line describing a plate, for the cart, checkout, order and runner. */
 export function describeDetails(details: LineDetails) {
-  if (details.kind === "MEAL") return details.meal.name;
+  if (details.kind === "MEAL") return details.pack ? `${details.meal.name} + Takeaway pack` : details.meal.name;
   const bases = details.bases ?? [{ ...details.base, quantity: 1, total: details.base.price }];
-  const parts = [...bases.map((item) => (item.quantity > 1 ? `${item.name} ×${item.quantity}` : item.name)), ...(details.soup ? [details.soup.name] : []), ...details.extras.map((extra) => (extra.quantity > 1 ? `${extra.name} ×${extra.quantity}` : extra.name))];
+  const parts = [...bases.map((item) => (item.quantity > 1 ? `${item.name} ×${item.quantity}` : item.name)), ...(details.soup ? [details.soup.name] : []), ...details.extras.map((extra) => (extra.quantity > 1 ? `${extra.name} ×${extra.quantity}` : extra.name)), ...(details.pack ? ["Takeaway pack"] : [])];
   return parts.join(" + ");
 }
 

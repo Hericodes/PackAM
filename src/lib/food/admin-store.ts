@@ -24,7 +24,7 @@ export async function createFoodShop(adminId: string, input: ShopInput): Promise
   return db.$transaction(async (tx) => {
     // Starts closed and hidden: an admin adds the menu, then opens and lists it.
     const shop = await tx.vendor.create({
-      data: { name: input.name!, type: "RESTAURANT", description: input.description ?? null, location: input.location ?? null, imageUrl: input.imageUrl ?? null, isOpen: false, listedInFood: false },
+      data: { name: input.name!, type: "RESTAURANT", description: input.description ?? null, location: input.location ?? null, imageUrl: input.imageUrl ?? null, isOpen: false, listedInFood: false, ...(input.foodPackFee !== undefined ? { foodPackFee: input.foodPackFee } : {}) },
       select: { id: true },
     });
     await writeAuditLog(tx, { actorId: adminId, action: "FOOD_SHOP_CREATED", resource: "Vendor", resourceId: shop.id, newState: { name: input.name! } });
@@ -33,7 +33,7 @@ export async function createFoodShop(adminId: string, input: ShopInput): Promise
 }
 
 export async function updateFoodShop(adminId: string, id: string, input: ShopInput): Promise<StoreResult<{ id: string }>> {
-  const before = await db.vendor.findUnique({ where: { id }, select: { id: true, name: true, imageUrl: true, isOpen: true, listedInFood: true } });
+  const before = await db.vendor.findUnique({ where: { id }, select: { id: true, name: true, imageUrl: true, isOpen: true, listedInFood: true, foodPackFee: true } });
   if (!before) return { ok: false, status: 404, error: "Shop not found." };
   const image = await checkImage(input.imageUrl, before.imageUrl);
   if (!image.ok) return image;
@@ -46,14 +46,15 @@ export async function updateFoodShop(adminId: string, id: string, input: ShopInp
         ...(input.location !== undefined ? { location: input.location } : {}),
         ...(input.imageUrl !== undefined ? { imageUrl: input.imageUrl } : {}),
         ...(input.isOpen !== undefined ? { isOpen: input.isOpen } : {}),
+        ...(input.foodPackFee !== undefined ? { foodPackFee: input.foodPackFee } : {}),
         ...(input.listedInFood !== undefined ? { listedInFood: input.listedInFood, ...(input.listedInFood ? { type: "RESTAURANT" as const } : {}) } : {}),
       },
-      select: { id: true, name: true, isOpen: true, listedInFood: true },
+      select: { id: true, name: true, isOpen: true, listedInFood: true, foodPackFee: true },
     });
     await writeAuditLog(tx, {
       actorId: adminId, action: "FOOD_SHOP_UPDATED", resource: "Vendor", resourceId: id,
-      previousState: { name: before.name, isOpen: before.isOpen, listedInFood: before.listedInFood },
-      newState: { name: updated.name, isOpen: updated.isOpen, listedInFood: updated.listedInFood },
+      previousState: { name: before.name, isOpen: before.isOpen, listedInFood: before.listedInFood, foodPackFee: before.foodPackFee },
+      newState: { name: updated.name, isOpen: updated.isOpen, listedInFood: updated.listedInFood, foodPackFee: updated.foodPackFee },
     });
     return { ok: true as const, data: { id } };
   });

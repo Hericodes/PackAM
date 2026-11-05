@@ -79,7 +79,8 @@ export default async function CheckoutPage() {
             items={cart.lines.map((line) => ({
               id: line.cartItemId,
               quantity: line.quantity,
-              name: line.name,
+              // A ready-made meal's takeaway pack is part of its price: say so.
+              name: line.details?.kind === "MEAL" && line.details.pack ? `${line.name} + takeaway pack` : line.name,
               imageUrl: line.imageUrl,
               category: line.category,
               unitPrice: line.unitPrice,

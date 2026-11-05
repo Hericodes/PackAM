@@ -11,7 +11,7 @@ export default async function AdminFoodShopPage({ params }: { params: Promise<{ 
   const { id } = await params;
   const shop = await db.vendor.findUnique({
     where: { id },
-    select: { id: true, name: true, description: true, location: true, imageUrl: true, isOpen: true, listedInFood: true,
+    select: { id: true, name: true, description: true, location: true, imageUrl: true, isOpen: true, listedInFood: true, foodPackFee: true,
       menuItems: { orderBy: [{ menuSection: "asc" }, { name: "asc" }], select: { id: true, name: true, foodRole: true, foodGroup: true, customerPrice: true, menuSection: true, description: true, imageUrl: true, maxPerPlate: true, status: true } } },
   });
   if (!shop) notFound();

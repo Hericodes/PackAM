@@ -84,7 +84,7 @@ export async function GET(_request: Request, context: Context) {
     ...(acceptance ? { acceptance } : {}),
     shop: order.shop,
     // A plate's base, soup and extras as one line, so the runner buys exactly what was paid for.
-    items: order.items.map(({ details, ...item }) => { const parsed = parseLineDetails(details); return { ...item, plate: parsed && parsed.kind === "PLATE" ? describeDetails(parsed) : null, options: optionsText(details) }; }),
+    items: order.items.map(({ details, ...item }) => { const parsed = parseLineDetails(details); return { ...item, plate: parsed && (parsed.kind === "PLATE" || parsed.pack) ? describeDetails(parsed) : null, options: optionsText(details) }; }),
     deliveryLocationLabel: frozen.label ?? saved?.label ?? "Campus delivery",
     ...(assignment.status === "ACCEPTED" ? {
       deliveryAddress: order.deliveryAddress,

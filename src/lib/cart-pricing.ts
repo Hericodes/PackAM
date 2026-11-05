@@ -75,10 +75,13 @@ export async function priceCart(reader: Reader, userId: string): Promise<PricedC
   // Food: the shop and its whole current menu, read once.
   let shop: PricedCart["shop"] = null;
   let menu: MenuItem[] = [];
+  // The shop's takeaway pack, added to every plate and meal (0 when the shop is gone or charges none).
+  let packFee = 0;
   if (context.kind === "food") {
-    const found = await reader.vendor.findUnique({ where: { id: context.shopId }, select: { id: true, name: true, isOpen: true, listedInFood: true, status: true } });
+    const found = await reader.vendor.findUnique({ where: { id: context.shopId }, select: { id: true, name: true, isOpen: true, listedInFood: true, status: true, foodPackFee: true } });
     const listed = Boolean(found && found.listedInFood && found.status === "ACTIVE");
     shop = found ? { id: found.id, name: found.name, isOpen: listed && found.isOpen } : null;
+    packFee = found?.foodPackFee ?? 0;
     if (!listed) problems.push(`${context.shopName} isn’t taking orders on PackAM right now.`);
     else if (!found!.isOpen) problems.push(`${found!.name} is closed right now, so it can’t take new orders.`);
     const items = await reader.product.findMany({ where: { shopId: context.shopId }, select: { id: true, name: true, foodRole: true, foodGroup: true, customerPrice: true, status: true, maxPerPlate: true } });
@@ -97,7 +100,7 @@ export async function priceCart(reader: Reader, userId: string): Promise<PricedC
       const priced = priceLine(menu, storedLineRequest({
         productId: item.productId, quantity: item.quantity, productRole: item.product.foodRole as FoodRole | null,
         extras: item.extras.map((extra) => ({ productId: extra.productId, quantity: extra.quantity, role: extra.product.foodRole as FoodRole | null })),
-      }));
+      }), packFee);
       if (!priced.ok) return { ...base, unitPrice: 0, total: 0, details: null, problem: priced.error };
       return { ...base, unitPrice: priced.line.unitPrice, total: priced.line.total, details: priced.line.details, problem: null };
     }

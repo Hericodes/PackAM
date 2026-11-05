@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { MAX_DISTINCT_BASES, MAX_EXTRA_QUANTITY, describeDetails, hasExtraLimit, portionUnit, foodPriceLabel, isSellablePrice, parseLineDetails, plateConfigKey, priceLine, soupRule, storedLineRequest, type MenuItem } from "./plate";
+import { DEFAULT_PACK_FEE, MAX_DISTINCT_BASES, MAX_EXTRA_QUANTITY, MAX_PACK_FEE, isValidPackFee, describeDetails, hasExtraLimit, portionUnit, foodPriceLabel, isSellablePrice, parseLineDetails, plateConfigKey, priceLine, soupRule, storedLineRequest, type MenuItem } from "./plate";
 import { addConflict, cartContext, isMixedCart } from "./cart-context";
 
 // A shop's menu as an admin might configure it. Names and prices are test fixtures, not real data.
@@ -222,4 +222,30 @@ test("the longest possible plate key fits the database limit", () => {
   const id = (n: number) => `c${String(n).padStart(24, "0")}`;
   const key = plateConfigKey(id(0), Array.from({ length: 12 }, (_, i) => ({ productId: id(i + 1), quantity: 99 })), Array.from({ length: MAX_DISTINCT_BASES }, (_, i) => ({ productId: id(i + 20), quantity: 99 })));
   assert.ok(key.length <= 500, `${key.length} characters`);
+});
+
+test("takeaway pack: one per plate and per meal, at the shop's price, shown in the details", () => {
+  assert.equal(DEFAULT_PACK_FEE, 300);
+  const plate = priceLine(grouped, { kind: "PLATE", bases: [{ productId: "jollof", quantity: 2 }], extras: [{ productId: "beef", quantity: 1 }], quantity: 3 }, 300);
+  assert.ok(plate.ok);
+  assert.equal(plate.line.unitPrice, 2 * 500 + 300 + 300, "items + beef + one pack");
+  assert.equal(plate.line.total, 3 * 1600, "three plates, three packs");
+  assert.deepEqual(plate.line.details.kind === "PLATE" && plate.line.details.pack, { price: 300 });
+  assert.equal(describeDetails(plate.line.details), "Jollof rice \u00d72 + Beef + Takeaway pack");
+  const meal = priceLine(menu, { kind: "MEAL", productId: "meal-jollof", quantity: 2 }, 250);
+  assert.ok(meal.ok && meal.line.unitPrice === 1500 + 250 && meal.line.total === 3500);
+  assert.equal(describeDetails(meal.line.details), "Jollof combo + Takeaway pack");
+  // No pack charge: nothing added and nothing shown, exactly as before.
+  const none = priceLine(grouped, { kind: "PLATE", bases: [{ productId: "jollof", quantity: 1 }], quantity: 1 }, 0);
+  assert.ok(none.ok && none.line.unitPrice === 500 && !("pack" in none.line.details));
+  assert.deepEqual(priceLine(grouped, { kind: "PLATE", bases: [{ productId: "jollof", quantity: 1 }], quantity: 1 }), none, "no price given = no pack");
+  // The pack never changes the cart key: the same plate merges whatever the pack costs.
+  const cheaper = priceLine(grouped, { kind: "PLATE", bases: [{ productId: "jollof", quantity: 2 }], extras: [{ productId: "beef", quantity: 1 }], quantity: 1 }, 200);
+  assert.ok(cheaper.ok && cheaper.line.configKey === plate.line.configKey);
+  for (const bad of [-1, 1.5, MAX_PACK_FEE + 1, Number.NaN]) {
+    assert.equal(isValidPackFee(bad), false, String(bad));
+    assert.equal(priceLine(menu, { kind: "MEAL", productId: "meal-jollof", quantity: 1 }, bad).ok, false, String(bad));
+  }
+  assert.equal(isValidPackFee(0), true);
+  assert.equal(isValidPackFee(MAX_PACK_FEE), true);
 });

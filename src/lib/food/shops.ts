@@ -7,7 +7,7 @@ import type { FoodGroup, FoodRole, MenuItem } from "./plate";
  * What students may see about a food shop. Selected explicitly so internal vendor fields (phone, notes,
  * reliability score, type) can never reach a student page.
  */
-const publicShopSelect = { id: true, name: true, description: true, imageUrl: true, location: true, isOpen: true } as const;
+const publicShopSelect = { id: true, name: true, description: true, imageUrl: true, location: true, isOpen: true, foodPackFee: true } as const;
 
 /** Priced menu items: at least ₦1, or a free (₦0) soup. Matches isSellablePrice. */
 const sellableFoodPrice = { OR: [{ customerPrice: { gte: 1 } }, { foodRole: "SOUP" as const, customerPrice: 0 }] };

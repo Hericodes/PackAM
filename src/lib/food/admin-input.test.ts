@@ -55,3 +55,12 @@ test("soups may be free; nothing else may", () => {
   assert.match((parseMenuItemInput({ price: 0 }, false, "EXTRA") as { error: string }).error, /at least ₦1/);
   assert.match((parseMenuItemInput({ name: "Amala", role: "BASE", group: "SWALLOW", price: 0 }, true) as { error: string }).error, /at least ₦1/);
 });
+
+test("shops: the takeaway pack price is whole naira from \u20a60 to \u20a6100,000", () => {
+  assert.deepEqual(parseShopInput({ foodPackFee: 300 }, false), { ok: true, data: { foodPackFee: 300 } });
+  assert.deepEqual(parseShopInput({ foodPackFee: 0 }, false), { ok: true, data: { foodPackFee: 0 } }, "0 = no pack charge");
+  for (const bad of [-1, 2.5, 100_001, "300", null]) {
+    const result = parseShopInput({ foodPackFee: bad }, false);
+    assert.ok(!result.ok && /takeaway pack price/.test(result.error), JSON.stringify(bad));
+  }
+});

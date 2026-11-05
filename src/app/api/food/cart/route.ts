@@ -23,13 +23,13 @@ export async function POST(request: Request) {
   }
 
   try {
-    const shop = await db.vendor.findFirst({ where: { id: body.shopId, ...listedShopWhere }, select: { id: true, name: true, isOpen: true } });
+    const shop = await db.vendor.findFirst({ where: { id: body.shopId, ...listedShopWhere }, select: { id: true, name: true, isOpen: true, foodPackFee: true } });
     if (!shop) return Response.json({ error: "This shop isn’t on PackAM Food right now." }, { status: 404 });
     if (!shop.isOpen) return Response.json({ error: `${shop.name} is closed right now, so it can’t take new orders.`, code: "SHOP_CLOSED" }, { status: 409 });
 
     const items = await db.product.findMany({ where: { shopId: shop.id, foodRole: { not: null } }, select: { id: true, name: true, foodRole: true, foodGroup: true, customerPrice: true, status: true, maxPerPlate: true } });
     const menu: MenuItem[] = items.map((item) => ({ id: item.id, name: item.name, role: item.foodRole!, group: item.foodGroup as FoodGroup | null, price: item.customerPrice, available: item.status === "ACTIVE" && isSellablePrice(item.foodRole!, item.customerPrice), maxPerPlate: item.maxPerPlate }));
-    const priced = priceLine(menu, body.line as LineRequest);
+    const priced = priceLine(menu, body.line as LineRequest, shop.foodPackFee);
     if (!priced.ok) return Response.json({ error: priced.error }, { status: 400 });
 
     const result = await addToCart(session.user.id, {

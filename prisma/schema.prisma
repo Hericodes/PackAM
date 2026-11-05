@@ -470,6 +470,9 @@ model Vendor {
   imageUrl     String?
   isOpen       Boolean @default(false)
   listedInFood Boolean @default(false)
+  /// Food shops: the takeaway pack added to every plate and ready-made meal, whole naira (0 = no charge, at most
+  /// 100,000; a CHECK enforces it). Frozen into each order line at checkout (migration 20261105170000).
+  foodPackFee  Int     @default(300)
 
   sources     ProductSource[]
   orderSources OrderSource[]
