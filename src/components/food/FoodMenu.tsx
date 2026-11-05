@@ -7,7 +7,7 @@ import { useMemo, useRef, useState } from "react";
 import { useCartExperience } from "../cart/CartExperience";
 import { CartConflictDialog } from "../cart/CartConflictDialog";
 import { productImageDeliveryUrl } from "../../lib/cloudinary-url";
-import { BASE_GROUPS, EXTRA_GROUPS, GROUP_LABELS, extraLimit, foodPriceLabel, priceLine, soupRule, type FoodGroup, type LineRequest } from "../../lib/food/plate";
+import { BASE_GROUPS, EXTRA_GROUPS, GROUP_LABELS, extraLimit, foodPriceLabel, hasExtraLimit, priceLine, soupRule, type FoodGroup, type LineRequest } from "../../lib/food/plate";
 import type { PublicMenuItem } from "../../lib/food/shops";
 
 type Shop = { id: string; name: string; description: string | null; imageUrl: string | null; location: string | null; isOpen: boolean };
@@ -250,7 +250,7 @@ export function FoodMenu({ shop, menu, delivery }: { shop: Shop; menu: PublicMen
                           <ul className="mt-1.5 divide-y divide-black/5 rounded-2xl border border-black/10 bg-white">
                             {rows.map((extra) => (
                               <li key={extra.id} className="flex items-center gap-3 px-3 py-2">
-                                <span className="min-w-0 flex-1"><span className="block font-bold leading-5">{extra.name}</span><span className="text-xs text-black/55">{naira(extra.price)} each · up to {extraLimit(extra)}</span></span>
+                                <span className="min-w-0 flex-1"><span className="block font-bold leading-5">{extra.name}</span><span className="text-xs text-black/55">{naira(extra.price)} each{hasExtraLimit(extra) ? ` · max ${extraLimit(extra)}` : ""}</span></span>
                                 <Stepper value={extraQuantity[extra.id] ?? 0} min={0} max={extraLimit(extra)} onChange={(value) => setExtraQuantity((current) => ({ ...current, [extra.id]: value }))} label={extra.name} disabled={closed} />
                               </li>
                             ))}

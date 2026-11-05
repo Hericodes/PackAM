@@ -34,8 +34,12 @@ export function foodPriceLabel(price: number) {
   return price === 0 ? "Free" : `₦${price.toLocaleString()}`;
 }
 
-/** The approved ceiling for one extra on one plate; an admin may set a lower one per extra. */
-export const MAX_EXTRA_QUANTITY = 5;
+/**
+ * How many of one add-on a plate may hold when the admin set no limit: in practice no limit (students add as much
+ * beef as they want). It's only a safety ceiling, the same as the cart's per-line quantity, so a stuck button or a
+ * crafted request can't make a nonsense order. The database allows exactly this range (CartItemExtra_quantity_check).
+ */
+export const MAX_EXTRA_QUANTITY = 99;
 /** Distinct extras on one plate. Keeps the plate key (and the cart line) bounded. */
 export const MAX_DISTINCT_EXTRAS = 12;
 /** Matches the existing cart rule for any product. */
@@ -49,7 +53,7 @@ export type MenuItem = {
   price: number;
   /** ACTIVE, priced and belonging to this shop: the only items a student may choose. */
   available: boolean;
-  /** EXTRA only. Null means MAX_EXTRA_QUANTITY. */
+  /** EXTRA only: the admin's optional per-plate limit. Null means no limit (MAX_EXTRA_QUANTITY). */
   maxPerPlate: number | null;
   /** BASE and EXTRA: its group, or null/absent for an item made before groups existed. */
   group?: FoodGroup | null;
@@ -86,6 +90,11 @@ export type LineResult = { ok: true; line: PricedLine } | { ok: false; error: st
 
 export function extraLimit(item: Pick<MenuItem, "maxPerPlate">) {
   return Math.min(MAX_EXTRA_QUANTITY, item.maxPerPlate ?? MAX_EXTRA_QUANTITY);
+}
+
+/** True when the admin limited this add-on; otherwise students may add as many as they like. */
+export function hasExtraLimit(item: Pick<MenuItem, "maxPerPlate">) {
+  return item.maxPerPlate !== null && item.maxPerPlate < MAX_EXTRA_QUANTITY;
 }
 
 /**
@@ -147,7 +156,11 @@ export function priceLine(menu: MenuItem[], request: LineRequest): LineResult {
     if (seen.has(item.id)) return { ok: false, error: `${item.name} is listed twice. Set its quantity instead.` };
     seen.add(item.id);
     const limit = extraLimit(item);
-    if (!isQuantity(entry.quantity, limit)) return { ok: false, error: `You can add ${item.name} up to ${limit} ${limit === 1 ? "time" : "times"} per plate.` };
+    if (!isQuantity(entry.quantity, limit)) {
+      return { ok: false, error: hasExtraLimit(item)
+        ? `You can add ${item.name} up to ${limit} ${limit === 1 ? "time" : "times"} per plate.`
+        : `Choose how many ${item.name} you want, from 1 to ${limit} per plate. For more, add another plate.` };
+    }
     extras.push({ item, quantity: entry.quantity });
   }
 

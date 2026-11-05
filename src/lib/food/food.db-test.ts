@@ -115,7 +115,7 @@ test("only admins can create or change food shops and menu items", { skip }, asy
   signInAs(admin);
   assert.equal((await callRoute(app.items.POST, { method: "POST", params: { id: shopId }, body: { name: "Free plantain", role: "EXTRA", group: "SIDE", price: 0 } })).status, 400, "only soups may be free");
   assert.equal((await callRoute(app.items.POST, { method: "POST", params: { id: shopId }, body: { name: "Ungrouped beef", role: "EXTRA", price: 300 } })).status, 400, "a new add-on needs a group");
-  assert.equal((await callRoute(app.items.POST, { method: "POST", params: { id: shopId }, body: { name: "Big meat", role: "EXTRA", group: "PROTEIN", price: 300, maxPerPlate: 6 } })).status, 400, "per-plate limit is at most 5");
+  assert.equal((await callRoute(app.items.POST, { method: "POST", params: { id: shopId }, body: { name: "Big meat", role: "EXTRA", group: "PROTEIN", price: 300, maxPerPlate: 100 } })).status, 400, "a per-plate limit is at most 99");
   assert.equal((await callRoute(app.shops.POST, { method: "POST", body: { name: "Opens at once", isOpen: true } })).status, 400, "a new shop starts closed and hidden");
 });
 
@@ -169,7 +169,12 @@ test("plates are priced on the server; identical plates merge, different plates 
   const summary = await callRoute(app.cart.GET);
   assert.equal((summary.json.summary as { subtotal: number }).subtotal, 2 * 1350 + (400 + 200 + 300) + 2 * 1500, "cart summary uses plate prices, not the base price");
 
-  assert.equal((await addFood(student, shopId, plate(ids, [[ids.meat, 6]]))).status, 400, "no more than 5 of an extra");
+  // No limit unless the admin set one: 12 meat is fine (the database allows up to 99), 100 is refused.
+  const hungry = await createTestUser("STUDENT");
+  const big = await addFood(hungry, shopId, plate(ids, [[ids.meat, 12]]));
+  assert.equal(big.status, 200, "as much meat as the student wants");
+  assert.deepEqual((await cartLines(hungry.userId)).flatMap((line) => line.extras).find((extra) => extra.productId === ids.meat), { productId: ids.meat, quantity: 12 }, "stored as 12");
+  assert.equal((await addFood(hungry, shopId, plate(ids, [[ids.meat, 100]]))).status, 400, "the safety ceiling is 99");
   const ponmo = await addFood(student, shopId, plate(ids, [[ids.ponmo, 3]]));
   assert.equal(ponmo.status, 400, "the admin's lower limit applies");
   assert.match(String(ponmo.json.error), /Ponmo up to 2/);

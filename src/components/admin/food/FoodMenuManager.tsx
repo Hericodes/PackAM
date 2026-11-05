@@ -58,7 +58,7 @@ function ItemForm({ shopId, item, sections, onDone }: { shopId: string; item?: A
     try {
       const body = {
         ...(item ? {} : { role }), ...(group && group !== item?.group ? { group } : {}), name: name.trim(), price: amount, section: section.trim(), description: description.trim(), imageUrl, available,
-        ...((item?.role ?? role) === "EXTRA" ? { maxPerPlate: maxPerPlate ? Number(maxPerPlate) : null } : {}),
+        ...((item?.role ?? role) === "EXTRA" ? { maxPerPlate: maxPerPlate && Number(maxPerPlate) > 0 ? Number(maxPerPlate) : null } : {}),
       };
       const response = await fetch(item ? `/api/admin/food/items/${item.id}` : `/api/admin/food/shops/${shopId}/items`, { method: item ? "PATCH" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const data = await response.json().catch(() => ({}));
@@ -119,11 +119,9 @@ function ItemForm({ shopId, item, sections, onDone }: { shopId: string; item?: A
         </div>
         {effectiveRole === "EXTRA" && (
           <div>
-            <label htmlFor={`item-max-${item?.id ?? "new"}`} className={label}>Most per plate</label>
-            <select id={`item-max-${item?.id ?? "new"}`} value={maxPerPlate} onChange={(event) => setMaxPerPlate(event.target.value)} className="pk-input">
-              <option value="">5 (the limit)</option>
-              {[1, 2, 3, 4].map((n) => <option key={n} value={n}>{n}</option>)}
-            </select>
+            <label htmlFor={`item-max-${item?.id ?? "new"}`} className={label}>Limit per plate <span className="font-medium text-black/45">Optional</span></label>
+            <input id={`item-max-${item?.id ?? "new"}`} value={maxPerPlate} onChange={(event) => setMaxPerPlate(event.target.value.replace(/\D/g, "").slice(0, 2))} inputMode="numeric" placeholder="No limit" className="pk-input" />
+            <p className="mt-1 text-xs text-black/55">Leave empty so students can add as many as they want. Set a number only to cap it (e.g. 1 egg).</p>
           </div>
         )}
       </div>
@@ -200,7 +198,7 @@ export function FoodMenuManager({ shopId, items }: { shopId: string; items: Admi
                       {/* The name keeps at least ~11rem; on a phone the status and buttons wrap below it. */}
                       <div className="min-w-[11rem] flex-1 basis-[11rem]">
                         <p className={`font-black ${item.available ? "" : "text-black/55"}`}>{item.name}</p>
-                        <p className="text-xs text-black/55">{foodPriceLabel(item.price)}{item.role === "BASE" && item.group ? ` · ${soupRule(item) === "required" ? "with free soup" : "no soup"}` : ""}{item.section ? ` · ${item.section}` : ""}{item.role === "EXTRA" ? ` · up to ${item.maxPerPlate ?? 5} per plate` : ""}</p>
+                        <p className="text-xs text-black/55">{foodPriceLabel(item.price)}{item.role === "BASE" && item.group ? ` · ${soupRule(item) === "required" ? "with free soup" : "no soup"}` : ""}{item.section ? ` · ${item.section}` : ""}{item.role === "EXTRA" ? (item.maxPerPlate ? ` · max ${item.maxPerPlate} per plate` : " · no limit") : ""}</p>
                       </div>
                       <div className="flex items-center gap-2">
                         {(item.role === "BASE" || item.role === "EXTRA") && !item.group && <span className="rounded-full bg-[#fff3d6] px-2.5 py-1 text-xs font-black text-[#7a4a00]">Set a group</span>}

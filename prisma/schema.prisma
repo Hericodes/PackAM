@@ -149,7 +149,7 @@ enum FoodRole {
   BASE
   /// An optional soup for a built plate (at most one per plate).
   SOUP
-  /// An individually priced extra for a built plate (quantity 1..maxPerPlate, at most 5).
+  /// An individually priced add-on for a built plate: as many as the student wants (safety ceiling 99), unless the admin set maxPerPlate.
   EXTRA
 }
 
@@ -414,7 +414,7 @@ model Product {
   foodGroup   FoodGroup?
   /// Admin-chosen menu heading, e.g. "Rice and meals". Free text; nothing is built in.
   menuSection String?
-  /// EXTRA only: the most a student may add to one plate (1..5). Null means the default of 5.
+  /// EXTRA only: an optional limit per plate (1..99) set by the admin. Null means no limit (safety ceiling 99).
   maxPerPlate Int?
 
   /// Optional narrower group inside the category. A database trigger keeps it inside the product's

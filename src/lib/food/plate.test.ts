@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { MAX_EXTRA_QUANTITY, describeDetails, foodPriceLabel, isSellablePrice, parseLineDetails, plateConfigKey, priceLine, soupRule, storedLineRequest, type MenuItem } from "./plate";
+import { MAX_EXTRA_QUANTITY, describeDetails, hasExtraLimit, foodPriceLabel, isSellablePrice, parseLineDetails, plateConfigKey, priceLine, soupRule, storedLineRequest, type MenuItem } from "./plate";
 import { addConflict, cartContext, isMixedCart } from "./cart-context";
 
 // A shop's menu as an admin might configure it. Names and prices are test fixtures, not real data.
@@ -48,21 +48,25 @@ test("invalid or unavailable choices are refused with a reason, never priced", (
   refuse({ kind: "PLATE", baseId: "base-rice", extras: [{ productId: "extra-egg", quantity: 1 }], quantity: 1 }, /isn’t available/);
   refuse({ kind: "PLATE", baseId: "base-rice", extras: [{ productId: "soup-ewedu", quantity: 1 }], quantity: 1 }, /isn’t available/);
   refuse({ kind: "PLATE", baseId: "base-rice", extras: [{ productId: "extra-meat", quantity: 1 }, { productId: "extra-meat", quantity: 2 }], quantity: 1 }, /listed twice/);
-  refuse({ kind: "PLATE", baseId: "base-rice", extras: [{ productId: "extra-meat", quantity: 0 }], quantity: 1 }, /up to 5 times/);
-  refuse({ kind: "PLATE", baseId: "base-rice", extras: [{ productId: "extra-meat", quantity: 1.5 }], quantity: 1 }, /up to 5 times/);
+  refuse({ kind: "PLATE", baseId: "base-rice", extras: [{ productId: "extra-meat", quantity: 0 }], quantity: 1 }, /how many Meat you want, from 1 to 99/);
+  refuse({ kind: "PLATE", baseId: "base-rice", extras: [{ productId: "extra-meat", quantity: 1.5 }], quantity: 1 }, /how many Meat you want/);
   refuse({ kind: "MEAL", productId: "meal-jollof", quantity: 0 }, /quantity from 1 to 99/);
   refuse({ kind: "MEAL", productId: "meal-jollof", quantity: 100 }, /quantity from 1 to 99/);
 });
 
-test("extras: at most 5 each, or the admin's lower limit", () => {
-  assert.equal(MAX_EXTRA_QUANTITY, 5);
-  assert.ok(priceLine(menu, { kind: "PLATE", baseId: "base-rice", extras: [{ productId: "extra-meat", quantity: 5 }], quantity: 1 }).ok);
-  const six = priceLine(menu, { kind: "PLATE", baseId: "base-rice", extras: [{ productId: "extra-meat", quantity: 6 }], quantity: 1 });
-  assert.ok(!six.ok && /Meat up to 5 times/.test(six.error));
+test("add-ons: as many as the student wants (safety ceiling 99), unless the admin set a limit", () => {
+  assert.equal(MAX_EXTRA_QUANTITY, 99);
+  const lots = priceLine(menu, { kind: "PLATE", baseId: "base-rice", extras: [{ productId: "extra-meat", quantity: 12 }], quantity: 1 });
+  assert.ok(lots.ok && lots.line.unitPrice === 500 + 12 * 300, "12 meat on one plate is fine");
+  assert.equal(describeDetails(lots.line.details), "White rice + Meat ×12");
+  assert.ok(priceLine(menu, { kind: "PLATE", baseId: "base-rice", extras: [{ productId: "extra-meat", quantity: 99 }], quantity: 1 }).ok);
+  const over = priceLine(menu, { kind: "PLATE", baseId: "base-rice", extras: [{ productId: "extra-meat", quantity: 100 }], quantity: 1 });
+  assert.ok(!over.ok && /from 1 to 99 per plate\. For more, add another plate\./.test(over.error));
   const ponmo = priceLine(menu, { kind: "PLATE", baseId: "base-rice", extras: [{ productId: "extra-ponmo", quantity: 3 }], quantity: 1 });
-  assert.ok(!ponmo.ok && /Ponmo up to 2 times/.test(ponmo.error), "admin lowered ponmo to 2");
-  const generous = priceLine([{ ...menu[5], maxPerPlate: 9 }, menu[1]], { kind: "PLATE", baseId: "base-rice", extras: [{ productId: "extra-meat", quantity: 6 }], quantity: 1 });
-  assert.ok(!generous.ok, "never above 5, whatever is stored");
+  assert.ok(!ponmo.ok && /Ponmo up to 2 times/.test(ponmo.error), "the admin limited ponmo to 2");
+  assert.deepEqual([hasExtraLimit({ maxPerPlate: null }), hasExtraLimit({ maxPerPlate: 2 }), hasExtraLimit({ maxPerPlate: 99 })], [false, true, false]);
+  const stored = priceLine([{ ...menu[5], maxPerPlate: 500 }, menu[1]], { kind: "PLATE", baseId: "base-rice", extras: [{ productId: "extra-meat", quantity: 100 }], quantity: 1 });
+  assert.ok(!stored.ok, "never above 99, whatever is stored");
 });
 
 test("identical plates share a key (choices in any order); different plates don't", () => {

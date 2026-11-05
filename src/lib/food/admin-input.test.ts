@@ -20,8 +20,9 @@ test("menu items: name, type and a price of at least ₦1 are required; nothing 
     [{ name: "x", role: "MEAL" }, /at least ₦1/],
     [{ name: "x", role: "MEAL", price: 0 }, /at least ₦1/],
     [{ name: "x", role: "MEAL", price: 12.5 }, /at least ₦1/],
-    [{ name: "x", role: "MEAL", price: 100, maxPerPlate: 2 }, /Only extras/],
-    [{ name: "x", role: "EXTRA", group: "PROTEIN", price: 100, maxPerPlate: 6 }, /from 1 to 5/],
+    [{ name: "x", role: "MEAL", price: 100, maxPerPlate: 2 }, /Only add-ons/],
+    [{ name: "x", role: "EXTRA", group: "PROTEIN", price: 100, maxPerPlate: 100 }, /from 1 to 99, or no limit/],
+    [{ name: "x", role: "EXTRA", group: "PROTEIN", price: 100, maxPerPlate: 0 }, /from 1 to 99, or no limit/],
   ] as const) assert.match((parseMenuItemInput(body, true) as { error: string }).error, pattern, JSON.stringify(body));
   assert.deepEqual(parseMenuItemInput({ name: "Ponmo", role: "EXTRA", group: "PROTEIN", price: 150, maxPerPlate: 2 }, true), { ok: true, data: { name: "Ponmo", role: "EXTRA", group: "PROTEIN", price: 150, maxPerPlate: 2 } });
 });

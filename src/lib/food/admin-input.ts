@@ -105,8 +105,8 @@ export function parseMenuItemInput(body: unknown, creating: boolean, existingRol
     data.imageUrl = typeof b.imageUrl === "string" && b.imageUrl.trim() ? b.imageUrl.trim() : null;
   }
   if (b.maxPerPlate !== undefined && b.maxPerPlate !== null && b.maxPerPlate !== "") {
-    if (role !== "EXTRA") return { ok: false, error: "Only extras have a per-plate limit." };
-    if (typeof b.maxPerPlate !== "number" || !Number.isInteger(b.maxPerPlate) || b.maxPerPlate < 1 || b.maxPerPlate > MAX_EXTRA_QUANTITY) return { ok: false, error: `The per-plate limit must be from 1 to ${MAX_EXTRA_QUANTITY}.` };
+    if (role !== "EXTRA") return { ok: false, error: "Only add-ons have a per-plate limit." };
+    if (typeof b.maxPerPlate !== "number" || !Number.isInteger(b.maxPerPlate) || b.maxPerPlate < 1 || b.maxPerPlate > MAX_EXTRA_QUANTITY) return { ok: false, error: `A per-plate limit must be from 1 to ${MAX_EXTRA_QUANTITY}, or no limit.` };
     data.maxPerPlate = b.maxPerPlate;
   } else if (b.maxPerPlate === null || b.maxPerPlate === "") {
     data.maxPerPlate = null;
