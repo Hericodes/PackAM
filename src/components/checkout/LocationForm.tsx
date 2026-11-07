@@ -1,10 +1,11 @@
 "use client";
 
-import { FormEvent, useEffect, useId, useMemo, useRef, useState } from "react";
+import { FormEvent, useId, useMemo, useRef, useState } from "react";
 import { formatCoordinates, mapsLink, type Coordinates } from "../../lib/delivery-location";
-import { PRECISE_FIX, isCoarse, requestPosition, requestPositionWithFallback, type GeoFailure } from "../../lib/geolocation";
+import { isCoarse } from "../../lib/geolocation";
 import { CAMPUS_KIND_LABELS, LOCATION_LABEL_MAX, campusPlaceAddress, deriveLocationLabel, matchCampusPlaces } from "../../lib/location-choice";
 import { CAMPUS_PLACES, type CampusPlace } from "../../config/campus-places";
+import { SERVICE_AREA } from "../../config/service-area";
 import { Icon } from "../ui/Icon";
 import type { DeliveryLocation } from "./LocationSelector";
 
@@ -13,69 +14,36 @@ type LocationFormProps = {
   onCancel: () => void;
   /** Campus suggestions; defaults to the operations-maintained list. */
   places?: CampusPlace[];
-  /** Show the optional "Use my current location" control (default true). Checkout's type-only option hides it. */
-  allowGps?: boolean;
-  /** A pin already captured from this phone (checkout's "current location" option). Shown read-only. */
+  /** The live pin from this phone, already checked to be on campus. Shown read-only and saved with the location. */
   pin?: { coordinates: Coordinates; accuracy: number | null };
+  /** Typed by hand (live location failed): the student must confirm the location is on campus. */
+  confirmOnCampus?: boolean;
   title?: string;
   intro?: string;
   submitLabel?: string;
   cancelLabel?: string;
 };
 
-type GpsState =
-  | { status: "idle" }
-  | { status: "locating"; precise: boolean }
-  | { status: "captured"; coordinates: Coordinates; accuracy: number | null }
-  | { status: Exclude<GeoFailure, "cancelled"> };
-
-const GPS_MESSAGES: Record<Exclude<GeoFailure, "cancelled">, string> = {
-  denied: "Location access was declined. No wahala — just type where you are above.",
-  unavailable: "We couldn’t get a position right now. Type where you are above — that’s all a runner needs.",
-  timeout: "Finding your position took too long. Type where you are above, or try again.",
-  unsupported: "This browser can’t share your location. Type where you are above.",
-};
-
 const LABEL_SUGGESTIONS = ["Hostel", "Faculty", "Main gate", "Library", "Lecture hall"];
 const DIRECTION_SUGGESTIONS = ["Meet me at the hostel gate", "Call me when you arrive", "I’m on the ground floor"];
 
-export function LocationForm({ onSaved, onCancel, places = CAMPUS_PLACES, allowGps = true, pin, title = "New delivery location", intro, submitLabel = "Save and use this location", cancelLabel = "Cancel" }: LocationFormProps) {
+/** The written part of a delivery location: where on campus, an optional name and directions, plus any live pin. */
+export function LocationForm({ onSaved, onCancel, places = CAMPUS_PLACES, pin, confirmOnCampus = false, title = "New delivery location", intro, submitLabel = "Save and use this location", cancelLabel = "Cancel" }: LocationFormProps) {
   const [label, setLabel] = useState("");
   const [address, setAddress] = useState("");
   const [instructions, setInstructions] = useState("");
-  const [gps, setGps] = useState<GpsState>(pin ? { status: "captured", coordinates: pin.coordinates, accuracy: pin.accuracy } : { status: "idle" });
+  const [onCampus, setOnCampus] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [addressError, setAddressError] = useState("");
+  const [campusError, setCampusError] = useState("");
   const [showSuggestions, setShowSuggestions] = useState(false);
   const addressRef = useRef<HTMLTextAreaElement>(null);
-  const cancelGps = useRef<(() => void) | null>(null);
+  const campusRef = useRef<HTMLInputElement>(null);
   const listId = useId();
-
-  useEffect(() => () => cancelGps.current?.(), []);
 
   const suggestions = useMemo(() => (showSuggestions ? matchCampusPlaces(address, places) : []), [address, places, showSuggestions]);
   const derivedLabel = address.trim() ? deriveLocationLabel(address) : "";
-
-  /** One-off position request, only after the student asks. No watching, nothing sent until they save. */
-  async function locate(precise: boolean) {
-    cancelGps.current?.();
-    setGps({ status: "locating", precise });
-    const env = { geolocation: typeof navigator !== "undefined" && "geolocation" in navigator ? navigator.geolocation : undefined, secureContext: typeof window !== "undefined" && window.isSecureContext };
-    const request = precise ? requestPosition(env, PRECISE_FIX) : requestPositionWithFallback(env);
-    cancelGps.current = request.cancel;
-    const result = await request.result;
-    if (cancelGps.current === request.cancel) cancelGps.current = null;
-    if (result.ok) {
-      setGps({ status: "captured", coordinates: result.coordinates, accuracy: result.accuracy });
-    } else if (result.reason === "cancelled") {
-      setGps((current) => (current.status === "locating" ? { status: "idle" } : current));
-    } else {
-      setGps({ status: result.reason });
-      // The written location is the fallback, so put the student straight there.
-      addressRef.current?.focus();
-    }
-  }
 
   function choosePlace(place: CampusPlace) {
     setAddress(campusPlaceAddress(place));
@@ -95,13 +63,18 @@ export function LocationForm({ onSaved, onCancel, places = CAMPUS_PLACES, allowG
       return;
     }
     setAddressError("");
+    if (confirmOnCampus && !onCampus) {
+      setCampusError(`PackAM only delivers on ${SERVICE_AREA.placeLabel}. Tick the box to confirm this location is on campus.`);
+      campusRef.current?.focus();
+      return;
+    }
+    setCampusError("");
     try {
       setLoading(true);
-      const coordinates = gps.status === "captured" ? gps.coordinates : null;
       const response = await fetch("/api/locations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ label: (label.trim() || derivedLabel).slice(0, LOCATION_LABEL_MAX), address: address.trim(), instructions: instructions.trim(), ...(coordinates ?? {}) }),
+        body: JSON.stringify({ label: (label.trim() || derivedLabel).slice(0, LOCATION_LABEL_MAX), address: address.trim(), instructions: instructions.trim(), ...(pin?.coordinates ?? {}) }),
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || "Unable to save this location.");
@@ -120,12 +93,22 @@ export function LocationForm({ onSaved, onCancel, places = CAMPUS_PLACES, allowG
     <form onSubmit={handleSubmit} noValidate aria-busy={loading} aria-labelledby="location-form-heading" className="space-y-5">
       <div>
         <h3 id="location-form-heading" className="text-lg font-black">{title}</h3>
-        <p className="mt-1 text-sm leading-6 text-black/60">{intro ?? (allowGps ? "Type where you are on campus — that’s all your runner needs. A GPS pin is an optional extra." : "Type where you are on campus — that’s all your runner needs.")}</p>
+        <p className="mt-1 text-sm leading-6 text-black/60">{intro ?? "Type where you are on campus — that’s all your runner needs."}</p>
       </div>
 
       {error && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{error}</p>}
 
-      {/* 1. Written campus location: the only required field */}
+      {/* The live pin from this phone (read-only) */}
+      {pin && (
+        <div className="rounded-2xl border border-black/10 bg-[#fffdf7] p-4">
+          <p className="flex items-center gap-2 text-sm font-black"><span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#16803c] text-white"><Icon name="check" className="h-3.5 w-3.5" strokeWidth={3} /></span> Live location from this phone</p>
+          <p className="mt-1 font-mono text-xs text-black/65">{formatCoordinates(pin.coordinates)}{pin.accuracy !== null && ` · ±${pin.accuracy} m`}</p>
+          {isCoarse(pin.accuracy) && <p className="mt-1 text-xs font-semibold text-[#a15c00]">This pin is approximate. Your written spot below matters most.</p>}
+          <a href={mapsLink(pin.coordinates)} target="_blank" rel="noopener noreferrer" className="mt-1 inline-flex min-h-9 items-center gap-1 text-xs font-bold underline underline-offset-2">Check it’s right on a map <Icon name="arrowRight" className="h-3 w-3" /></a>
+        </div>
+      )}
+
+      {/* 1. Written campus location: always required */}
       <div className="relative">
         <label htmlFor="location-address" className="mb-1.5 block text-sm font-black">Where on campus?</label>
         <textarea
@@ -161,48 +144,16 @@ export function LocationForm({ onSaved, onCancel, places = CAMPUS_PLACES, allowG
         {addressError && <p id="location-address-error" className="mt-1.5 text-sm font-semibold text-red-700">{addressError}</p>}
       </div>
 
-      {/* 2. GPS pin: optional control, or the pin checkout already captured (read-only) */}
-      {!allowGps && gps.status === "captured" && (
-        <div className="rounded-2xl border border-black/10 bg-[#fffdf7] p-4">
-          <p className="flex items-center gap-2 text-sm font-black"><span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#16803c] text-white"><Icon name="check" className="h-3.5 w-3.5" strokeWidth={3} /></span> GPS pin from this phone</p>
-          <p className="mt-1 font-mono text-xs text-black/65">{formatCoordinates(gps.coordinates)}{gps.accuracy !== null && ` · ±${gps.accuracy} m`}</p>
-          {isCoarse(gps.accuracy) && <p className="mt-1 text-xs font-semibold text-[#a15c00]">This pin is approximate. Your written location below matters most.</p>}
-          <a href={mapsLink(gps.coordinates)} target="_blank" rel="noopener noreferrer" className="mt-1 inline-flex min-h-9 items-center gap-1 text-xs font-bold underline underline-offset-2">Check it’s right on a map <Icon name="arrowRight" className="h-3 w-3" /></a>
+      {/* 2. Typed by hand: confirm it is on campus */}
+      {confirmOnCampus && (
+        <div>
+          <label className="flex min-h-11 cursor-pointer items-start gap-3 rounded-2xl border border-black/10 bg-[#fffdf7] p-3.5 text-sm">
+            <input ref={campusRef} type="checkbox" checked={onCampus} onChange={(event) => { setOnCampus(event.target.checked); if (event.target.checked) setCampusError(""); }} disabled={loading} aria-invalid={Boolean(campusError)} aria-describedby={campusError ? "location-campus-error" : undefined} className="mt-0.5 h-5 w-5 shrink-0 accent-black" />
+            <span><span className="font-black">This location is on {SERVICE_AREA.placeLabel}</span><span className="mt-0.5 block text-xs leading-5 text-black/60">PackAM only delivers on campus. Runners can’t deliver to off-campus hostels or other towns.</span></span>
+          </label>
+          {campusError && <p id="location-campus-error" className="mt-1.5 text-sm font-semibold text-red-700">{campusError}</p>}
         </div>
       )}
-      {allowGps && <>
-      <div className="rounded-2xl border border-black/10 bg-[#fffdf7] p-4">
-        {gps.status === "captured" ? (
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="min-w-0">
-              <p className="flex items-center gap-2 text-sm font-black"><span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#16803c] text-white"><Icon name="check" className="h-3.5 w-3.5" strokeWidth={3} /></span> GPS pin from this phone added</p>
-              <p className="mt-1 font-mono text-xs text-black/65">{formatCoordinates(gps.coordinates)}{gps.accuracy !== null && ` · ±${gps.accuracy} m`}</p>
-              {isCoarse(gps.accuracy) && <p className="mt-1 text-xs font-semibold text-[#a15c00]">This pin is approximate. Your written location matters most.</p>}
-              <a href={mapsLink(gps.coordinates)} target="_blank" rel="noopener noreferrer" className="mt-1 inline-flex min-h-9 items-center gap-1 text-xs font-bold underline underline-offset-2">Check it on a map <Icon name="arrowRight" className="h-3 w-3" /></a>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {isCoarse(gps.accuracy) && <button type="button" onClick={() => void locate(true)} disabled={loading} className="min-h-10 rounded-full border border-black/15 px-3 text-xs font-bold hover:bg-black/5">Get a more precise pin</button>}
-              <button type="button" onClick={() => setGps({ status: "idle" })} disabled={loading} className="min-h-10 rounded-full border border-black/15 px-3 text-xs font-bold hover:bg-black/5">Remove pin</button>
-            </div>
-          </div>
-        ) : gps.status === "locating" ? (
-          <div className="flex flex-wrap items-center justify-between gap-3" role="status" aria-live="polite">
-            <p className="flex items-center gap-2 text-sm font-black"><span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-r-transparent motion-reduce:animate-none" aria-hidden="true" /> {gps.precise ? "Getting a more precise pin…" : "Finding your location…"}</p>
-            <button type="button" onClick={() => cancelGps.current?.()} className="min-h-10 rounded-full border border-black/15 bg-white px-4 text-xs font-bold hover:bg-black/5">Stop</button>
-            <p className="w-full text-xs text-black/55">You can keep typing your location while this runs.</p>
-          </div>
-        ) : (
-          <>
-            <button type="button" onClick={() => void locate(false)} disabled={loading} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-full border border-black bg-white px-4 text-sm font-black transition hover:bg-[#fff4c7] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black disabled:opacity-70">
-              <Icon name="mapPin" className="h-[18px] w-[18px]" /> Use my current location
-            </button>
-            <p className="mt-2 text-xs leading-5 text-black/55">Optional. Your browser asks first; we read your position once and only save it with this location. We don’t track you.</p>
-            {gps.status !== "idle" && <p role="status" className="mt-2 rounded-xl bg-[#fff3d6] px-3 py-2 text-xs font-semibold leading-5 text-[#6b4700]">{GPS_MESSAGES[gps.status]}</p>}
-          </>
-        )}
-      </div>
-
-      </>}
 
       {/* 3. Optional short name */}
       <div>

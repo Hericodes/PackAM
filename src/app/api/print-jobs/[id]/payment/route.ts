@@ -4,6 +4,8 @@ import { createPrintPaymentAttempt } from "../../../../../lib/printing/service";
 import { parsePrintCheckoutSnapshot } from "../../../../../lib/printing/payment-snapshot";
 import { createHostedCheckout, printCheckoutProvider } from "../../../../../lib/payments/gateways";
 import { consumeRateLimit } from "../../../../../lib/rate-limit";
+import { OrderingClosedError, orderingClosedBody } from "../../../../../lib/ordering-hours";
+import { OutsideServiceAreaError } from "../../../../../lib/service-area";
 
 export const runtime = "nodejs";
 type Context = { params: Promise<{ id: string }> };
@@ -108,6 +110,8 @@ export async function POST(request: Request, context: Context) {
     }
     return Response.json({ cashierUrl: result.cashierUrl, resultUrl }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
+    if (error instanceof OrderingClosedError) return Response.json(orderingClosedBody(error, "print job"), { status: 409 });
+    if (error instanceof OutsideServiceAreaError) return Response.json({ error: error.message, code: "OUTSIDE_SERVICE_AREA" }, { status: 409 });
     const message = error instanceof Error ? error.message : "";
     if (/not ready for payment|saved delivery location|active student|print job not found|already pending|request key/i.test(message)) {
       return Response.json({ error: message }, { status: 409 });

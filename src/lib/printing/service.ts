@@ -14,6 +14,8 @@ import {
 } from "./document";
 import type { PrintUploadIdentity } from "./document-validation";
 import { transitionPrintJobInTransaction } from "./status";
+import { assertOrderingOpen } from "../ordering-hours";
+import { assertDeliverableLocation } from "../service-area";
 import {
   assertPrintJobMatchesCheckoutSnapshot,
   assertPrintCheckoutSnapshotsMatch,
@@ -323,6 +325,8 @@ export async function preparePrintJobForPayment(
   configuration: PrintConfiguration,
 ) {
   if (!deliveryLocationId) throw new Error("Choose a saved delivery location.");
+  // Printing follows the same 8am–5pm ordering hours; uploading, settings and quotes stay open all day.
+  assertOrderingOpen();
   return db.$transaction(async (tx) => {
     const [user, job, location, outstandingPayment] = await Promise.all([
       tx.user.findFirst({ where: { id: userId, role: "STUDENT", status: "ACTIVE" }, select: { id: true } }),
@@ -334,12 +338,14 @@ export async function preparePrintJobForPayment(
           document: { select: { id: true, publicId: true, originalFileName: true, fileSize: true, pageCount: true, mimeType: true, storageProvider: true, deletedAt: true } },
         },
       }),
-      tx.savedLocation.findFirst({ where: { id: deliveryLocationId, userId }, select: { id: true, label: true, address: true, instructions: true } }),
+      tx.savedLocation.findFirst({ where: { id: deliveryLocationId, userId }, select: { id: true, label: true, address: true, instructions: true, latitude: true, longitude: true } }),
       tx.payment.findFirst({ where: { printJobId, status: { in: ["PENDING", "RECONCILIATION_REQUIRED", "SUCCESS"] } }, select: { id: true } }),
     ]);
     if (!user) throw new Error("An active student account is required.");
     if (!job?.document || job.document.deletedAt) throw new Error("Upload a valid PDF before preparing checkout.");
     if (!location) throw new Error("Choose one of your saved delivery locations.");
+    // Only OOU main campus: a pin outside it is refused (a typed location has no pin).
+    assertDeliverableLocation(location);
     if (outstandingPayment) throw new Error("This print job already has a payment attempt and cannot be changed.");
 
     const { selection, pricing, instructions } = calculateJobPrice(configuration, job.document.pageCount);
@@ -518,7 +524,7 @@ export async function createPrintPaymentAttempt(
       const snapshot = assertPrintJobMatchesCheckoutSnapshot(job, job.checkoutSnapshot);
       const location = await tx.savedLocation.findFirst({
         where: { id: snapshot.deliveryLocationId, userId },
-        select: { id: true },
+        select: { id: true, latitude: true, longitude: true },
       });
       if (!location) {
         throw new Error("The saved delivery location is no longer available. Update it before payment.");
@@ -527,6 +533,9 @@ export async function createPrintPaymentAttempt(
         assertPrintCheckoutSnapshotsMatch(outstandingAttempt.checkoutSnapshot, snapshot);
         return outstandingAttempt;
       }
+      // A new attempt only: within ordering hours, to a location on OOU main campus. Resuming one (above) still works.
+      assertOrderingOpen();
+      assertDeliverableLocation(location);
       if (JSON.stringify(job.checkoutSnapshot) !== JSON.stringify(snapshot)) {
         const refreshed = await tx.printJob.updateMany({
           where: { id: printJobId, userId, status: "READY_FOR_PAYMENT" },

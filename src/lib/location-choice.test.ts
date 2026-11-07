@@ -51,14 +51,13 @@ test("the shipped campus list invents nothing: it is empty until operations adds
   for (const place of CAMPUS_PLACES) assert.ok(!("latitude" in place) && !("longitude" in place), "campus places never carry coordinates");
 });
 
-test("the new-location form needs only the written location; name, GPS and directions are optional", () => {
+test("the location form needs only the written location; name and directions are optional", () => {
   const html = renderToStaticMarkup(createElement(LocationForm, { onSaved: () => {}, onCancel: () => {}, places: PLACES }));
   assert.match(html, /Where on campus\?/);
   assert.match(html, /id="location-address"[^>]*aria-required="true"/);
   assert.doesNotMatch(html, /id="location-label"[^>]*aria-required="true"/);
   assert.match(html, /Name for this location <span[^>]*>\(optional\)/);
-  assert.match(html, /Use my current location/);
   assert.match(html, /Meet me at the hostel gate/);
-  // Address field comes before the GPS button: typing is never blocked behind location access.
-  assert.ok(html.indexOf("location-address") < html.indexOf("Use my current location"));
+  // Live location is taken before this form (CheckoutLocationStep), never from a button inside it.
+  assert.doesNotMatch(html, /Use my (current|live) location/);
 });

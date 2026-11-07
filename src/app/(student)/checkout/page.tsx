@@ -7,8 +7,8 @@ import { priceCart } from "../../../lib/cart-pricing";
 import { readDeliveryTierQuotes } from "../../../lib/delivery-tier-store";
 import { describeDetails } from "../../../lib/food/plate";
 import { describeOptions } from "../../../lib/products/variants";
-import { lastLocationFor } from "../../../lib/checkout-location-step";
 import { checkoutProvider } from "../../../lib/payments/gateways";
+import { orderingClock } from "../../../lib/ordering-hours";
 import { providerName } from "../../../lib/payments/provider-selection";
 
 /** A recent marketplace payment we haven't confirmed yet; warn before the student pays again. */
@@ -29,30 +29,15 @@ function findUnconfirmedPayment(userId: string) {
 
 export default async function CheckoutPage() {
   const session = await requireRole("STUDENT", "/checkout");
-  const [cart, savedLocations, unconfirmedPayment, lastOrder, tierQuotes] = await Promise.all([
+  const [cart, unconfirmedPayment, tierQuotes] = await Promise.all([
     // Every price here is the server's: product prices, and plates priced as base + soup + extras.
     priceCart(db, session.user.id),
-    db.savedLocation.findMany({
-      where: { userId: session.user.id },
-      orderBy: { createdAt: "desc" },
-      select: {
-        id: true,
-        label: true,
-        address: true,
-        instructions: true,
-        latitude: true,
-        longitude: true,
-      },
-    }),
     findUnconfirmedPayment(session.user.id),
-    // Where the student's last order went: preselected, so a returning student usually just pays.
-    db.order.findFirst({ where: { userId: session.user.id, deliveryLocationId: { not: null } }, orderBy: { createdAt: "desc" }, select: { deliveryLocationId: true } }),
     // Every delivery speed with its current server price and window, read fresh for each visit (never cached).
     // Before the delivery-tier migration this is Cruise Mode only, at ₦200.
     readDeliveryTierQuotes(db),
   ]);
-  // Only this student's own saved locations are ever loaded (queried by their user id above).
-  const lastLocation = lastLocationFor(savedLocations, lastOrder?.deliveryLocationId);
+  // Delivery always starts from the phone's live location, so saved locations aren't loaded here.
 
   const payWith = providerName(checkoutProvider());
   if (!cart.lines.length) redirect("/search");
@@ -91,7 +76,7 @@ export default async function CheckoutPage() {
             shopName={cart.context.kind === "food" ? cart.shop?.name ?? cart.context.shopName : null}
             problems={cart.problems}
             tiers={tierQuotes.quotes}
-            lastLocation={lastLocation}
+            ordering={orderingClock()}
           />
         </div>
       </div>

@@ -16,7 +16,7 @@ test("printing is a dedicated workflow, never a catalogue category or cart item"
 });
 
 test("the printing experience renders its upload entry before a document is selected", () => {
-  const page = renderToStaticMarkup(createElement(PrintStudio, { locations: [], initialJob: null }));
+  const page = renderToStaticMarkup(createElement(PrintStudio, { initialJob: null, ordering: { hours: { opensAtMinute: 0, closesAtMinute: 1_440, days: [0, 1, 2, 3, 4, 5, 6] }, serverNow: 0 } }));
   assert.match(page, /Your document/);
   assert.match(page, /Upload Document/);
   assert.match(page, /Up to 15 MB/);

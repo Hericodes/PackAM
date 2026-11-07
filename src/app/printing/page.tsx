@@ -2,8 +2,8 @@ import { redirect } from "next/navigation";
 import { auth } from "../../auth";
 import { StudentNavbar } from "../../components/student/StudentNavbar";
 import { PrintStudio } from "../../components/student/PrintStudio";
-import { db } from "../../lib/db";
 import Link from "next/link";
+import { orderingClock } from "../../lib/ordering-hours";
 import { PRINT_DELIVERY_FEE, PRINTING_PRICES } from "../../lib/printing/pricing";
 import { printStatusLabel } from "../../lib/printing/tracking-policy";
 import { getStudentPrintWorkspace, listStudentPaidPrintJobs } from "../../lib/printing/service";
@@ -13,12 +13,8 @@ export default async function PrintingPage() {
   if (!session?.user) redirect("/login?callbackUrl=%2Fprinting");
   if (session.user.role !== "STUDENT") redirect("/unauthorized");
 
-  const [locations, initialJob, paidJobs] = await Promise.all([
-    db.savedLocation.findMany({
-      where: { userId: session.user.id },
-      orderBy: { createdAt: "desc" },
-      select: { id: true, label: true, address: true, instructions: true, latitude: true, longitude: true },
-    }),
+  // Delivery always starts from the phone's live location, so saved locations aren't loaded here.
+  const [initialJob, paidJobs] = await Promise.all([
     getStudentPrintWorkspace(session.user.id),
     listStudentPaidPrintJobs(session.user.id),
   ]);
@@ -51,8 +47,8 @@ export default async function PrintingPage() {
         </section>
         <div className="packam-container">
           <PrintStudio
-            locations={locations}
             initialJob={initialJob}
+            ordering={orderingClock()}
           />
           {paidJobs.length > 0 && (
             <section className="mt-10 max-w-2xl" aria-labelledby="your-print-jobs">

@@ -8,6 +8,8 @@ import { isSchemaBehindCode, schemaBehindCodeResponse } from "../../../../lib/db
 import { parseCheckoutDeliveryRequest } from "../../../../lib/delivery-tiers";
 import { manualTransferAccount } from "../../../../lib/payments/manual-transfer";
 import { ensureManualCheckout } from "../../../../lib/payments/manual-transfer-store";
+import { OrderingClosedError, orderingClosedBody } from "../../../../lib/ordering-hours";
+import { OutsideServiceAreaError } from "../../../../lib/service-area";
 
 /**
  * Starts (or resumes) payment for the student's current cart. New attempts use the active provider
@@ -99,6 +101,11 @@ export async function POST(request: Request) {
     }
     return Response.json({ cashierUrl: checkout.checkoutUrl, provider: attempt.provider });
   } catch (error) {
+    // Outside 8am–5pm campus time: nothing was created. Checkout shows this and keeps the cart.
+    if (error instanceof OrderingClosedError) return Response.json(orderingClosedBody(error), { status: 409 });
+    if (error instanceof OutsideServiceAreaError) {
+      return Response.json({ error: `${error.message} Nothing has been charged.`, code: "OUTSIDE_SERVICE_AREA" }, { status: 409 });
+    }
     if (error instanceof PriceChangedError) {
       return Response.json({ error: "Prices changed since you reviewed your order. Check the new total before paying.", code: "PRICE_CHANGED", revised: error.revised }, { status: 409 });
     }

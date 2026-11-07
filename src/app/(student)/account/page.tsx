@@ -99,8 +99,8 @@ export default async function AccountPage() {
           </section>
 
           <section className="pk-card p-5 sm:p-6" aria-labelledby="addresses-heading">
-            <h2 id="addresses-heading" className="text-lg font-black">Delivery addresses</h2>
-            <p className="pk-muted mt-1 text-sm">Used at checkout and for print delivery.</p>
+            <h2 id="addresses-heading" className="text-lg font-black">Past delivery locations</h2>
+            <p className="pk-muted mt-1 text-sm">Checkout and printing use your live location on OOU main campus each time. These are places you’ve had things delivered to; remove any you don’t want kept.</p>
             <div className="mt-4">
               <AddressBook initial={addresses} />
             </div>

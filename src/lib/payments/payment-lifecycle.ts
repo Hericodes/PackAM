@@ -27,6 +27,8 @@ import { readDeliveryTierQuotesInTransaction, writeOrderDeliveryTierInTransactio
 import { describeDetails, parseLineDetails, type LineDetails } from "../food/plate";
 import { describeOptions, parseVariantDetails, type VariantDetails } from "../products/variants";
 import { CartNotPayableError, CheckoutAttemptMismatchError, DeliveryTierUnavailableError, PaymentFinalizationMismatchError, PriceChangedError } from "./payment-errors";
+import { assertOrderingOpen } from "../ordering-hours";
+import { assertDeliverableLocation } from "../service-area";
 
 type SnapshotItem = {
   cartItemId: string;
@@ -140,6 +142,9 @@ export async function createPaymentAttempt(
       });
       // Before any pricing, so an attempt started while its speed was on sale can still be resumed after it's turned off.
       if (existing) return resumable(existing, tier);
+      // Outside ordering hours (8am–5pm campus time) no new attempt is created. Resuming one started in time
+      // (above) still works, so a student who opened the payment page at 4:59pm can finish paying.
+      assertOrderingOpen();
 
       const student = await tx.user.findFirst({
         where: { id: session.user.id, role: "STUDENT", status: "ACTIVE" },
@@ -158,6 +163,8 @@ export async function createPaymentAttempt(
 
       if (!cart.cartId || !cart.lines.length) throw new Error("Your cart is empty.");
       if (!location) throw new Error("Choose one of your saved delivery locations.");
+      // PackAM delivers only on OOU main campus: a pin outside it is refused (a typed location has no pin).
+      assertDeliverableLocation(location);
       // Closed shop, hidden or unavailable items, or a mixed cart: nothing is charged until the student fixes it.
       if (cart.problems.length) throw new CartNotPayableError(cart.problems);
 

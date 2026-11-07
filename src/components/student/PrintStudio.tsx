@@ -1,7 +1,11 @@
 "use client";
 
 import { ChangeEvent, useEffect, useRef, useState } from "react";
-import { LocationSelector, type DeliveryLocation } from "../checkout/LocationSelector";
+import type { DeliveryLocation } from "../checkout/LocationSelector";
+import { CheckoutLocationStep } from "../checkout/CheckoutLocationStep";
+import { useOrderingStatus } from "../ordering/useOrderingStatus";
+import { openingPhrase, orderingHoursLabel, type OrderingClock } from "../../lib/ordering-hours";
+import { Icon } from "../ui/Icon";
 import { PRINTING_LIMITS } from "../../lib/printing/limits";
 import { parsePageSelection } from "../../lib/printing/page-selection";
 import { MAX_PRINT_DOCUMENT_BYTES, validatePrintFile } from "../../lib/printing/upload-validation";
@@ -68,8 +72,9 @@ type UploadedCloudinaryAsset = {
 };
 
 type PrintStudioProps = {
-  locations: DeliveryLocation[];
   initialJob: InitialPrintJob | null;
+  /** Ordering hours and the server's clock: outside hours students can upload and price, but not pay. */
+  ordering: OrderingClock;
 };
 
 const money = (amount: number) => `₦${amount.toLocaleString()}`;
@@ -148,15 +153,19 @@ function uploadToCloudinary(file: File, credentials: UploadCredentials, onProgre
   });
 }
 
-export function PrintStudio({ locations, initialJob }: PrintStudioProps) {
+export function PrintStudio({ initialJob, ordering: orderingClock }: PrintStudioProps) {
   const fileInput = useRef<HTMLInputElement>(null);
   const [jobId, setJobId] = useState(initialJob?.id ?? null);
   const [replacesPrintJobId, setReplacesPrintJobId] = useState(initialJob?.pendingReplacementForJobId ?? initialJob?.replacesPrintJobId ?? null);
   const [document, setDocument] = useState<PrintDocument | null>(initialJob?.document ?? null);
   const [configuration, setConfiguration] = useState(() => configurationFromJob(initialJob));
-  const [selectedLocation, setSelectedLocation] = useState<DeliveryLocation | null>(
-    locations.find((location) => location.id === initialJob?.deliveryLocationId) ?? locations[0] ?? null,
-  );
+  // Delivery always starts from the phone's live location, so nothing is preselected.
+  const [selectedLocation, setSelectedLocation] = useState<DeliveryLocation | null>(null);
+  // Before 8am and from 5pm: upload, settings and price all work; paying waits for opening time.
+  const ordering = useOrderingStatus(orderingClock);
+  const orderingOpen = ordering.open;
+  // "at 8am" later today, else "Monday at 8am".
+  const opening = ordering.open ? "" : openingPhrase(ordering, orderingClock.hours);
   const [quoteState, setQuoteState] = useState<{
     requestKey: string;
     status: "loading" | "ready" | "error";
@@ -380,7 +389,7 @@ export function PrintStudio({ locations, initialJob }: PrintStudioProps) {
     }
   }
 
-  const canPrepare = Boolean(jobId && document && selectedLocation && quote && !quoteLoading && !quoteError && !uploading && !preparing);
+  const canPrepare = Boolean(orderingOpen && jobId && document && selectedLocation && quote && !quoteLoading && !quoteError && !uploading && !preparing);
 
   return (
     <div className="mt-7 grid items-start gap-5 lg:mt-9 lg:grid-cols-[minmax(0,1fr)_360px] lg:gap-7">
@@ -499,15 +508,21 @@ export function PrintStudio({ locations, initialJob }: PrintStudioProps) {
               </div>
             </section>
 
-            <LocationSelector
-              locations={locations}
-              selectedLocation={selectedLocation}
-              onSelect={(location) => {
-                setSelectedLocation(location);
-                setPrepared(false);
-                setNotice("");
-              }}
-            />
+            <section aria-labelledby="print-delivery-heading" className="rounded-3xl border border-black/5 bg-white p-5 shadow-sm sm:p-7">
+              <h2 id="print-delivery-heading" className="mb-4 flex items-center gap-2 text-lg font-black"><Icon name="mapPin" className="h-5 w-5 text-[#875a00]" /> Deliver to</h2>
+              <CheckoutLocationStep
+                confirmed={selectedLocation}
+                onConfirm={(location) => {
+                  setSelectedLocation(location);
+                  setPrepared(false);
+                  setNotice("");
+                }}
+                onChange={() => {
+                  setSelectedLocation(null);
+                  setPrepared(false);
+                }}
+              />
+            </section>
           </>
         )}
       </div>
@@ -532,7 +547,7 @@ export function PrintStudio({ locations, initialJob }: PrintStudioProps) {
               </div>
               <div className="border-b border-black/5 py-4">
                 <p className="text-xs font-black uppercase text-black/40">Delivery</p>
-                <p className="mt-1 text-sm font-bold">{selectedLocation?.label ?? "Choose a location"}</p>
+                <p className="mt-1 text-sm font-bold">{selectedLocation?.label ?? "Share your live location"}</p>
                 {selectedLocation && <p className="mt-1 break-words text-sm text-black/55">{selectedLocation.address}</p>}
               </div>
               <div className="space-y-2 py-4 text-sm">
@@ -548,9 +563,9 @@ export function PrintStudio({ locations, initialJob }: PrintStudioProps) {
             </section>
             <section className="sticky bottom-3 rounded-2xl border border-black/5 bg-[#fffdf7] p-3 shadow-[0_8px_30px_rgba(0,0,0,0.12)] lg:static lg:border-0 lg:bg-transparent lg:p-0 lg:shadow-none">
               <button type="button" onClick={() => void prepareForPayment()} disabled={!canPrepare} className="flex min-h-12 w-full items-center justify-center rounded-full bg-black px-5 text-sm font-black text-white transition hover:bg-black/85 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black disabled:cursor-not-allowed disabled:opacity-40">
-                {preparing ? "Preparing payment…" : "Continue to payment"}
+                {!orderingOpen ? `Ordering opens ${opening}` : preparing ? "Preparing payment…" : "Continue to payment"}
               </button>
-              <p className="mt-2 text-center text-xs leading-5 text-black/50">Your total is checked and saved by PackAM before secure checkout.</p>
+              <p className="mt-2 text-center text-xs leading-5 text-black/50">{orderingOpen ? "Your total is checked and saved by PackAM before secure checkout." : `We take orders ${orderingHoursLabel(orderingClock.hours)}. Your print job is saved, so come back ${opening} to pay.`}</p>
             </section>
           </>
         ) : (

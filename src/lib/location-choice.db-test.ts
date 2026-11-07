@@ -76,7 +76,7 @@ test("the chosen location, pin and instructions are attached to the order; last-
   const student = await createTestUser("STUDENT");
   const other = await createTestUser("STUDENT");
   const first = locationOf(await saveLocation(student, { address: "Test Hall C, Room 9", instructions: "Call me" }));
-  const second = locationOf(await saveLocation(student, { label: "Faculty", address: "Faculty of Testing, Block 2", latitude: 6.812345, longitude: 3.912345 }));
+  const second = locationOf(await saveLocation(student, { label: "Faculty", address: "Faculty of Testing, Block 2", latitude: 6.9225, longitude: 3.871801 }));
   const foreign = locationOf(await saveLocation(other, { address: "Someone else's room" }));
 
   const { products } = await createTestCatalogue([{ name: "Location test item", price: 600 }]);
@@ -92,7 +92,7 @@ test("the chosen location, pin and instructions are attached to the order; last-
   assert.deepEqual(order, { deliveryLocationId: second.id, deliveryAddress: "Faculty of Testing, Block 2", deliveryInstructions: "Meet me at the hostel gate" });
   const snapshot = (await db.payment.findUniqueOrThrow({ where: { id: attempt.id }, select: { checkoutSnapshot: true } })).checkoutSnapshot as Record<string, unknown>;
   assert.equal(snapshot.deliveryLocationLabel, "Faculty");
-  assert.equal(snapshot.deliveryLatitude, 6.812345, "the runner gets the student's own pin");
+  assert.equal(snapshot.deliveryLatitude, 6.9225, "the runner gets the student's own pin");
 
   // Next checkout: the last-used location comes first even though another was saved earlier/later.
   const saved = await db.savedLocation.findMany({ where: { userId: student.userId }, orderBy: { createdAt: "desc" }, select: { id: true } });

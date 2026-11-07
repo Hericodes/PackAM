@@ -13,6 +13,8 @@ import { productImageDeliveryUrl } from "../../lib/cloudinary-url";
 import { productGlyph } from "../../lib/products/category-display";
 import { DELIVERY_TIER_LABELS, checkoutDeliveryFee, formatEta, parseDeliveryTier, type DeliveryTierCode, type DeliveryTierQuote } from "../../lib/delivery-tiers";
 import { deliveryTierProblem, initialDeliveryTier, paymentAttemptStorageKey } from "../../lib/checkout-delivery-step";
+import { openingPhrase, orderingHoursLabel, type OrderingClock } from "../../lib/ordering-hours";
+import { useOrderingStatus } from "../ordering/useOrderingStatus";
 
 
 type CheckoutItem = {
@@ -50,8 +52,8 @@ type CheckoutClientProps = {
   items: CheckoutItem[];
   /** Every delivery speed with its server price and window, in display order. */
   tiers: DeliveryTierQuote[];
-  /** The student's own most recent delivery location, offered as "Use my last location". */
-  lastLocation: DeliveryLocation | null;
+  /** Ordering hours and the server's clock: outside hours the cart stays, but payment can't start. */
+  ordering: OrderingClock;
   /** Display name of the provider new checkouts use, e.g. "Paystack". */
   providerName?: string;
   /** Manual bank transfer: checkout hands out PackAM's account number instead of opening a payment gateway. */
@@ -64,13 +66,13 @@ type CheckoutClientProps = {
 
 const money = (amount: number) => `₦${amount.toLocaleString()}`;
 
-export function CheckoutClient({ items: initialItems, tiers, lastLocation, providerName = "our payment partner", payByTransfer = false, shopName = null, problems = [] }: CheckoutClientProps) {
+export function CheckoutClient({ items: initialItems, tiers, ordering: orderingClock, providerName = "our payment partner", payByTransfer = false, shopName = null, problems = [] }: CheckoutClientProps) {
   const router = useRouter();
   const { setSummary } = useCartExperience();
   // The server's revised breakdown when prices changed; payment waits for the student to confirm it.
   const [revised, setRevised] = useState<Revised | null>(null);
   const [items, setItems] = useState(initialItems);
-  // Nothing is preselected: every checkout starts with the three location options.
+  // Nothing is preselected: every checkout starts from the phone's live location.
   const [selectedLocation, setSelectedLocation] = useState<DeliveryLocation | null>(null);
   const [deliveryInstructions, setDeliveryInstructions] = useState("");
   // Chosen once when checkout opens (Cruise Mode when it's on sale). After that only the student changes it: a refresh
@@ -88,6 +90,11 @@ export function CheckoutClient({ items: initialItems, tiers, lastLocation, provi
   const deliveryProblem = deliveryTierProblem(tiers, selectedTier);
   const currentDeliveryFee = checkoutDeliveryFee(selectedQuote, items.length);
   const total = subtotal + currentDeliveryFee;
+  // Before 8am and from 5pm everything works except paying. Flips by itself at opening and closing time.
+  const ordering = useOrderingStatus(orderingClock);
+  const orderingOpen = ordering.open;
+  // "at 8am" later today, else "Monday at 8am".
+  const opening = ordering.open ? "" : openingPhrase(ordering, orderingClock.hours);
 
   // A refresh (after a price change or an unavailable item) brings new server prices: show them.
   const [syncedItems, setSyncedItems] = useState(initialItems);
@@ -154,6 +161,10 @@ export function CheckoutClient({ items: initialItems, tiers, lastLocation, provi
     setError("");
     setMessage("");
     if (!items.length) return;
+    if (!orderingOpen) {
+      setError(`Ordering is closed right now. Come back ${opening} to pay; your cart is saved.`);
+      return;
+    }
     if (!selectedLocation) {
       setError("Choose a delivery location to continue.");
       focusStep("checkout-delivery");
@@ -215,6 +226,23 @@ export function CheckoutClient({ items: initialItems, tiers, lastLocation, provi
         focusStep("checkout-speed");
         return;
       }
+      // Closed while the student was paying: nothing was created. The refresh brings the server's clock.
+      if (response.status === 409 && data.code === "ORDERING_CLOSED") {
+        window.sessionStorage.removeItem(storageKey);
+        setError(typeof data.error === "string" ? data.error : `Ordering is closed right now. Come back ${opening} to pay.`);
+        setPaymentBusy(false);
+        router.refresh();
+        return;
+      }
+      // The chosen location's pin is off campus: choose again.
+      if (response.status === 409 && data.code === "OUTSIDE_SERVICE_AREA") {
+        window.sessionStorage.removeItem(storageKey);
+        setError(typeof data.error === "string" ? data.error : "This delivery location is outside campus. Choose a location on campus.");
+        setSelectedLocation(null);
+        setPaymentBusy(false);
+        focusStep("checkout-delivery");
+        return;
+      }
       if (response.status === 409 && data.code === "CART_NOT_PAYABLE") {
         window.sessionStorage.removeItem(storageKey);
         router.refresh();
@@ -231,9 +259,9 @@ export function CheckoutClient({ items: initialItems, tiers, lastLocation, provi
   }
 
   const paymentButton = (
-    <button type="button" onClick={() => void handlePayment()} disabled={!items.length || paymentBusy || busyItem !== null || problems.length > 0 || revised !== null || deliveryProblem !== null} aria-busy={paymentBusy} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-black px-5 text-sm font-black text-white transition hover:bg-[#262626] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black disabled:cursor-not-allowed disabled:opacity-40">
+    <button type="button" onClick={() => void handlePayment()} disabled={!items.length || !orderingOpen || paymentBusy || busyItem !== null || problems.length > 0 || revised !== null || deliveryProblem !== null} aria-busy={paymentBusy} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-black px-5 text-sm font-black text-white transition hover:bg-[#262626] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black disabled:cursor-not-allowed disabled:opacity-40">
       {paymentBusy ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-r-transparent" aria-hidden="true" /> : <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#feb80a] text-black"><Icon name="arrowRight" className="h-3 w-3" strokeWidth={3} /></span>}
-      {paymentBusy ? (payByTransfer ? "Getting account number…" : `Opening ${providerName}…`) : payByTransfer ? `Get account number · ${money(total)}` : `Pay ${money(total)}`}
+      {!orderingOpen ? `Ordering opens ${opening}` : paymentBusy ? (payByTransfer ? "Getting account number…" : `Opening ${providerName}…`) : payByTransfer ? `Get account number · ${money(total)}` : `Pay ${money(total)}`}
     </button>
   );
 
@@ -272,7 +300,6 @@ export function CheckoutClient({ items: initialItems, tiers, lastLocation, provi
             </div>
           </div>
           <CheckoutLocationStep
-            lastLocation={lastLocation}
             confirmed={selectedLocation}
             onConfirm={(location) => { setSelectedLocation(location); setDeliveryInstructions(location.instructions ?? ""); setError(""); }}
             onChange={() => setSelectedLocation(null)}
@@ -362,6 +389,7 @@ export function CheckoutClient({ items: initialItems, tiers, lastLocation, provi
         {error && <p role="alert" className="rounded-xl bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{error}</p>}
         {message && <p role="status" className="rounded-xl bg-green-50 px-3 py-2 text-sm font-semibold text-green-800">{message}</p>}
         {paymentButton}
+        {!orderingOpen && <p role="status" className="rounded-xl bg-[#fff3d6] px-3 py-2 text-xs font-semibold leading-5 text-[#6b4700]">Ordering is closed right now. We take orders {orderingHoursLabel(orderingClock.hours)}; your cart is saved, so come back {opening} to pay.</p>}
         <p className="flex items-start gap-2 text-xs leading-5 text-black/55"><Icon name="check" className="mt-0.5 h-3.5 w-3.5 text-[#16803c]" strokeWidth={2.6} /> {payByTransfer ? "You’ll get PackAM’s account number next. Send exactly the total above, then confirm. Your order starts once we see your money." : `You’ll finish paying securely on ${providerName}. The total above is what you’ll be charged.`}</p>
       </aside>
 

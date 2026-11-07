@@ -9,6 +9,7 @@ import { fallbackQuoteSet, quotesFromRows, type DeliveryTierQuote, type Delivery
 import { DeliveryTierSelector } from "../components/checkout/DeliveryTierSelector";
 import { CheckoutClient } from "../components/checkout/CheckoutClient";
 import { CartExperience } from "../components/cart/CartExperience";
+import { DEFAULT_ORDERING_HOURS, type OrderingClock } from "./ordering-hours";
 
 const APPROVED: DeliveryTierSettingRow[] = [
   { tier: "CRUISE", fee: 200, enabled: true, etaMinMinutes: 20, etaMaxMinutes: 30, version: 1 },
@@ -106,9 +107,11 @@ const router = { push() {}, replace() {}, refresh() {}, back() {}, forward() {},
 const ITEMS = [{ id: "line-1", quantity: 2, name: "Exercise book", imageUrl: null, category: "Academic Materials", unitPrice: 1_500, plate: null, options: null, problem: null }];
 const SUBTOTAL = 3_000;
 const naira = (amount: number) => `₦${amount.toLocaleString()}`;
-const checkout = (tiers: DeliveryTierQuote[]) => renderToStaticMarkup(createElement(AppRouterContext.Provider, { value: router as never },
+/** Always open, so these tests pass at any hour; the closed case has its own test below. */
+const ALWAYS_OPEN: OrderingClock = { hours: { opensAtMinute: 0, closesAtMinute: 1_440, days: [0, 1, 2, 3, 4, 5, 6] }, serverNow: Date.UTC(2026, 10, 7, 9) };
+const checkout = (tiers: DeliveryTierQuote[], ordering: OrderingClock = ALWAYS_OPEN) => renderToStaticMarkup(createElement(AppRouterContext.Provider, { value: router as never },
   createElement(PathnameContext.Provider, { value: "/checkout" },
-    createElement(CartExperience, null, createElement(CheckoutClient, { items: ITEMS, tiers, lastLocation: null, providerName: "Paystack" })))));
+    createElement(CartExperience, null, createElement(CheckoutClient, { items: ITEMS, tiers, ordering, providerName: "Paystack" })))));
 /** The opening tag of the Pay button(s): the desktop summary and the phone's sticky bar each have one. */
 const payButtons = (html: string) => html.split("<button").slice(1).filter((chunk) => chunk.slice(0, chunk.indexOf("</button>")).includes("Pay ₦")).map((chunk) => chunk.slice(0, chunk.indexOf(">")));
 
@@ -132,6 +135,24 @@ test("checkout steps: 1 Delivery, 2 Delivery speed, 3 items; Cruise Mode is chos
   assert.equal(pay.length, 2);
   assert.ok(html.includes(`Pay ${naira(SUBTOTAL + 200)}`));
   for (const button of pay) assert.doesNotMatch(button, / disabled=""/, "Pay is ready; the location step is checked when it's pressed");
+});
+
+test("outside ordering times checkout still shows everything, but both Pay buttons wait for opening", () => {
+  const closedButtons = (html: string, label: string) => html.split("<button").slice(1).filter((chunk) => chunk.slice(0, chunk.indexOf("</button>")).includes(label));
+  // Tuesday 10 November 2026, 7pm campus time (6pm UTC), on the default Monday–Friday, 8am–5pm.
+  const evening = checkout(all, { hours: DEFAULT_ORDERING_HOURS, serverNow: Date.UTC(2026, 10, 10, 18) });
+  const buttons = closedButtons(evening, "Ordering opens Wednesday at 8am");
+  assert.equal(buttons.length, 2, "the desktop summary and the phone's sticky bar");
+  for (const button of buttons) assert.match(button.slice(0, button.indexOf(">")), / disabled=""/);
+  assert.equal(payButtons(evening).length, 0, "no Pay button while closed");
+  assert.match(evening, /Ordering is closed right now\. We take orders Monday to Friday, 8am–5pm; your cart is saved, so come back Wednesday at 8am to pay\./);
+  assert.ok(evening.includes(`>${naira(SUBTOTAL + 200)}</dd>`), "the total is still shown");
+  assert.match(evening, /Use my live location/, "the delivery step still works");
+
+  // Saturday 14 November, midday: closed for the weekend, opens Monday.
+  assert.equal(closedButtons(checkout(all, { hours: DEFAULT_ORDERING_HOURS, serverNow: Date.UTC(2026, 10, 14, 11) }), "Ordering opens Monday at 8am").length, 2);
+  // Monday 9 November, 10am campus time: open, Pay is back.
+  assert.equal(payButtons(checkout(all, { hours: DEFAULT_ORDERING_HOURS, serverNow: Date.UTC(2026, 10, 9, 9) })).length, 2);
 });
 
 test("checkout before the migration: Cruise Mode only, ₦200, exactly as before tiers", () => {

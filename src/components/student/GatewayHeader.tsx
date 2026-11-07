@@ -8,6 +8,8 @@ import { navItemsFor, type NavRole } from "./nav-items";
 import { menuUserFor } from "./StudentNavbar";
 import { StudentMobileMenu } from "./StudentMobileMenu";
 import { StudentProfileMenu } from "./StudentProfileMenu";
+import { OrderingHoursNotice } from "../ordering/OrderingHoursNotice";
+import { orderingClock } from "../../lib/ordering-hours";
 
 /** Services are chosen from the gateway cards themselves, so the header leaves them out. */
 const SERVICE_HREFS = new Set(["/search", "/printing"]);
@@ -23,8 +25,10 @@ export async function GatewayHeader() {
   const { primary, secondary } = navItemsFor(role);
   const accountPrimary = primary.filter((item) => !SERVICE_HREFS.has(item.href));
   const menuUser = menuUserFor(user);
+  const showOrderingHours = role === null || role === "STUDENT";
 
   return (
+    <>
     <header className="border-b border-black/[0.06] bg-[#fffdf7]/85 backdrop-blur-md">
       <div className="packam-container flex h-16 items-center justify-between gap-2 md:h-[72px]">
         <Link
@@ -61,5 +65,7 @@ export async function GatewayHeader() {
         )}
       </div>
     </header>
+    {showOrderingHours && <OrderingHoursNotice clock={orderingClock()} />}
+    </>
   );
 }

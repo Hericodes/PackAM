@@ -2,6 +2,7 @@ import { auth } from "../../../auth";
 import { db } from "../../../lib/db";
 import { parseCoordinates } from "../../../lib/delivery-location";
 import { deriveLocationLabel } from "../../../lib/location-choice";
+import { isInsideServiceArea, outsideServiceAreaMessage } from "../../../lib/service-area";
 
 export async function GET() {
   try {
@@ -113,6 +114,15 @@ export async function POST(request: Request) {
     if (!coordinates.ok) {
       return Response.json(
         { error: coordinates.error },
+        { status: 400 },
+      );
+    }
+
+    // PackAM delivers only on OOU main campus. A live pin must be inside it; a location typed by hand
+    // (offered only when live location fails) has no pin to check.
+    if (coordinates.value && !isInsideServiceArea(coordinates.value)) {
+      return Response.json(
+        { error: outsideServiceAreaMessage(coordinates.value), code: "OUTSIDE_SERVICE_AREA" },
         { status: 400 },
       );
     }

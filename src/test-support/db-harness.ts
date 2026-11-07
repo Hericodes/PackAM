@@ -38,6 +38,10 @@ process.env.DIRECT_URL = process.env.DATABASE_URL;
 process.env.PACKAM_DB_TEST = "1";
 // Emailed links point at the same made-up origin callRoute uses, never at a real deployment.
 process.env.APP_URL = "http://packam.test";
+// Checkout is refused outside Monday–Friday, 8am–5pm campus time; tests must pass at any hour on any day, so
+// they run "always open". A test that checks the refusal sets its own closed window (ordering-rules.db-test.ts).
+process.env.ORDERING_HOURS = "00:00-24:00";
+process.env.ORDERING_DAYS = "SUN-SAT";
 
 // registerHooks exists from Node 22.15; the project's @types/node predates it.
 type ResolveResult = { url: string; shortCircuit?: boolean };

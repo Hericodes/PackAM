@@ -9,6 +9,8 @@ import { InstallAppButton } from "../pwa/InstallAppButton";
 import { StudentMobileMenu } from "./StudentMobileMenu";
 import { StudentNavLinks } from "./StudentNavLinks";
 import { StudentProfileMenu } from "./StudentProfileMenu";
+import { OrderingHoursNotice } from "../ordering/OrderingHoursNotice";
+import { orderingClock } from "../../lib/ordering-hours";
 
 const ROLE_LABELS = { STUDENT: "Student account", RUNNER: "Runner account", ADMIN: "Operations" } as const;
 
@@ -27,8 +29,11 @@ export async function StudentNavbar() {
   const role: NavRole = user?.role ?? null;
   const { primary, secondary } = navItemsFor(role);
   const menuUser = menuUserFor(user);
+  // Students and visitors see when ordering is closed; runners and operations don’t need it.
+  const showOrderingHours = role === null || role === "STUDENT";
 
   return (
+    <>
     <header className="sticky top-0 z-50 border-b border-black/[0.06] bg-[#fffdf7]/85 shadow-[0_1px_0_rgba(255,255,255,0.6)_inset,0_6px_24px_-18px_rgba(135,90,0,0.35)] backdrop-blur-md">
       <div className="packam-container flex h-14 items-center justify-between gap-2 sm:h-16 sm:gap-4 md:h-[72px]">
         <Link
@@ -72,5 +77,7 @@ export async function StudentNavbar() {
         </div>
       </div>
     </header>
+    {showOrderingHours && <OrderingHoursNotice clock={orderingClock()} />}
+    </>
   );
 }

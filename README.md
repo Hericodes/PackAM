@@ -57,6 +57,19 @@ Set `RUNNER_ACCEPTANCE_TIMEOUT_MINUTES` to control how long an unclaimed paid or
 
 The `20261003130000_fulfilment_engine` migration adds fulfilment and sourcing fields; `20261003150000_product_request_variant` adds the optional variant field for student requests. Database migration state must be checked and migrations deployed separately; this project does not auto-apply schema changes.
 
+## Ordering hours and delivery area
+
+Students can place orders **Monday to Friday, 8am to 5pm campus time** (Africa/Lagos). Evenings, early mornings and weekends are closed. While closed, students can still browse, build plates and fill their cart, but no new payment starts. Shop and food checkout and printing all follow this rule. The server refuses with `409 ORDERING_CLOSED`, and checkout and printing show when ordering opens, for example "Ordering opens Monday at 8am". A payment started before closing can still be finished after it.
+
+Both can be changed without a code change, in the deployment environment:
+
+- `ORDERING_HOURS`: `HH:MM-HH:MM` in campus time, for example `07:30-18:00`. `00:00-24:00` means all day.
+- `ORDERING_DAYS`: days and ranges, for example `MON-SAT` or `MON,WED,FRI`. `SUN-SAT` means every day.
+
+If either is unset or invalid, it falls back to the default: 8am–5pm, Monday to Friday. Database tests run always open, with `00:00-24:00` and `SUN-SAT` (see `src/test-support/db-harness.ts`).
+
+PackAM delivers only on **OOU main campus, Ago-Iwoye**: a 2 km circle around the campus centre taken from OpenStreetMap, defined in `src/config/service-area.ts`. Checkout and printing start from the phone's live location. A live pin outside the circle is refused, both by `POST /api/locations` and when payment starts (`OUTSIDE_SERVICE_AREA`). Only when live location fails (permission denied, no position, too slow, an unsupported browser, or a fix too rough to check) can the student type a location, and then they must confirm it is on campus.
+
 ## Student requests and operations
 
 Students can request an item at `/product-requests` or from search. Admins use `/admin` for live database counts and `/admin/orders`, `/admin/requests`, `/admin/payments`, `/admin/vendors`, `/admin/runners`, and `/admin/exceptions` to review current work. `/admin/delivery-tiers` sets the fee and on/off switch of each marketplace and food delivery speed (Cruise Mode, Sharp Sharp, Oya Now!); delivery windows and descriptions are fixed, at least one speed always stays on, and every change is written to the audit log. Printing keeps its own fixed delivery fee. Until migration `20261101150000_delivery_tiers` is applied the page explains this and refuses edits, and checkout offers Cruise Mode only. Lists are capped or paginated to keep queries bounded. Runner delivery starts only after the assigned runner's order is in `SOURCING_PRODUCT` and every ordered unit has been sourced or approved; the runner then records `OUT_FOR_DELIVERY` and `DELIVERED` through the existing order transition service.

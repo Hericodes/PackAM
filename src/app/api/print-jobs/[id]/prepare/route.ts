@@ -2,6 +2,8 @@ import { auth } from "../../../../../auth";
 import { consumeRateLimit } from "../../../../../lib/rate-limit";
 import { isRecordValue, parsePrintConfiguration } from "../../../../../lib/printing/input";
 import { preparePrintJobForPayment } from "../../../../../lib/printing/service";
+import { OrderingClosedError, orderingClosedBody } from "../../../../../lib/ordering-hours";
+import { OutsideServiceAreaError } from "../../../../../lib/service-area";
 
 type Context = { params: Promise<{ id: string }> };
 
@@ -24,6 +26,8 @@ export async function POST(request: Request, context: Context) {
     const result = await preparePrintJobForPayment(session.user.id, id, body.deliveryLocationId, configuration);
     return Response.json({ printJob: result }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
+    if (error instanceof OrderingClosedError) return Response.json(orderingClosedBody(error, "print job"), { status: 409 });
+    if (error instanceof OutsideServiceAreaError) return Response.json({ error: error.message, code: "OUTSIDE_SERVICE_AREA" }, { status: 400 });
     const message = error instanceof Error ? error.message : "";
     if (/choose |enter |instructions|copies|pages|page numbers|upload|select|valid|delivery location/i.test(message)) {
       return Response.json({ error: message }, { status: 400 });
