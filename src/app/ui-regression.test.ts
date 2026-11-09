@@ -86,8 +86,10 @@ test("signing in checks PackAM can be reached first, so an offline submit never 
 
 test("checkout sends only the chosen speed and what the student reviewed, and never switches the speed itself", () => {
   const client = source("../components/checkout/CheckoutClient.tsx");
-  // The server prices the speed; the browser never sends a fee, amount or total to charge.
-  assert.ok(client.includes("body: JSON.stringify({ deliveryLocationId: selectedLocation.id, deliveryInstructions, deliveryTier: selectedTier, reviewedTotal, reviewedDeliveryFee })"), "the payment request body");
+  // The server prices the speed and decides the promo discount; the browser never sends a fee, discount, amount or
+  // total to charge (only the code itself, and the total it showed for comparison).
+  assert.ok(client.includes("body: JSON.stringify({ deliveryLocationId: selectedLocation.id, deliveryInstructions, deliveryTier: selectedTier, reviewedTotal, reviewedDeliveryFee, ...(promoInUse ? { promoCode: promoInUse } : {}) })"), "the payment request body");
+  assert.doesNotMatch(client, /discount: discount|reviewedDiscount/, "no discount amount is sent");
   for (const text of ["deliveryTier: selectedTier", "reviewedDeliveryFee", "paymentAttemptStorageKey(", '"DELIVERY_TIER_UNAVAILABLE"', '"CHECKOUT_CHANGED"', '"INVALID_DELIVERY_TIER"', "handlePayment(confirmed, confirmedFee)"]) {
     assert.ok(client.includes(text), text);
   }

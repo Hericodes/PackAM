@@ -10,6 +10,7 @@ import { manualTransferAccount } from "../../../../lib/payments/manual-transfer"
 import { ensureManualCheckout } from "../../../../lib/payments/manual-transfer-store";
 import { OrderingClosedError, orderingClosedBody } from "../../../../lib/ordering-hours";
 import { OutsideServiceAreaError } from "../../../../lib/service-area";
+import { PromoCodeRejectedError } from "../../../../lib/promo/promo-rules";
 
 /**
  * Starts (or resumes) payment for the student's current cart. New attempts use the active provider
@@ -43,6 +44,11 @@ export async function POST(request: Request) {
   // The delivery speed, and the fee the student saw for it (compared, never charged). No money field is read.
   const delivery = parseCheckoutDeliveryRequest(body);
   if (!delivery.ok) return Response.json({ error: delivery.error, code: delivery.code }, { status: 400 });
+  // An applied promo code: just the code. Its discount is decided again on the server, never read from the browser.
+  const promoCode = body && typeof body === "object" && "promoCode" in body ? (body as { promoCode?: unknown }).promoCode : undefined;
+  if (promoCode !== undefined && promoCode !== null && (typeof promoCode !== "string" || promoCode.length > 40)) {
+    return Response.json({ error: "That promo code isn’t valid. Remove it and try again.", code: "PROMO_REJECTED" }, { status: 400 });
+  }
 
   // Bank transfer with no account set up: refuse before anything is created, so no student is sent to a blank account.
   const transferAccount = manualTransferAccount(process.env);
@@ -52,7 +58,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const attempt = await createPaymentAttempt(checkoutProvider(), deliveryLocationId, idempotencyKey, typeof deliveryInstructions === "string" ? deliveryInstructions.trim() || null : undefined, reviewedTotal, { tier: delivery.tier, reviewedDeliveryFee: delivery.reviewedDeliveryFee });
+    const attempt = await createPaymentAttempt(checkoutProvider(), deliveryLocationId, idempotencyKey, typeof deliveryInstructions === "string" ? deliveryInstructions.trim() || null : undefined, reviewedTotal, { tier: delivery.tier, reviewedDeliveryFee: delivery.reviewedDeliveryFee }, { code: typeof promoCode === "string" ? promoCode : null });
     if (attempt.status === "SUCCESS" || attempt.status === "FAILED") {
       return Response.json({ error: "Start a new payment attempt from checkout." }, { status: 409 });
     }
@@ -103,6 +109,10 @@ export async function POST(request: Request) {
   } catch (error) {
     // Outside 8am–5pm campus time: nothing was created. Checkout shows this and keeps the cart.
     if (error instanceof OrderingClosedError) return Response.json(orderingClosedBody(error), { status: 409 });
+    // The code can't be used (expired, paused, used up, below its minimum, not available yet): nothing was created.
+    if (error instanceof PromoCodeRejectedError) {
+      return Response.json({ error: `${error.message} Nothing has been charged.`, code: "PROMO_REJECTED", reason: error.reason }, { status: 409 });
+    }
     if (error instanceof OutsideServiceAreaError) {
       return Response.json({ error: `${error.message} Nothing has been charged.`, code: "OUTSIDE_SERVICE_AREA" }, { status: 409 });
     }

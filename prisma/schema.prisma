@@ -276,6 +276,9 @@ model User {
   handledSupportCases   SupportCase[]     @relation("HandledSupportCases")
   accountTokens         AccountToken[]
   paymentPin            AdminPaymentPin?
+  /// Promo codes this admin created, and the codes this student used. Relation fields only: no column on User.
+  promoCodesCreated     PromoCode[]       @relation("PromoCodeCreatedBy")
+  promoRedemptions      PromoRedemption[]
 
   @@index([role])
   @@index([status])
@@ -934,6 +937,9 @@ model Payment {
   printJob             PrintJob?       @relation(fields: [printJobId], references: [id], onDelete: Restrict)
   // Operations review of this payment. Separate from `status`: closing a case never changes the money state.
   reviewCase           PaymentReviewCase?
+  /// The promo code used for this checkout, if any. Never include or select it on existing Payment queries: load it
+  /// with its own query (src/lib/promo/promo-store.ts) so pages keep working on a database without the promo migration.
+  promoRedemption      PromoRedemption?
 
   createdAt            DateTime        @default(now())
   updatedAt            DateTime        @updatedAt
@@ -1376,4 +1382,69 @@ model AdminPaymentPin {
   lockedUntil DateTime?
   setAt       DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
+}
+
+/// How a promo code takes money off: a percentage of the items, or a fixed naira amount.
+enum PromoDiscountType {
+  PERCENT
+  FIXED
+}
+
+/// A promo code an admin created for shop and food checkout. Codes come off the items only: the delivery fee is
+/// always paid, so a payment is never ₦0. Codes are never edited after creation (pause one and create another), so
+/// what a student was offered is what the code still says.
+/// Database CHECK constraints (not expressible in Prisma), see migration 20261109090000_promo_codes:
+///   PromoCode_code_check: 3–20 characters, uppercase letters and digits only.
+///   PromoCode_value_check: PERCENT 1–100; FIXED at least ₦1.
+///   PromoCode_max_discount_check: maxDiscount only on PERCENT codes, at least ₦1.
+///   PromoCode_limits_check: minSubtotal >= 0, maxUses >= 1, maxUsesPerStudent >= 1.
+///   PromoCode_window_check: endsAt after startsAt when both are set.
+model PromoCode {
+  id                String            @id @default(cuid())
+  /// What students type, stored uppercase (matching is case-insensitive).
+  code              String            @unique
+  type              PromoDiscountType
+  /// PERCENT: 1–100 (% of the items). FIXED: whole naira off the items.
+  value             Int
+  /// PERCENT only: the most it can take off, in naira. Null = no cap.
+  maxDiscount       Int?
+  /// The items must come to at least this much, in naira. 0 = no minimum.
+  minSubtotal       Int               @default(0)
+  /// Paid uses allowed across all students. Null = unlimited.
+  maxUses           Int?
+  /// Paid uses allowed per student.
+  maxUsesPerStudent Int               @default(1)
+  /// Usable from (inclusive) and until (exclusive). Null = no limit.
+  startsAt          DateTime?
+  endsAt            DateTime?
+  /// Off = paused: nobody can apply it. Payments already started with it still complete.
+  active            Boolean           @default(true)
+  createdById       String
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  createdBy         User              @relation("PromoCodeCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  redemptions       PromoRedemption[]
+
+  @@index([active, createdAt])
+}
+
+/// One checkout that used a promo code: written with the payment attempt, in the same transaction. It counts as a
+/// use once its payment succeeds (SUCCESS or RECONCILIATION_REQUIRED); a failed or abandoned attempt never does.
+/// The order's own subtotal, deliveryFee and total record the money (total = subtotal + deliveryFee - discount).
+model PromoRedemption {
+  id          String    @id @default(cuid())
+  promoCodeId String
+  userId      String
+  paymentId   String    @unique
+  /// Naira taken off the items, frozen when the payment attempt was created.
+  discount    Int
+  createdAt   DateTime  @default(now())
+
+  promoCode   PromoCode @relation(fields: [promoCodeId], references: [id], onDelete: Restrict)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Restrict)
+  payment     Payment   @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  @@index([promoCodeId])
+  @@index([userId, promoCodeId])
 }

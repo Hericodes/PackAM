@@ -70,6 +70,22 @@ If either is unset or invalid, it falls back to the default: 8am–5pm, Monday t
 
 PackAM delivers only on **OOU main campus, Ago-Iwoye**: a 2 km circle around the campus centre taken from OpenStreetMap, defined in `src/config/service-area.ts`. Checkout and printing start from the phone's live location. A live pin outside the circle is refused, both by `POST /api/locations` and when payment starts (`OUTSIDE_SERVICE_AREA`). Only when live location fails (permission denied, no position, too slow, an unsupported browser, or a fix too rough to check) can the student type a location, and then they must confirm it is on campus.
 
+## Promo codes (`20261109090000_promo_codes`)
+
+Admins create codes at `/admin/promo-codes`. A code is either a percentage off (1–100%, with an optional naira cap) or a fixed naira amount off. It can also have:
+
+- a minimum items total;
+- a limit on total uses and on uses per student (default 1 per student);
+- a valid-from and valid-until date (campus days).
+
+Codes can be paused and resumed but never edited. To change one, pause it and create another. Creating, pausing and resuming are all written to the audit log.
+
+Students enter a code at shop and food checkout (printing is not included). A code comes off the **items only**: the delivery fee is always paid, so a payment is never ₦0. The server checks the code again when payment starts and charges `items + delivery − discount`. The order keeps the full `subtotal` and `deliveryFee`, and its `total` is what was paid. Finance reports the difference as "Promo discounts".
+
+A use counts only once its payment succeeds. Several students paying at the same moment can therefore take a limited code slightly past its total limit; a paid order is never refused.
+
+The migration only adds the `PromoCode` and `PromoRedemption` tables. The code is safe to deploy before it: until the migration is applied, checkout refuses codes with "Promo codes aren't available yet", the admin page explains, and checkout without a code is unchanged.
+
 ## Student requests and operations
 
 Students can request an item at `/product-requests` or from search. Admins use `/admin` for live database counts and `/admin/orders`, `/admin/requests`, `/admin/payments`, `/admin/vendors`, `/admin/runners`, and `/admin/exceptions` to review current work. `/admin/delivery-tiers` sets the fee and on/off switch of each marketplace and food delivery speed (Cruise Mode, Sharp Sharp, Oya Now!); delivery windows and descriptions are fixed, at least one speed always stays on, and every change is written to the audit log. Printing keeps its own fixed delivery fee. Until migration `20261101150000_delivery_tiers` is applied the page explains this and refuses edits, and checkout offers Cruise Mode only. Lists are capped or paginated to keep queries bounded. Runner delivery starts only after the assigned runner's order is in `SOURCING_PRODUCT` and every ordered unit has been sourced or approved; the runner then records `OUT_FOR_DELIVERY` and `DELIVERED` through the existing order transition service.

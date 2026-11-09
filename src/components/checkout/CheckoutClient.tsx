@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { DeliveryLocation, hasPin } from "./LocationSelector";
@@ -15,6 +15,7 @@ import { DELIVERY_TIER_LABELS, checkoutDeliveryFee, formatEta, parseDeliveryTier
 import { deliveryTierProblem, initialDeliveryTier, paymentAttemptStorageKey } from "../../lib/checkout-delivery-step";
 import { openingPhrase, orderingHoursLabel, type OrderingClock } from "../../lib/ordering-hours";
 import { useOrderingStatus } from "../ordering/useOrderingStatus";
+import { promoDiscount, type PromoRule } from "../../lib/promo/promo-rules";
 
 
 type CheckoutItem = {
@@ -45,8 +46,14 @@ type Revised = {
   deliveryTierLabel?: string;
   deliveryEtaMinMinutes?: number;
   deliveryEtaMaxMinutes?: number;
+  /** The promo discount at the new prices, and its code. Absent when no code was used. */
+  discount?: number;
+  promoCode?: string;
   lines: Array<{ cartItemId: string; name: string; quantity: number; unitPrice: number; total: number }>;
 };
+
+/** A code the server accepted for this cart. `rule` recomputes the discount when quantities change. */
+type AppliedPromo = { code: string; label: string; rule: PromoRule };
 
 type CheckoutClientProps = {
   items: CheckoutItem[];
@@ -84,12 +91,21 @@ export function CheckoutClient({ items: initialItems, tiers, ordering: orderingC
   const [paymentBusy, setPaymentBusy] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const [promo, setPromo] = useState<AppliedPromo | null>(null);
+  const [promoDraft, setPromoDraft] = useState("");
+  const [promoBusy, setPromoBusy] = useState(false);
+  const [promoError, setPromoError] = useState("");
   const subtotal = items.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
   // The chosen speed's fee comes from the server's quotes on every render, so a refresh shows a changed price at once.
   const selectedQuote = tiers.find((tier) => tier.tier === selectedTier) ?? null;
   const deliveryProblem = deliveryTierProblem(tiers, selectedTier);
   const currentDeliveryFee = checkoutDeliveryFee(selectedQuote, items.length);
-  const total = subtotal + currentDeliveryFee;
+  // The code's discount on the items as they are now (the server decides it again at payment). Below the code's
+  // minimum it is 0 and the code isn't sent; delivery is never discounted.
+  const discount = promo ? promoDiscount(promo.rule, subtotal) : 0;
+  const promoShortBy = promo && subtotal < promo.rule.minSubtotal ? promo.rule.minSubtotal - subtotal : 0;
+  const promoInUse = promo && discount > 0 ? promo.code : null;
+  const total = subtotal + currentDeliveryFee - discount;
   // Before 8am and from 5pm everything works except paying. Flips by itself at opening and closing time.
   const ordering = useOrderingStatus(orderingClock);
   const orderingOpen = ordering.open;
@@ -140,10 +156,36 @@ export function CheckoutClient({ items: initialItems, tiers, ordering: orderingC
   }
 
   /** Takes the student straight to the step that needs attention. */
-  function focusStep(id: "checkout-delivery" | "checkout-speed") {
+  function focusStep(id: "checkout-delivery" | "checkout-speed" | "checkout-promo") {
     const section = document.getElementById(id);
     section?.scrollIntoView({ behavior: "smooth", block: "start" });
     section?.focus({ preventScroll: true });
+  }
+
+  /** Checks the code against this cart on the server; nothing is reserved or charged until payment. */
+  async function applyPromo(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const code = promoDraft.trim();
+    if (!code || promoBusy) return;
+    setPromoBusy(true);
+    setPromoError("");
+    try {
+      const response = await fetch("/api/promo-codes/check", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code }) });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.promo) throw new Error(typeof data.error === "string" ? data.error : "We couldn’t check that code right now. Try again.");
+      setPromo({ code: data.promo.code, label: data.promo.label, rule: data.promo.rule });
+      setPromoDraft("");
+      setError("");
+    } catch (cause) {
+      setPromoError(cause instanceof Error ? cause.message : "We couldn’t check that code right now. Try again.");
+    } finally {
+      setPromoBusy(false);
+    }
+  }
+
+  function removePromo() {
+    setPromo(null);
+    setPromoError("");
   }
 
   function chooseTier(tier: DeliveryTierCode) {
@@ -152,7 +194,7 @@ export function CheckoutClient({ items: initialItems, tiers, ordering: orderingC
     setError("");
     if (quote?.available && quote.fee !== null) {
       const fee = checkoutDeliveryFee(quote, items.length);
-      setTierAnnouncement(`${quote.label} selected. Delivery ${money(fee)}. Total ${money(subtotal + fee)}.`);
+      setTierAnnouncement(`${quote.label} selected. Delivery ${money(fee)}. Total ${money(subtotal + fee - discount)}.`);
     }
   }
 
@@ -184,7 +226,7 @@ export function CheckoutClient({ items: initialItems, tiers, ordering: orderingC
     try {
       // The key covers the exact cart, place, speed, delivery fee and total, so changing any of them (another speed,
       // or a confirmed new price) starts a new attempt instead of reusing one made for different terms.
-      const storageKey = paymentAttemptStorageKey({ locationId: selectedLocation.id, instructions: deliveryInstructions, items, tier: selectedTier, deliveryFee: reviewedDeliveryFee, total: reviewedTotal });
+      const storageKey = paymentAttemptStorageKey({ locationId: selectedLocation.id, instructions: deliveryInstructions, items, tier: selectedTier, deliveryFee: reviewedDeliveryFee, total: reviewedTotal, promoCode: promoInUse });
       let idempotencyKey = window.sessionStorage.getItem(storageKey);
       if (!idempotencyKey) {
         idempotencyKey = crypto.randomUUID();
@@ -196,7 +238,7 @@ export function CheckoutClient({ items: initialItems, tiers, ordering: orderingC
           "Content-Type": "application/json",
           "Idempotency-Key": idempotencyKey,
         },
-        body: JSON.stringify({ deliveryLocationId: selectedLocation.id, deliveryInstructions, deliveryTier: selectedTier, reviewedTotal, reviewedDeliveryFee }),
+        body: JSON.stringify({ deliveryLocationId: selectedLocation.id, deliveryInstructions, deliveryTier: selectedTier, reviewedTotal, reviewedDeliveryFee, ...(promoInUse ? { promoCode: promoInUse } : {}) }),
       });
       const data = await response.json();
       if (response.status === 409 && data.code === "PRICE_CHANGED" && data.revised) {
@@ -227,6 +269,17 @@ export function CheckoutClient({ items: initialItems, tiers, ordering: orderingC
         return;
       }
       // Closed while the student was paying: nothing was created. The refresh brings the server's clock.
+      // The code stopped working since it was applied (expired, paused, used up): nothing was created. Take it off.
+      if (data.code === "PROMO_REJECTED") {
+        window.sessionStorage.removeItem(storageKey);
+        const reason = typeof data.error === "string" ? data.error : "That promo code can’t be used any more. Nothing has been charged.";
+        setPromo(null);
+        setPromoError(reason);
+        setError(`${reason} Check your new total, then pay.`);
+        setPaymentBusy(false);
+        focusStep("checkout-promo");
+        return;
+      }
       if (response.status === 409 && data.code === "ORDERING_CLOSED") {
         window.sessionStorage.removeItem(storageKey);
         setError(typeof data.error === "string" ? data.error : `Ordering is closed right now. Come back ${opening} to pay.`);
@@ -284,6 +337,7 @@ export function CheckoutClient({ items: initialItems, tiers, ordering: orderingC
         <dt className="text-black/60">Delivery{selectedQuote?.available && <span className="block text-xs">{selectedQuote.label} · {formatEta(selectedQuote.etaMinMinutes, selectedQuote.etaMaxMinutes)}</span>}</dt>
         <dd className="shrink-0 font-bold">{deliveryProblem ? (tiers.some((tier) => tier.available) ? "Choose a speed" : "Not available") : money(currentDeliveryFee)}</dd>
       </div>
+      {discount > 0 && promo && <div className="flex justify-between gap-3 text-[#16803c]"><dt>Promo · <span className="font-mono font-bold">{promo.code}</span></dt><dd className="shrink-0 font-bold">−{money(discount)}</dd></div>}
       <div className="flex items-baseline justify-between border-t border-black/10 pt-3"><dt className="font-black">Total</dt><dd className="text-xl font-black">{money(total)}</dd></div>
     </dl>
   );
@@ -375,6 +429,32 @@ export function CheckoutClient({ items: initialItems, tiers, ordering: orderingC
           )}
         </section>
 
+        {/* Promo code: comes off the items only; the server checks it again when payment starts. */}
+        <section id="checkout-promo" tabIndex={-1} aria-labelledby="checkout-promo-heading" className="pk-card scroll-mt-24 p-4 outline-none focus-visible:ring-2 focus-visible:ring-black sm:p-6">
+          <h2 id="checkout-promo-heading" className="text-lg font-black">Promo code</h2>
+          {promo ? (
+            <div className="mt-3 flex flex-wrap items-start justify-between gap-3 rounded-2xl border border-[#16803c]/25 bg-[#e9f8ee] p-3.5">
+              <div className="min-w-0 text-sm">
+                <p className="font-black"><span className="font-mono">{promo.code}</span> applied</p>
+                <p className="mt-0.5 text-black/70">{promo.label}{discount > 0 ? ` · −${money(discount)} on this order` : ""}</p>
+                {promoShortBy > 0 && <p className="mt-1 font-semibold text-[#a15c00]">Add {money(promoShortBy)} more in items to use this code.</p>}
+                {promoShortBy === 0 && discount === 0 && <p className="mt-1 font-semibold text-[#a15c00]">This code doesn’t take anything off this order.</p>}
+              </div>
+              <button type="button" onClick={removePromo} disabled={paymentBusy} className="min-h-10 shrink-0 rounded-full border border-black/15 bg-white px-4 text-sm font-bold hover:bg-black/5 disabled:opacity-50">Remove</button>
+            </div>
+          ) : (
+            <form onSubmit={applyPromo} noValidate className="mt-3">
+              <label htmlFor="checkout-promo-code" className="sr-only">Promo code</label>
+              <div className="flex gap-2">
+                <input id="checkout-promo-code" value={promoDraft} onChange={(event) => { setPromoDraft(event.target.value.slice(0, 40)); if (promoError) setPromoError(""); }} placeholder="Enter code" autoComplete="off" autoCapitalize="characters" spellCheck={false} aria-invalid={Boolean(promoError)} aria-describedby={promoError ? "checkout-promo-error" : undefined} className="min-w-0 flex-1 rounded-xl border border-black/15 bg-white px-4 py-3 font-mono text-base uppercase tracking-wider outline-none transition placeholder:font-sans placeholder:normal-case placeholder:tracking-normal placeholder:text-black/45 focus:border-black focus:shadow-[0_0_0_3px_rgba(254,184,10,0.45)]" disabled={promoBusy || paymentBusy} />
+                <button type="submit" disabled={!promoDraft.trim() || promoBusy || paymentBusy} className="pk-btn pk-btn-secondary shrink-0 disabled:opacity-50">{promoBusy ? "Checking…" : "Apply"}</button>
+              </div>
+              {promoError && <p id="checkout-promo-error" role="alert" className="mt-2 text-sm font-semibold text-red-700">{promoError}</p>}
+            </form>
+          )}
+          <p className="mt-2 text-xs text-black/55">Promo codes come off your items. Delivery is always paid.</p>
+        </section>
+
         {/* Mobile summary (the pay button lives in the sticky bar below). */}
         <section aria-label="Order summary" className="pk-card space-y-4 p-4 lg:hidden">
           {totals}
@@ -414,6 +494,7 @@ export function CheckoutClient({ items: initialItems, tiers, ordering: orderingC
                 <div key={line.cartItemId} className="flex justify-between gap-3"><dt className="min-w-0 truncate">{line.name} × {line.quantity}</dt><dd className="shrink-0 font-bold">{money(line.total)}</dd></div>
               ))}
               <div className="flex justify-between gap-3 border-t border-black/10 pt-2"><dt className="text-black/60">Delivery{revised.deliveryTierLabel ? ` · ${revised.deliveryTierLabel}` : ""}</dt><dd className="shrink-0 font-bold">{money(revised.deliveryFee)}</dd></div>
+              {revised.discount ? <div className="flex justify-between gap-3 text-[#16803c]"><dt>Promo{revised.promoCode ? ` · ${revised.promoCode}` : ""}</dt><dd className="shrink-0 font-bold">−{money(revised.discount)}</dd></div> : null}
               <div className="flex items-baseline justify-between"><dt className="font-black">New total</dt><dd className="text-xl font-black">{money(revised.total)}</dd></div>
             </dl>
             <div className="mt-4 grid gap-2">

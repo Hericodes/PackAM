@@ -1,14 +1,26 @@
 export type OrderMoney = { subtotal: number; deliveryFee: number; total: number };
 
+/**
+ * Sums orders into product sales, delivery fees, promo discounts and GMV (what customers paid). A promo code comes off
+ * the items only, so for every order total = subtotal + deliveryFee - discount, with 0 <= discount <= subtotal; the
+ * discount is not stored separately on the order, it is what reconciles the three stored amounts.
+ */
 export function summarizeKnownOrderMoney(orders: OrderMoney[]) {
   return orders.reduce((sum, order) => {
     for (const value of [order.subtotal, order.deliveryFee, order.total]) {
       if (!Number.isSafeInteger(value) || value < 0) throw new Error("Financial values must be non-negative integer naira amounts.");
     }
-    if (order.subtotal + order.deliveryFee !== order.total) throw new Error("Order totals do not reconcile.");
+    const discount = promoDiscountOf(order);
+    if (discount < 0 || discount > order.subtotal) throw new Error("Order totals do not reconcile.");
     sum.productSales += order.subtotal;
     sum.deliveryFees += order.deliveryFee;
+    sum.promoDiscounts += discount;
     sum.gmv += order.total;
     return sum;
-  }, { productSales: 0, deliveryFees: 0, gmv: 0 });
+  }, { productSales: 0, deliveryFees: 0, promoDiscounts: 0, gmv: 0 });
+}
+
+/** The promo discount on an order (or on summed orders): items + delivery - what was paid. */
+export function promoDiscountOf(order: OrderMoney) {
+  return order.subtotal + order.deliveryFee - order.total;
 }

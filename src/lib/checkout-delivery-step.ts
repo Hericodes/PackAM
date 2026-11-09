@@ -39,7 +39,9 @@ export function paymentAttemptStorageKey(input: {
   tier: DeliveryTierCode;
   deliveryFee: number;
   total: number;
+  /** The applied promo code, if any: another code (or none) is another attempt. */
+  promoCode?: string | null;
 }) {
   const cart = input.items.map((item) => `${item.id}x${item.quantity}`).sort().join(",");
-  return `packam-payment-attempt:${input.locationId}:${input.instructions.trim()}:${cart}:${input.tier}:${input.deliveryFee}:${input.total}`;
+  return `packam-payment-attempt:${input.locationId}:${input.instructions.trim()}:${cart}:${input.tier}:${input.deliveryFee}:${input.total}${input.promoCode ? `:promo=${input.promoCode}` : ""}`;
 }

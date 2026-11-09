@@ -73,5 +73,7 @@ export function accountSchemaBehindResponse(error: unknown, where: string) {
 
 /** The migration that creates the delivery-tier tables; named in admin messages and logs. */
 export const DELIVERY_TIER_MIGRATION = "20261101150000_delivery_tiers";
+/** The migration that creates the promo code tables (PromoCode, PromoRedemption); named in admin messages and logs. */
+export const PROMO_CODE_MIGRATION = "20261109090000_promo_codes";
 export const DELIVERY_TIER_SETTINGS_TABLE = "DeliveryTierSetting";
 export const ORDER_DELIVERY_TIER_TABLE = "OrderDeliveryTier";

@@ -137,6 +137,17 @@ test("checkout steps: 1 Delivery, 2 Delivery speed, 3 items; Cruise Mode is chos
   for (const button of pay) assert.doesNotMatch(button, / disabled=""/, "Pay is ready; the location step is checked when it's pressed");
 });
 
+test("checkout has a promo code box; nothing is discounted until a code is applied", () => {
+  const html = checkout(all);
+  const section = html.slice(html.indexOf('<section id="checkout-promo"'), html.indexOf("</section>", html.indexOf('<section id="checkout-promo"')));
+  assert.match(section, /^<section id="checkout-promo" tabindex="-1" aria-labelledby="checkout-promo-heading"/, "focusable, so a refused code can take the student there");
+  assert.match(section, /<label for="checkout-promo-code" class="sr-only">Promo code<\/label>/);
+  assert.match(section, /<button type="submit" disabled=""[^>]*>Apply<\/button>/, "Apply waits for a code");
+  assert.match(section, /Promo codes come off your items\. Delivery is always paid\./);
+  assert.doesNotMatch(html, /Promo · /, "no discount line in the totals yet");
+  assert.ok(html.includes(`Pay ${naira(SUBTOTAL + 200)}`), "the total is unchanged");
+});
+
 test("outside ordering times checkout still shows everything, but both Pay buttons wait for opening", () => {
   const closedButtons = (html: string, label: string) => html.split("<button").slice(1).filter((chunk) => chunk.slice(0, chunk.indexOf("</button>")).includes(label));
   // Tuesday 10 November 2026, 7pm campus time (6pm UTC), on the default Monday–Friday, 8am–5pm.

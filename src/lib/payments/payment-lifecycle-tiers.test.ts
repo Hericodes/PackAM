@@ -38,8 +38,17 @@ test("checkout prices the chosen speed inside its retried serializable transacti
   assert.match(create, /reviewedDeliveryFee !== undefined && reviewedDeliveryFee !== deliveryFee/, "PRICE_CHANGED also compares the fee");
   assert.match(create, /\.\.\.snapshotDeliveryTierFields\(quote\)/);
   assert.doesNotMatch(create, /cart\.deliveryFee|CHECKOUT_DELIVERY_FEE/, "no flat fee anywhere in checkout");
-  // A reused idempotency key must be for the same speed, on both reads of an existing attempt.
-  assert.equal(create.split("return resumable(existing, tier)").length, 3);
+  // A reused idempotency key must be for the same speed and promo code, on both reads of an existing attempt.
+  assert.equal(create.split("return resumable(existing, tier, promoCode)").length, 3);
+
+  // A promo code is decided again on the server, in a savepoint on this transaction, after the cart and before the
+  // payment row; its use is recorded in the same transaction, right after the payment row exists.
+  const promo = create.indexOf("await resolveCheckoutPromo(tx, promoCode, student.id, subtotal)");
+  assert.ok(promo > promiseAllEnd && promo > create.indexOf("throw new CartNotPayableError"), "after the cart, never inside the Promise.all");
+  assert.ok(promo < create.indexOf("throw new PriceChangedError"), "the discount is part of the total the student reviewed");
+  assert.match(create, /const amount = subtotal \+ deliveryFee - discount;/, "the discount comes off the items; delivery is charged in full");
+  const recorded = create.indexOf("await recordPromoRedemption(tx, {");
+  assert.ok(recorded > create.indexOf("tx.payment.create"), "the use points at the payment just created");
 });
 
 test("completing a payment copies the speed from the snapshot only, before the order is offered to runners", () => {

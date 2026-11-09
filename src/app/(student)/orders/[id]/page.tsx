@@ -10,6 +10,8 @@ import { PrintTrackingRefresher } from "../../../../components/student/PrintTrac
 import { Icon } from "../../../../components/ui/Icon";
 import { describeDetails, parseLineDetails } from "../../../../lib/food/plate";
 import { optionsText } from "../../../../lib/products/variants";
+import { promoDiscountOf } from "../../../../lib/finance";
+import { promoFromSnapshot } from "../../../../lib/promo/promo-rules";
 
 /** A food plate's frozen contents ("Amala + Ewedu + Meat ×2"), or null for anything else. */
 function plateOf(details: unknown) {
@@ -38,9 +40,13 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
       statusHistory: { orderBy: { createdAt: "asc" } },
       assignedRunner: { include: { user: { select: { firstName: true } } } },
       shop: { select: { name: true } },
+      // Only for the promo code's name; the discount itself is items + delivery - total.
+      payment: { select: { checkoutSnapshot: true } },
     },
   });
   if (!order) notFound();
+  const discount = promoDiscountOf(order);
+  const promoCode = promoFromSnapshot(order.payment?.checkoutSnapshot)?.code ?? null;
   // The paid speed, read on its own (never through the order query) so the page works without the tier tables.
   // No row: "Standard delivery". The fee always comes from the order itself.
   const delivery = describeOrderDelivery((await loadOrderDeliveryTiers(db, [order.id])).get(order.id));
@@ -141,6 +147,7 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
               <dl className="mt-3 space-y-2 text-sm">
                 <div className="flex justify-between"><dt className="pk-muted">Items</dt><dd className="font-semibold">₦{order.subtotal.toLocaleString()}</dd></div>
                 <div className="flex justify-between"><dt className="pk-muted">Delivery · {delivery.label}</dt><dd className="font-semibold">₦{order.deliveryFee.toLocaleString()}</dd></div>
+                {discount > 0 && <div className="flex justify-between text-[#16803c]"><dt>Promo{promoCode ? <> · <span className="font-mono font-bold">{promoCode}</span></> : " discount"}</dt><dd className="font-semibold">−₦{discount.toLocaleString()}</dd></div>}
                 <div className="flex justify-between border-t border-black/10 pt-3 text-base font-black"><dt>Total paid</dt><dd>₦{order.total.toLocaleString()}</dd></div>
               </dl>
             </section>

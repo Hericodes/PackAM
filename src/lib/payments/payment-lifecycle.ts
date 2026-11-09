@@ -29,6 +29,8 @@ import { describeOptions, parseVariantDetails, type VariantDetails } from "../pr
 import { CartNotPayableError, CheckoutAttemptMismatchError, DeliveryTierUnavailableError, PaymentFinalizationMismatchError, PriceChangedError } from "./payment-errors";
 import { assertOrderingOpen } from "../ordering-hours";
 import { assertDeliverableLocation } from "../service-area";
+import { PROMO_MESSAGES, PromoCodeRejectedError, normalizePromoCode, promoFromSnapshot, snapshotHasPromo, snapshotPromoCode, type SnapshotPromo } from "../promo/promo-rules";
+import { recordPromoRedemption, resolveCheckoutPromo } from "../promo/promo-store";
 
 type SnapshotItem = {
   cartItemId: string;
@@ -67,6 +69,11 @@ type CheckoutSnapshot = {
   deliveryLocationLabel?: string;
   deliveryLatitude?: number;
   deliveryLongitude?: number;
+  /**
+   * The promo code used, if any: its id, the code and the naira taken off the items. The amount charged is
+   * subtotal + deliveryFee - promo.discount. Absent when no code was used and on attempts from before promo codes.
+   */
+  promo?: SnapshotPromo;
 } & Partial<SnapshotDeliveryTierFields>;
 
 export type VerifiedProviderPayment = {
@@ -83,9 +90,13 @@ export type VerifiedProviderPayment = {
 const ATTEMPT_FIELDS = { id: true, transactionReference: true, provider: true, status: true, amount: true, currency: true, orderId: true } as const;
 const ATTEMPT_WITH_SNAPSHOT = { ...ATTEMPT_FIELDS, checkoutSnapshot: true } as const;
 
-/** An existing attempt is resumed only for the speed it was created with (none recorded = Cruise Mode). */
-function resumable(attempt: Prisma.PaymentGetPayload<{ select: typeof ATTEMPT_WITH_SNAPSHOT }>, tier: DeliveryTierCode) {
+/**
+ * An existing attempt is resumed only for the speed it was created with (none recorded = Cruise Mode) and the same
+ * promo code (or none), so one key can never be reused for a different total.
+ */
+function resumable(attempt: Prisma.PaymentGetPayload<{ select: typeof ATTEMPT_WITH_SNAPSHOT }>, tier: DeliveryTierCode, promoCode: string | null) {
   if (snapshotTierForReuse(attempt.checkoutSnapshot) !== tier) throw new CheckoutAttemptMismatchError();
+  if (snapshotPromoCode(attempt.checkoutSnapshot) !== promoCode) throw new CheckoutAttemptMismatchError();
   return { id: attempt.id, transactionReference: attempt.transactionReference, provider: attempt.provider, status: attempt.status, amount: attempt.amount, currency: attempt.currency, orderId: attempt.orderId };
 }
 
@@ -103,6 +114,8 @@ export async function createPaymentAttempt(
   reviewedTotal?: number,
   /** The delivery speed chosen (none = Cruise Mode, all that tabs opened before tiers showed) and the fee the student reviewed. */
   delivery: { tier?: DeliveryTierCode; reviewedDeliveryFee?: number } = {},
+  /** A promo code the student applied (shop and food checkout). Checked again here; it comes off the items only. */
+  promo: { code?: string | null } = {},
 ) {
   const session = await auth();
   if (!session?.user || session.user.role !== "STUDENT") {
@@ -126,6 +139,9 @@ export async function createPaymentAttempt(
   if (reviewedDeliveryFee !== undefined && (!Number.isSafeInteger(reviewedDeliveryFee) || reviewedDeliveryFee < 0)) {
     throw new Error("The reviewed delivery fee is invalid.");
   }
+  // A code that isn't even well-formed is refused before anything is read.
+  const promoCode = promo.code === undefined || promo.code === null || promo.code === "" ? null : normalizePromoCode(promo.code);
+  if (promo.code && !promoCode) throw new PromoCodeRejectedError("INVALID", PROMO_MESSAGES.INVALID);
 
   try {
     // Retried on a serialization conflict (e.g. an admin changing a delivery price at the same moment): each retry
@@ -141,7 +157,7 @@ export async function createPaymentAttempt(
         select: ATTEMPT_WITH_SNAPSHOT,
       });
       // Before any pricing, so an attempt started while its speed was on sale can still be resumed after it's turned off.
-      if (existing) return resumable(existing, tier);
+      if (existing) return resumable(existing, tier, promoCode);
       // Outside ordering hours (8am–5pm campus time) no new attempt is created. Resuming one started in time
       // (above) still works, so a student who opened the payment page at 4:59pm can finish paying.
       assertOrderingOpen();
@@ -191,8 +207,12 @@ export async function createPaymentAttempt(
       });
 
       const subtotal = items.reduce((sum, item) => sum + item.totalPrice, 0);
-      const amount = subtotal + deliveryFee;
-      if (!Number.isSafeInteger(amount) || amount <= 0) {
+      // The promo code, checked again now against this subtotal (paused, expired, used up or below its minimum is
+      // refused with the reason). Read on its own in a savepoint; it comes off the items only, never the delivery fee.
+      const appliedPromo = promoCode ? await resolveCheckoutPromo(tx, promoCode, student.id, subtotal) : null;
+      const discount = appliedPromo?.discount ?? 0;
+      const amount = subtotal + deliveryFee - discount;
+      if (!Number.isSafeInteger(amount) || amount <= 0 || discount > subtotal) {
         throw new Error("The checkout amount is invalid.");
       }
       // Never charge a total or a delivery fee the student hasn't seen: show them the new breakdown, for the speed
@@ -208,6 +228,7 @@ export async function createPaymentAttempt(
           deliveryTierLabel: quote.label,
           deliveryEtaMinMinutes: quote.etaMinMinutes,
           deliveryEtaMaxMinutes: quote.etaMaxMinutes,
+          ...(appliedPromo ? { discount, promoCode: appliedPromo.code } : {}),
           lines: cart.lines.map((line) => ({ cartItemId: line.cartItemId, name: line.details?.kind === "PLATE" ? `Plate: ${describeDetails(line.details)}` : line.details?.kind === "VARIANT" ? `${line.name} (${describeOptions(line.details.options)})` : line.name, quantity: line.quantity, unitPrice: line.unitPrice, total: line.unitPrice * line.quantity })),
         });
       }
@@ -226,9 +247,10 @@ export async function createPaymentAttempt(
         deliveryInstructions: deliveryInstructions === undefined ? location.instructions : deliveryInstructions,
         deliveryLocationLabel: location.label,
         ...(location.latitude !== null && location.longitude !== null ? { deliveryLatitude: location.latitude, deliveryLongitude: location.longitude } : {}),
+        ...(appliedPromo ? { promo: { promoCodeId: appliedPromo.promoCodeId, code: appliedPromo.code, discount } } : {}),
       };
 
-      return tx.payment.create({
+      const created = await tx.payment.create({
         data: {
           userId: student.id,
           provider,
@@ -241,6 +263,9 @@ export async function createPaymentAttempt(
         },
         select: ATTEMPT_FIELDS,
       });
+      // The code's use, in this same transaction: it counts once this payment succeeds.
+      if (appliedPromo) await recordPromoRedemption(tx, { promoCodeId: appliedPromo.promoCodeId, userId: student.id, paymentId: created.id, discount });
+      return created;
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }), { attempts: 4, baseDelayMs: 25 });
   } catch (error) {
     // If two retries race with the same key, return the attempt created by the winner (for the same speed only).
@@ -254,7 +279,7 @@ export async function createPaymentAttempt(
         },
         select: ATTEMPT_WITH_SNAPSHOT,
       });
-      if (existing) return resumable(existing, tier);
+      if (existing) return resumable(existing, tier, promoCode);
     }
     throw error;
   }
@@ -318,6 +343,11 @@ function parseSnapshot(value: Prisma.JsonValue | null): CheckoutSnapshot {
   if (items.reduce((sum, item) => sum + item.totalPrice, 0) !== subtotal) {
     throw new PaymentFinalizationMismatchError("Payment attempt subtotal does not match its items.");
   }
+  // A promo that is present but malformed (or bigger than the items) is a mismatch, never silently dropped.
+  const promo = promoFromSnapshot(raw);
+  if (snapshotHasPromo(raw) && !promo) {
+    throw new PaymentFinalizationMismatchError("Payment attempt contains an invalid promo code.");
+  }
 
   return {
     cartId: raw.cartId,
@@ -328,6 +358,7 @@ function parseSnapshot(value: Prisma.JsonValue | null): CheckoutSnapshot {
     deliveryLocationId: raw.deliveryLocationId,
     deliveryAddress: raw.deliveryAddress,
     deliveryInstructions: raw.deliveryInstructions,
+    ...(promo ? { promo } : {}),
   };
 }
 
@@ -444,7 +475,8 @@ export async function completeVerifiedPayment(verified: VerifiedProviderPayment)
     }
 
     const snapshot = parseSnapshot(attempt.checkoutSnapshot);
-    if (attempt.amount !== snapshot.subtotal + snapshot.deliveryFee) {
+    // The order keeps the full items subtotal and delivery fee; its total is what was paid (less any promo discount).
+    if (attempt.amount !== snapshot.subtotal + snapshot.deliveryFee - (snapshot.promo?.discount ?? 0)) {
       throw new PaymentFinalizationMismatchError("Payment amount does not match the saved checkout snapshot.");
     }
     finalizationStarted = true;

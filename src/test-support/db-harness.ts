@@ -230,6 +230,13 @@ async function deleteCreatedRows(db: Db) {
   // Review cases reference payments (added with admin payment review), so they go first.
   await db.paymentReviewCase.deleteMany({ where: { payment: { userId: users } } });
   await db.payment.deleteMany({ where: { userId: users } });
+  // Promo uses went with their payments (cascade); codes our admins created go before the users. Skipped on a test
+  // database without the promo migration.
+  const [promo] = await db.$queryRaw<Array<{ ready: boolean | null }>>`SELECT to_regclass('public."PromoCode"') IS NOT NULL AS "ready"`;
+  if (promo?.ready) {
+    await db.promoRedemption.deleteMany({ where: { userId: users } });
+    await db.promoCode.deleteMany({ where: { createdById: users } });
+  }
   await db.printJob.deleteMany({ where: { userId: users } });
   await db.incident.deleteMany({ where: { order: { userId: users } } });
   await db.order.deleteMany({ where: { userId: users } });

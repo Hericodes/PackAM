@@ -124,6 +124,9 @@ export type RevisedCheckout = {
   deliveryTierLabel?: string;
   deliveryEtaMinMinutes?: number;
   deliveryEtaMaxMinutes?: number;
+  /** Naira the promo code takes off the items at the new prices, and the code. Absent when no code was used. */
+  discount?: number;
+  promoCode?: string;
   lines: Array<{ cartItemId: string; name: string; quantity: number; unitPrice: number; total: number }>;
 };
 
