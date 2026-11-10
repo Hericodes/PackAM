@@ -9,9 +9,14 @@
  * Unset or invalid means the default (8am–5pm, Monday to Friday). The opening minute is included and the
  * closing minute is not: at 5:00pm ordering is closed.
  *
+ * One-off closed days (e.g. a day of mourning) are listed in src/config/ordering-closures.ts: on those campus dates
+ * ordering stays closed all day, and the closed notices give the reason.
+ *
  * Pure (the time and settings are passed in), so every edge is unit-tested. Safe in the browser too:
  * client components get the settings and the server's time as props, never from process.env.
  */
+
+import { ORDERING_CLOSURES } from "../config/ordering-closures";
 
 /** 0 = Sunday … 6 = Saturday, in campus time. */
 export type Weekday = 0 | 1 | 2 | 3 | 4 | 5 | 6;
@@ -23,7 +28,12 @@ export type OrderingHours = {
   closesAtMinute: number;
   /** The days ordering opens at all, sorted, never empty. */
   days: readonly Weekday[];
+  /** Campus dates with no ordering at all, whatever `days` says (only today's and later ones are kept). */
+  closures?: readonly OrderingClosure[];
 };
+
+/** A whole campus day without ordering: `date` is "YYYY-MM-DD" in campus time; `note` is the sentence shown. */
+export type OrderingClosure = { date: string; note: string };
 
 const MONDAY_TO_FRIDAY: readonly Weekday[] = [1, 2, 3, 4, 5];
 const EVERY_DAY: readonly Weekday[] = [0, 1, 2, 3, 4, 5, 6];
@@ -84,11 +94,38 @@ export function parseOrderingDays(raw: string | null | undefined): Weekday[] | n
   return [...days].sort((a, b) => a - b);
 }
 
-/** The server's ordering times: ORDERING_HOURS and ORDERING_DAYS when valid, else 8am–5pm, Monday to Friday. */
-export function orderingHoursFromEnv(env: Record<string, string | undefined> = process.env): OrderingHours {
+/**
+ * The server's ordering times: ORDERING_HOURS and ORDERING_DAYS when valid, else 8am–5pm, Monday to Friday, plus the
+ * closed days from today on (`closures` is left out when there are none).
+ */
+export function orderingHoursFromEnv(
+  env: Record<string, string | undefined> = process.env,
+  now: number = Date.now(),
+  closures: readonly OrderingClosure[] = ORDERING_CLOSURES,
+): OrderingHours {
   const window = (env.ORDERING_HOURS?.trim() && parseOrderingWindow(env.ORDERING_HOURS)) || DEFAULT_ORDERING_HOURS;
   const days = (env.ORDERING_DAYS?.trim() && parseOrderingDays(env.ORDERING_DAYS)) || DEFAULT_ORDERING_HOURS.days;
-  return { opensAtMinute: window.opensAtMinute, closesAtMinute: window.closesAtMinute, days };
+  const today = campusDateKey(campusDayNumber(new Date(now)));
+  const upcoming = closures.filter((closure) => DATE_KEY.test(closure.date) && closure.date >= today);
+  return { opensAtMinute: window.opensAtMinute, closesAtMinute: window.closesAtMinute, days, ...(upcoming.length ? { closures: upcoming } : {}) };
+}
+
+const DATE_KEY = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Days since 1 January 1970, in campus time. */
+function campusDayNumber(now: Date) {
+  return Math.floor((now.getTime() + CAMPUS_UTC_OFFSET_MINUTES * MINUTE_MS) / DAY_MS);
+}
+
+/** "2026-11-11" for a campus day number. */
+function campusDateKey(campusDay: number) {
+  return new Date(campusDay * DAY_MS).toISOString().slice(0, 10);
+}
+
+/** The closure covering `now`'s campus day, or null on an ordinary day. */
+export function closureOn(hours: OrderingHours, now: Date): OrderingClosure | null {
+  const key = campusDateKey(campusDayNumber(now));
+  return hours.closures?.find((closure) => closure.date === key) ?? null;
 }
 
 export function isAlwaysOpen(hours: OrderingHours) {
@@ -97,28 +134,46 @@ export function isAlwaysOpen(hours: OrderingHours) {
 
 export type OrderingStatus =
   | { open: true; /** When ordering closes; null when it never does. */ closesAt: Date | null }
-  | { open: false; /** The next time ordering opens. */ opensAt: Date; /** It opens later on the same campus day. */ opensToday: boolean };
+  | {
+      open: false;
+      /** The next time ordering opens. */ opensAt: Date;
+      /** It opens later on the same campus day. */ opensToday: boolean;
+      /** Set when a closed day (today or before the next opening) explains part of the wait. */ note?: string;
+    };
 
 export function orderingStatus(now: Date, hours: OrderingHours = DEFAULT_ORDERING_HOURS): OrderingStatus {
-  if (isAlwaysOpen(hours)) return { open: true, closesAt: null };
+  const campusDay = campusDayNumber(now);
+  const closures = hours.closures ?? [];
+  const closureAt = (dayOffset: number) => {
+    if (!closures.length) return null;
+    const key = campusDateKey(campusDay + dayOffset);
+    return closures.find((closure) => closure.date === key) ?? null;
+  };
+  if (isAlwaysOpen(hours) && !closures.some((closure) => closure.date >= campusDateKey(campusDay))) return { open: true, closesAt: null };
   const campusMs = now.getTime() + CAMPUS_UTC_OFFSET_MINUTES * MINUTE_MS;
-  const campusDay = Math.floor(campusMs / DAY_MS);
   const campusMidnightMs = campusDay * DAY_MS;
   const minuteOfDay = (campusMs - campusMidnightMs) / MINUTE_MS;
   const today = ((campusDay + EPOCH_WEEKDAY) % 7) as Weekday;
   const at = (dayOffset: number, minute: number) => new Date(campusMidnightMs + dayOffset * DAY_MS + minute * MINUTE_MS - CAMPUS_UTC_OFFSET_MINUTES * MINUTE_MS);
 
-  if (hours.days.includes(today) && minuteOfDay >= hours.opensAtMinute && minuteOfDay < hours.closesAtMinute) {
+  if (hours.days.includes(today) && !closureAt(0) && minuteOfDay >= hours.opensAtMinute && minuteOfDay < hours.closesAtMinute) {
     return { open: true, closesAt: at(0, hours.closesAtMinute) };
   }
   // The next opening: later today if today is an ordering day and it hasn't opened yet, else the next ordering day.
-  for (let offset = 0; offset <= 7; offset += 1) {
+  // Closed days are skipped; the first one passed over gives the note.
+  let note: string | undefined;
+  for (let offset = 0; offset <= 7 + closures.length; offset += 1) {
     const day = ((today + offset) % 7) as Weekday;
+    const closure = closureAt(offset);
+    if (closure) {
+      note ??= closure.note;
+      continue;
+    }
     if (!hours.days.includes(day) || (offset === 0 && minuteOfDay >= hours.opensAtMinute)) continue;
-    return { open: false, opensAt: at(offset, hours.opensAtMinute), opensToday: offset === 0 };
+    return { open: false, opensAt: at(offset, hours.opensAtMinute), opensToday: offset === 0, ...(note ? { note } : {}) };
   }
   // Unreachable while days is never empty; fail safe (closed, retry in a day) rather than open.
-  return { open: false, opensAt: at(1, hours.opensAtMinute), opensToday: false };
+  return { open: false, opensAt: at(1, hours.opensAtMinute), opensToday: false, ...(note ? { note } : {}) };
 }
 
 /** When the status next flips (for client timers), or null when it never does. */
@@ -171,7 +226,7 @@ export function openingPhrase(status: Extract<OrderingStatus, { open: false }>, 
 
 /** The sentence shown wherever ordering is refused. */
 export function orderingClosedMessage(hours: OrderingHours, status: Extract<OrderingStatus, { open: false }>) {
-  return `Ordering is closed right now. PackAM takes orders ${orderingHoursLabel(hours)}, and opens again ${openingPhrase(status, hours)}.`;
+  return `Ordering is closed right now.${status.note ? ` ${status.note}` : ""} PackAM takes orders ${orderingHoursLabel(hours)}, and opens again ${openingPhrase(status, hours)}.`;
 }
 
 /** Starting a payment outside ordering times. Nothing was created or charged. */
@@ -194,7 +249,7 @@ export function assertOrderingOpen(now: Date = new Date(), hours: OrderingHours 
 export type OrderingClock = { hours: OrderingHours; serverNow: number };
 
 export function orderingClock(env: Record<string, string | undefined> = process.env, now: number = Date.now()): OrderingClock {
-  return { hours: orderingHoursFromEnv(env), serverNow: now };
+  return { hours: orderingHoursFromEnv(env, now), serverNow: now };
 }
 
 /** The body every route returns for a refused payment, so checkout and printing handle it the same way. */

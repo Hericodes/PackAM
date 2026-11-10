@@ -26,6 +26,14 @@ test("the reminder window is 3:30–4:45pm on weekdays (90 to 15 minutes before 
   assert.equal(inSendWindow("REMINDER", DEFAULT_ORDERING_HOURS, lagos("2026-11-14T15:30:00")), false, "not on Saturday");
 });
 
+test("no good morning or reminder on a closed day; the days around it are unaffected", () => {
+  const hours: OrderingHours = { ...DEFAULT_ORDERING_HOURS, closures: [{ date: "2026-11-11", note: "Closed." }] };
+  assert.equal(inSendWindow("MORNING", hours, lagos("2026-11-11T08:00:00")), false);
+  assert.equal(inSendWindow("REMINDER", hours, lagos("2026-11-11T15:30:00")), false);
+  assert.equal(inSendWindow("REMINDER", hours, lagos("2026-11-10T15:30:00")), true, "the day before");
+  assert.equal(inSendWindow("MORNING", hours, lagos("2026-11-12T08:00:00")), true, "the day after");
+});
+
 test("the windows follow ORDERING_HOURS and ORDERING_DAYS", () => {
   const longer: OrderingHours = { opensAtMinute: 7 * 60, closesAtMinute: 19 * 60, days: [1, 2, 3, 4, 5, 6] };
   assert.equal(windowStartLabel("MORNING", longer), "6:30am");

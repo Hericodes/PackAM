@@ -72,12 +72,13 @@ test("when open, it says when ordering closes; the client timer flips at that mo
 });
 
 test("ORDERING_HOURS and ORDERING_DAYS change the times; unset or invalid keeps Monday to Friday, 8am–5pm", () => {
-  assert.deepEqual(orderingHoursFromEnv({}), DEFAULT_ORDERING_HOURS);
-  assert.deepEqual(orderingHoursFromEnv({ ORDERING_HOURS: "  ", ORDERING_DAYS: " " }), DEFAULT_ORDERING_HOURS);
-  assert.deepEqual(orderingHoursFromEnv({ ORDERING_HOURS: "07:30-18:00", ORDERING_DAYS: "mon-sat" }), { opensAtMinute: 450, closesAtMinute: 1080, days: [1, 2, 3, 4, 5, 6] });
+  const fromEnv = (env: Record<string, string | undefined>) => orderingHoursFromEnv(env, Date.now(), []);
+  assert.deepEqual(fromEnv({}), DEFAULT_ORDERING_HOURS);
+  assert.deepEqual(fromEnv({ ORDERING_HOURS: "  ", ORDERING_DAYS: " " }), DEFAULT_ORDERING_HOURS);
+  assert.deepEqual(fromEnv({ ORDERING_HOURS: "07:30-18:00", ORDERING_DAYS: "mon-sat" }), { opensAtMinute: 450, closesAtMinute: 1080, days: [1, 2, 3, 4, 5, 6] });
   for (const bad of ["8-17", "08:00", "17:00-08:00", "08:00-08:00", "08:00-25:00", "24:00-24:00", "08:60-17:00", "08:00-17:00-18:00", "always"]) {
     assert.equal(parseOrderingWindow(bad), null, bad);
-    assert.deepEqual(orderingHoursFromEnv({ ORDERING_HOURS: bad }), DEFAULT_ORDERING_HOURS, `${bad} falls back to the default`);
+    assert.deepEqual(fromEnv({ ORDERING_HOURS: bad }), DEFAULT_ORDERING_HOURS, `${bad} falls back to the default`);
   }
   assert.deepEqual(parseOrderingDays("MON-FRI"), [1, 2, 3, 4, 5]);
   assert.deepEqual(parseOrderingDays("mon, wed ,FRI"), [1, 3, 5]);
@@ -85,8 +86,45 @@ test("ORDERING_HOURS and ORDERING_DAYS change the times; unset or invalid keeps 
   assert.deepEqual(parseOrderingDays("SUN-SAT"), [0, 1, 2, 3, 4, 5, 6]);
   for (const bad of ["", "WEEKDAYS", "MON-", "MON-FRI-SAT", "MONDAY", "MON,,FRI", "1-5"]) {
     assert.equal(parseOrderingDays(bad), null, bad);
-    if (bad.trim()) assert.deepEqual(orderingHoursFromEnv({ ORDERING_DAYS: bad }).days, DEFAULT_ORDERING_HOURS.days, `${bad} falls back to Monday to Friday`);
+    if (bad.trim()) assert.deepEqual(fromEnv({ ORDERING_DAYS: bad }).days, DEFAULT_ORDERING_HOURS.days, `${bad} falls back to Monday to Friday`);
   }
+});
+
+const mourning = { date: "2026-11-11", note: "PackAM is not taking orders on Wednesday, 11 November, in memory of one of our students." };
+const withClosure: OrderingHours = { ...DEFAULT_ORDERING_HOURS, closures: [mourning] };
+
+test("a closed day: no ordering all day, opening moves to the next ordering day, and the note says why", () => {
+  assert.equal(orderingStatus(lagos("2026-11-11T12:30:00"), withClosure).open, false, "Wednesday lunchtime is closed");
+  assert.equal(orderingStatus(lagos("2026-11-10T12:30:00"), withClosure).open, true, "Tuesday is unaffected");
+  assert.equal(orderingStatus(lagos("2026-11-12T08:00:00"), withClosure).open, true, "Thursday opens as usual");
+
+  const tuesdayEvening = closed(orderingStatus(lagos("2026-11-10T19:00:00"), withClosure));
+  assert.equal(tuesdayEvening.opensAt.toISOString(), lagos("2026-11-12T08:00:00").toISOString(), "skips Wednesday");
+  assert.equal(tuesdayEvening.note, mourning.note, "the evening before already says why");
+  assert.equal(openingPhrase(tuesdayEvening, withClosure), "Thursday at 8am");
+
+  const wednesdayMorning = closed(orderingStatus(lagos("2026-11-11T06:00:00"), withClosure));
+  assert.equal(wednesdayMorning.opensToday, false, "not 'at 8am' on the closed day");
+  assert.equal(wednesdayMorning.note, mourning.note);
+  assert.equal(closed(orderingStatus(lagos("2026-11-12T06:00:00"), withClosure)).note, undefined, "Thursday before 8am: an ordinary wait");
+
+  assert.throws(() => assertOrderingOpen(lagos("2026-11-11T10:00:00"), withClosure), (error: Error) => {
+    assert.equal(error.message, `Ordering is closed right now. ${mourning.note} PackAM takes orders Monday to Friday, 8am–5pm, and opens again Thursday at 8am.`);
+    return true;
+  });
+});
+
+test("closed days: only today's and later ones are kept, and they apply to 'always open' hours too", () => {
+  const before = orderingHoursFromEnv({}, lagos("2026-11-10T22:00:00").getTime(), [mourning]);
+  assert.deepEqual(before.closures, [mourning]);
+  assert.equal("closures" in orderingHoursFromEnv({}, lagos("2026-11-12T00:00:00").getTime(), [mourning]), false, "gone once the day is over");
+  assert.equal("closures" in orderingHoursFromEnv({}, Date.now(), [{ date: "11/11/2026", note: "x" }]), false, "a malformed date is ignored");
+
+  const always: OrderingHours = { opensAtMinute: 0, closesAtMinute: 1440, days: [0, 1, 2, 3, 4, 5, 6], closures: [mourning] };
+  const tuesday = orderingStatus(lagos("2026-11-10T22:00:00"), always);
+  assert.equal(tuesday.open && tuesday.closesAt?.toISOString(), lagos("2026-11-11T00:00:00").toISOString(), "closes at the closed day's midnight");
+  assert.equal(orderingStatus(lagos("2026-11-11T22:00:00"), always).open, false);
+  assert.equal(orderingStatus(lagos("2026-11-12T00:00:00"), always).open, true);
 });
 
 test("00:00-24:00 on SUN-SAT is always open and never schedules a change; all day on weekdays only still closes at weekends", () => {

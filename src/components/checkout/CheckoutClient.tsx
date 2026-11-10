@@ -469,7 +469,7 @@ export function CheckoutClient({ items: initialItems, tiers, ordering: orderingC
         {error && <p role="alert" className="rounded-xl bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{error}</p>}
         {message && <p role="status" className="rounded-xl bg-green-50 px-3 py-2 text-sm font-semibold text-green-800">{message}</p>}
         {paymentButton}
-        {!orderingOpen && <p role="status" className="rounded-xl bg-[#fff3d6] px-3 py-2 text-xs font-semibold leading-5 text-[#6b4700]">Ordering is closed right now. We take orders {orderingHoursLabel(orderingClock.hours)}; your cart is saved, so come back {opening} to pay.</p>}
+        {!orderingOpen && <p role="status" className="rounded-xl bg-[#fff3d6] px-3 py-2 text-xs font-semibold leading-5 text-[#6b4700]">Ordering is closed right now.{!ordering.open && ordering.note ? ` ${ordering.note}` : ""} We take orders {orderingHoursLabel(orderingClock.hours)}; your cart is saved, so come back {opening} to pay.</p>}
         <p className="flex items-start gap-2 text-xs leading-5 text-black/55"><Icon name="check" className="mt-0.5 h-3.5 w-3.5 text-[#16803c]" strokeWidth={2.6} /> {payByTransfer ? "You’ll get PackAM’s account number next. Send exactly the total above, then confirm. Your order starts once we see your money." : `You’ll finish paying securely on ${providerName}. The total above is what you’ll be charged.`}</p>
       </aside>
 

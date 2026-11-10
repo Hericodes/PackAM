@@ -17,6 +17,7 @@ export function OrderingHoursNotice({ clock }: { clock: OrderingClock }) {
         <Icon name="clock" className="mt-0.5 h-4 w-4 shrink-0 text-[#875a00] sm:mt-0" />
         <p>
           <span className="font-black">Ordering is closed right now.</span>{" "}
+          {status.note && <span className="font-semibold">{status.note} </span>}
           <span className="text-black/70">We take orders {orderingHoursLabel(clock.hours)}. You fit still browse and fill your cart, then order when we open {openingPhrase(status, clock.hours)}.</span>
         </p>
       </div>

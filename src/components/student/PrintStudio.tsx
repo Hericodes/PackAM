@@ -565,7 +565,7 @@ export function PrintStudio({ initialJob, ordering: orderingClock }: PrintStudio
               <button type="button" onClick={() => void prepareForPayment()} disabled={!canPrepare} className="flex min-h-12 w-full items-center justify-center rounded-full bg-black px-5 text-sm font-black text-white transition hover:bg-black/85 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black disabled:cursor-not-allowed disabled:opacity-40">
                 {!orderingOpen ? `Ordering opens ${opening}` : preparing ? "Preparing payment…" : "Continue to payment"}
               </button>
-              <p className="mt-2 text-center text-xs leading-5 text-black/50">{orderingOpen ? "Your total is checked and saved by PackAM before secure checkout." : `We take orders ${orderingHoursLabel(orderingClock.hours)}. Your print job is saved, so come back ${opening} to pay.`}</p>
+              <p className="mt-2 text-center text-xs leading-5 text-black/50">{orderingOpen ? "Your total is checked and saved by PackAM before secure checkout." : `${!ordering.open && ordering.note ? `${ordering.note} ` : ""}We take orders ${orderingHoursLabel(orderingClock.hours)}. Your print job is saved, so come back ${opening} to pay.`}</p>
             </section>
           </>
         ) : (

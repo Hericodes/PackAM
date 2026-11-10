@@ -4,6 +4,7 @@ import "./globals.css";
 import { CartExperience } from "../components/cart/CartExperience";
 import { PwaProvider } from "../components/pwa/PwaProvider";
 import { PageViewTracker } from "../components/analytics/PageViewTracker";
+import { MemorialGate } from "../components/memorial/MemorialGate";
 import { siteConfig } from "../config/site";
 
 /*
@@ -53,7 +54,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={sans.variable}>
-      <body suppressHydrationWarning><CartExperience><PwaProvider>{children}</PwaProvider></CartExperience><PageViewTracker /></body>
+      <body suppressHydrationWarning><CartExperience><PwaProvider>{children}</PwaProvider></CartExperience><PageViewTracker /><MemorialGate /></body>
     </html>
   );
 }

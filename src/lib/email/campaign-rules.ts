@@ -8,9 +8,10 @@
  * - REMINDER: from 90 minutes before ordering closes (3:30pm) until 15 minutes before (4:45pm), and only to students
  *   who haven't ordered that day.
  * The scheduler runs every 5 minutes and sends in batches, so everyone gets theirs inside the window; whatever is
- * left when a window ends is skipped (a "good morning" at lunchtime would be wrong).
+ * left when a window ends is skipped (a "good morning" at lunchtime would be wrong). Neither goes out on a closed day
+ * (src/config/ordering-closures.ts).
  */
-import type { OrderingHours, Weekday } from "../ordering-hours";
+import { closureOn, type OrderingHours, type Weekday } from "../ordering-hours";
 
 /** The kinds a student can switch on and off (the EmailPreference columns). Safe in the browser. */
 export const EMAIL_SCOPES = ["morning", "reminders", "announcements", "orderUpdates"] as const;
@@ -69,10 +70,10 @@ export function sendWindow(kind: ScheduledKind, hours: OrderingHours): { startMi
   return { startMinute, endMinute };
 }
 
-/** True while a scheduled email may be sent: an ordering day, inside its window. */
+/** True while a scheduled email may be sent: an ordering day that isn't a closed day, inside its window. */
 export function inSendWindow(kind: ScheduledKind, hours: OrderingHours, now: Date) {
   const window = sendWindow(kind, hours);
-  if (!window) return false;
+  if (!window || closureOn(hours, now)) return false;
   const { minute, weekday } = campusParts(now);
   return hours.days.includes(weekday) && minute >= window.startMinute && minute < window.endMinute;
 }
