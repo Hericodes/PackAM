@@ -3,6 +3,7 @@ import "server-only";
 import { OrderStatus, Prisma } from "@prisma/client";
 import { canTransitionOrder } from "./state-machine";
 import { createNotification } from "../notifications";
+import { queueOrderUpdateEmail } from "../email/campaign-store";
 
 const studentEvents: Partial<Record<OrderStatus, { type: "ORDER" | "PAYMENT" | "DELIVERY"; title: string; message: (total: number) => string }>> = {
   PAYMENT_CONFIRMED: { type: "PAYMENT", title: "Order confirmed", message: () => "Order don enter! 🫡 Make we sort you out." },
@@ -49,6 +50,11 @@ export async function transitionOrderInTransaction(
     },
   });
   const event = studentEvents[input.toStatus];
-  if (event) await createNotification(tx, { userId: order.userId, orderId: order.id, type: event.type, title: event.title, message: event.message(order.total), idempotencyKey: `order-event:${order.id}:${input.toStatus}` });
+  if (event) {
+    const message = event.message(order.total);
+    await createNotification(tx, { userId: order.userId, orderId: order.id, type: event.type, title: event.title, message, idempotencyKey: `order-event:${order.id}:${input.toStatus}` });
+    // The same update by email, queued in this transaction and sent by the scheduler. It can never fail the order.
+    await queueOrderUpdateEmail(tx, { userId: order.userId, orderId: order.id, title: event.title, message });
+  }
   return { previousStatus: order.status, status: input.toStatus };
 }

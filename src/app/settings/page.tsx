@@ -6,6 +6,8 @@ import { DevicesSection } from "../../components/account/DevicesSection";
 import { EmailChangeNotice } from "../../components/account/EmailChangeNotice";
 import { EmailSection } from "../../components/account/EmailSection";
 import { NotificationsSection } from "../../components/account/NotificationsSection";
+import { EmailPreferencesSection } from "../../components/account/EmailPreferencesSection";
+import { readEmailPreferences } from "../../lib/email/campaign-store";
 import { PasswordSection } from "../../components/account/PasswordSection";
 import { ProfileSection } from "../../components/account/ProfileSection";
 import { isEmailChangeStatus, linkExpiryLabel } from "../../components/account/account-requests";
@@ -68,6 +70,8 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
   if (loaded.kind === "missing") redirect(`/login?callbackUrl=${encodeURIComponent(returnTo)}`);
   const role: Role = loaded.kind === "ready" ? loaded.account.role : session.user.role;
   const emailAvailable = loaded.kind === "ready" && emailLinksAvailable();
+  // Students' automated email choices; null for other roles. Not ready before the email migration.
+  const emailChoices = role === "STUDENT" && loaded.kind === "ready" ? await readEmailPreferences(db, userId) : null;
 
   return (
     <main className="pk-theme-auth min-h-svh pb-[max(4rem,env(safe-area-inset-bottom))]">
@@ -123,7 +127,8 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
                 resetAvailable={emailAvailable}
               />
               <DevicesSection email={loaded.account.email} />
-              <NotificationsSection role={role} />
+              <NotificationsSection role={role} emailChoices={emailChoices?.ready ?? false} />
+              {role === "STUDENT" && emailChoices?.ready && <EmailPreferencesSection initial={emailChoices.preferences} emailVerified={loaded.account.emailVerified} />}
               {role === "STUDENT" && <DeleteAccountSection email={loaded.account.email} />}
             </div>
           </>

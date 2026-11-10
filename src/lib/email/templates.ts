@@ -183,6 +183,72 @@ export function paymentPinNotice(name: string | null | undefined, kind: "set" | 
   });
 }
 
+// ---- Automated email (src/lib/email/campaigns.ts). Every one carries an unsubscribe link for its kind. ----
+
+/** Weekday mornings, before ordering opens. `message` rotates by day (campaign-rules.ts); `hoursLabel` e.g. "8am to 5pm". */
+export function morningEmail(name: string | null | undefined, message: { subject: string; heading: string; line: string }, hoursLabel: string, orderUrl: string, footer: AutomatedFooter): EmailContent {
+  return compose({
+    subject: message.subject,
+    preview: `PackAM is taking orders today from ${hoursLabel}.`,
+    heading: message.heading,
+    name,
+    footer,
+    blocks: [
+      { kind: "paragraph", text: message.line },
+      { kind: "paragraph", text: `We’re taking orders today from ${hoursLabel}.` },
+      { kind: "button", label: "Order on PackAM", href: checkedLink(orderUrl) },
+      { kind: "note", text: "Food from campus shops, everyday essentials and printing, delivered to you on OOU main campus." },
+    ],
+  });
+}
+
+/** Weekday afternoons, to students who haven't ordered that day. `closesLabel` e.g. "5pm". */
+export function reminderEmail(name: string | null | undefined, closesLabel: string, orderUrl: string, footer: AutomatedFooter): EmailContent {
+  return compose({
+    subject: `Ordering closes at ${closesLabel} today ⏰`,
+    preview: `Still time to order. PackAM stops taking orders at ${closesLabel}.`,
+    heading: "Still time to order ⏰",
+    name,
+    footer,
+    blocks: [
+      { kind: "paragraph", text: `PackAM stops taking orders at ${closesLabel} today. If you need food, provisions or printing, order now and we go bring am come meet you.` },
+      { kind: "button", label: "Order now", href: checkedLink(orderUrl) },
+    ],
+  });
+}
+
+/** The same update the order's bell notification shows, by email. `title`/`message` come from the order event. */
+export function orderUpdateEmail(name: string | null | undefined, update: { title: string; message: string; orderRef: string; orderUrl: string }, footer: AutomatedFooter): EmailContent {
+  const title = oneLine(update.title).slice(0, 80) || "Order update";
+  return compose({
+    subject: `${title} · PackAM order ${oneLine(update.orderRef).slice(0, 20)}`,
+    preview: oneLine(update.message).slice(0, 140),
+    heading: title,
+    name,
+    footer,
+    blocks: [
+      { kind: "paragraph", text: oneLine(update.message).slice(0, 500) },
+      { kind: "button", label: "Track your order", href: checkedLink(update.orderUrl) },
+    ],
+  });
+}
+
+/** An announcement an admin wrote: their subject, their paragraphs and an optional button. */
+export function announcementEmail(name: string | null | undefined, announcement: { subject: string; paragraphs: string[]; buttonLabel: string | null; buttonUrl: string | null }, footer: AutomatedFooter): EmailContent {
+  const subject = oneLine(announcement.subject).slice(0, 120);
+  return compose({
+    subject,
+    preview: oneLine(announcement.paragraphs[0] ?? subject).slice(0, 140),
+    heading: subject,
+    name,
+    footer,
+    blocks: [
+      ...announcement.paragraphs.map((text): Block => ({ kind: "paragraph", text })),
+      ...(announcement.buttonLabel && announcement.buttonUrl ? [{ kind: "button" as const, label: oneLine(announcement.buttonLabel).slice(0, 40), href: checkedLink(announcement.buttonUrl) }] : []),
+    ],
+  });
+}
+
 /** Whitespace collapsed, so a stored value can't add lines to the text part. */
 function oneLine(value: string) {
   return value.replace(/\s+/g, " ").trim();
@@ -208,12 +274,27 @@ const PARAGRAPH = `margin:0 0 16px;font-family:${FONT};font-size:16px;line-heigh
 const NOTE = `margin:0 0 16px;font-family:${FONT};font-size:14px;line-height:1.6;color:${MUTED};`;
 const FOOTER = "You’re getting this email because it’s about your PackAM account.";
 
-function compose(input: { subject: string; preview: string; heading: string; name: string | null | undefined; blocks: Block[] }): EmailContent {
+/** Automated email (good morning, reminders, news, order updates): why it came, and links to stop it. */
+export type AutomatedFooter = {
+  /** "good-morning emails": what the unsubscribe link stops. */
+  noun: string;
+  unsubscribeUrl: string;
+  manageUrl: string;
+};
+
+function compose(input: { subject: string; preview: string; heading: string; name: string | null | undefined; blocks: Block[]; footer?: AutomatedFooter }): EmailContent {
   const hello = greeting(input.name);
+  const footer = input.footer ? { ...input.footer, unsubscribeUrl: checkedLink(input.footer.unsubscribeUrl), manageUrl: checkedLink(input.footer.manageUrl) } : null;
+  const footerText = footer
+    ? `You’re getting this because you have a PackAM account.\nStop ${footer.noun}: ${footer.unsubscribeUrl}\nAll email settings: ${footer.manageUrl}\nPackAM`
+    : `${FOOTER}\nPackAM`;
+  const footerHtml = footer
+    ? `You’re getting this because you have a PackAM account. <a href="${escapeHtml(footer.unsubscribeUrl)}" style="color:${MUTED};">Stop ${escapeHtml(footer.noun)}</a> · <a href="${escapeHtml(footer.manageUrl)}" style="color:${MUTED};">Email settings</a>`
+    : escapeHtml(FOOTER);
   const text = [
     hello,
     ...input.blocks.map((block) => (block.kind === "button" ? `${block.label}:\n${block.href}` : block.text)),
-    `${FOOTER}\nPackAM`,
+    footerText,
   ].join("\n\n") + "\n";
   const html = [
     "<!doctype html>",
@@ -229,7 +310,7 @@ function compose(input: { subject: string; preview: string; heading: string; nam
     `<p style="${PARAGRAPH}">${escapeHtml(hello)}</p>`,
     ...input.blocks.map(blockHtml),
     "</td></tr>",
-    `<tr><td style="padding:16px 24px 24px;border-top:1px solid ${LINE};font-family:${FONT};font-size:12px;line-height:1.5;color:${MUTED};">${escapeHtml(FOOTER)}</td></tr>`,
+    `<tr><td style="padding:16px 24px 24px;border-top:1px solid ${LINE};font-family:${FONT};font-size:12px;line-height:1.5;color:${MUTED};">${footerHtml}</td></tr>`,
     "</table>",
     "</td></tr></table>",
     "</body></html>",

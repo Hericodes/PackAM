@@ -5,6 +5,7 @@ import { expireUnclaimedRunnerOrders } from "../../../../../lib/orders/scheduled
 import { expireUnclaimedPrintJobs } from "../../../../../lib/printing/fulfilment-recovery";
 import { consumeRateLimit } from "../../../../../lib/rate-limit";
 import { runManualTransferHousekeeping } from "../../../../../lib/payments/manual-transfer-store";
+import { runEmailCampaigns } from "../../../../../lib/email/campaigns";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,6 +30,12 @@ async function run(request: Request) {
   // run's status, and it never throws.
   await afterResponse(async () => {
     await runAccountHousekeeping();
+  });
+  // Automated email (order updates, announcements, good morning, reminders): bounded batches, also after the response,
+  // so a slow email provider can never hold up dispatch or change this run's status.
+  await afterResponse(async () => {
+    const report = await runEmailCampaigns();
+    console.info(JSON.stringify({ event: "email_campaign_run", report }));
   });
   try {
     const orders = await expireUnclaimedRunnerOrders();

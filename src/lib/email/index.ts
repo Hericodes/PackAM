@@ -33,6 +33,8 @@ export type EmailMessage = {
    * receives this mail, so it skips the shared per-inbox limit.
    */
   toConfirmedAddress?: boolean;
+  /** Extra headers, e.g. List-Unsubscribe on automated email. Never logged. */
+  headers?: Record<string, string>;
 };
 export type SendEmailResult = { status: "sent" | "not-configured" | "failed" };
 export type OutboxMessage = EmailMessage & { sentAt: Date };
@@ -115,7 +117,7 @@ async function sendWithResend(config: Extract<EmailConfig, { mode: "resend" }>, 
   const response = await fetch(RESEND_URL, {
     method: "POST",
     headers: { Authorization: `Bearer ${config.apiKey}`, "Content-Type": "application/json", Accept: "application/json" },
-    body: JSON.stringify({ from: config.from, to: [message.to], subject: message.subject, text: message.text, html: message.html }),
+    body: JSON.stringify({ from: config.from, to: [message.to], subject: message.subject, text: message.text, html: message.html, ...(message.headers ? { headers: message.headers } : {}) }),
     signal: AbortSignal.timeout(TIMEOUT_MS),
     cache: "no-store",
   });
@@ -126,6 +128,72 @@ async function sendWithResend(config: Extract<EmailConfig, { mode: "resend" }>, 
     return { status: "failed" };
   }
   return { status: "sent" };
+}
+
+/** Whether automated email can go to this address now: valid, and not a reserved test domain on a real transport. */
+export function canDeliverTo(address: string) {
+  if (!isValidEmail(address)) return false;
+  return currentConfig()?.mode !== "resend" || !UNDELIVERABLE.test(address);
+}
+
+const RESEND_BATCH_URL = "https://api.resend.com/emails/batch";
+/** Resend accepts up to 100 emails per batch call. */
+export const EMAIL_BATCH_LIMIT = 100;
+
+export type BatchEmailMessage = Pick<EmailMessage, "to" | "subject" | "text" | "html" | "headers">;
+/** For "sent", one provider message id per message, in order (null where the transport has none). */
+export type BatchSendResult = { status: "sent" | "not-configured" | "failed"; providerIds: (string | null)[] };
+
+/**
+ * Automated email to students' own confirmed addresses (the caller only passes confirmed, deliverable addresses), up to
+ * EMAIL_BATCH_LIMIT in one provider call. All or nothing: "failed" means none of them should be counted as sent and
+ * the caller may retry them. `idempotencyKey` makes a retried call with the same key a no-op at Resend for 24 hours.
+ * Never throws, and never logs an address, subject or body.
+ */
+export async function sendEmailBatch(messages: BatchEmailMessage[], options: { purpose: string; idempotencyKey: string }): Promise<BatchSendResult> {
+  const purpose = logLabel(options.purpose);
+  if (!messages.length) return { status: "sent", providerIds: [] };
+  if (messages.length > EMAIL_BATCH_LIMIT) throw new Error(`At most ${EMAIL_BATCH_LIMIT} emails per batch.`);
+  const config = currentConfig();
+  if (!config || config.mode === "none" || (config.mode === "memory" && testMode() === "not-configured")) {
+    console.warn("EMAIL NOT CONFIGURED:", purpose);
+    return { status: "not-configured", providerIds: [] };
+  }
+  if (messages.some((message) => !isValidEmail(message.to) || (config.mode === "resend" && UNDELIVERABLE.test(message.to)))) {
+    console.error("EMAIL BATCH NOT SENT:", purpose, "invalid recipient");
+    return { status: "failed", providerIds: [] };
+  }
+  try {
+    if (config.mode === "memory") {
+      if (testMode() === "failing") throw new TestEmailFailure();
+      const sentAt = new Date();
+      store.__PACKAM_TEST_OUTBOX__ = [...(store.__PACKAM_TEST_OUTBOX__ ?? []), ...messages.map((message) => ({ ...message, purpose: options.purpose, toConfirmedAddress: true, sentAt }))];
+      return { status: "sent", providerIds: messages.map(() => null) };
+    }
+    if (config.mode === "file") {
+      for (const message of messages) await writeMessageFile(config.dir, { ...message, purpose: options.purpose }, purpose);
+      return { status: "sent", providerIds: messages.map(() => null) };
+    }
+    const response = await fetch(RESEND_BATCH_URL, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${config.apiKey}`, "Content-Type": "application/json", Accept: "application/json", "User-Agent": "PackAM", "Idempotency-Key": options.idempotencyKey.slice(0, 256) },
+      body: JSON.stringify(messages.map((message) => ({ from: config.from, to: [message.to], subject: message.subject, text: message.text, html: message.html, ...(message.headers ? { headers: message.headers } : {}) }))),
+      signal: AbortSignal.timeout(30_000),
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      await response.body?.cancel().catch(() => undefined);
+      console.error("EMAIL BATCH ERROR:", purpose, `HTTP ${response.status}`);
+      return { status: "failed", providerIds: [] };
+    }
+    // Only the ids are read: { data: [{ id }] }, in the same order as the messages.
+    const body = await response.json().catch(() => null) as { data?: Array<{ id?: unknown }> } | null;
+    const ids = Array.isArray(body?.data) ? body.data.map((entry) => (typeof entry?.id === "string" ? entry.id.slice(0, 100) : null)) : [];
+    return { status: "sent", providerIds: messages.map((_, index) => ids[index] ?? null) };
+  } catch (error) {
+    console.error("EMAIL BATCH ERROR:", purpose, error instanceof Error ? error.name : "Unknown error");
+    return { status: "failed", providerIds: [] };
+  }
 }
 
 /** Local testing only: one JSON file per message, so links can be opened from the folder. */

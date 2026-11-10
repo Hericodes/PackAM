@@ -237,6 +237,9 @@ async function deleteCreatedRows(db: Db) {
     await db.promoRedemption.deleteMany({ where: { userId: users } });
     await db.promoCode.deleteMany({ where: { createdById: users } });
   }
+  // Announcements keep their admin (Restrict); deliveries and preferences go with the users (cascade).
+  const [email] = await db.$queryRaw<Array<{ ready: boolean | null }>>`SELECT to_regclass('public."EmailBroadcast"') IS NOT NULL AS "ready"`;
+  if (email?.ready) await db.emailBroadcast.deleteMany({ where: { createdById: users } });
   await db.printJob.deleteMany({ where: { userId: users } });
   await db.incident.deleteMany({ where: { order: { userId: users } } });
   await db.order.deleteMany({ where: { userId: users } });

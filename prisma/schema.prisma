@@ -279,6 +279,12 @@ model User {
   /// Promo codes this admin created, and the codes this student used. Relation fields only: no column on User.
   promoCodesCreated     PromoCode[]       @relation("PromoCodeCreatedBy")
   promoRedemptions      PromoRedemption[]
+  /// Automated email: this student's choices, what was sent to them, and (admins) announcements and switches.
+  /// Relation fields only: no column on User. Never include them on existing User queries (see src/lib/email/campaign-store.ts).
+  emailPreference       EmailPreference?
+  emailDeliveries       EmailDelivery[]
+  emailBroadcasts       EmailBroadcast[]  @relation("EmailBroadcastCreatedBy")
+  emailSchedulesUpdated EmailSchedule[]   @relation("EmailScheduleUpdatedBy")
 
   @@index([role])
   @@index([status])
@@ -1447,4 +1453,92 @@ model PromoRedemption {
 
   @@index([promoCodeId])
   @@index([userId, promoCodeId])
+}
+
+/// The kinds of automated email students can get.
+enum EmailKind {
+  /// Ordering days, half an hour before ordering opens.
+  MORNING
+  /// Ordering days, 90 minutes before ordering closes, to students who haven't ordered that day.
+  REMINDER
+  /// Written and sent by an admin.
+  ANNOUNCEMENT
+  /// The order updates the in-app bell shows (confirmed, runner assigned, on the way, delivered, refund).
+  ORDER_UPDATE
+}
+
+enum EmailDeliveryStatus {
+  PENDING
+  SENDING
+  SENT
+  FAILED
+  SKIPPED
+}
+
+/// A student's email choices. No row = every kind on (the owner chose on-by-default with one-tap unsubscribe).
+model EmailPreference {
+  userId        String   @id
+  morning       Boolean  @default(true)
+  reminders     Boolean  @default(true)
+  announcements Boolean  @default(true)
+  orderUpdates  Boolean  @default(true)
+  updatedAt     DateTime @updatedAt
+
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+/// Admin on/off switch per kind for everyone (e.g. a holiday). MORNING and REMINDER start off; ANNOUNCEMENT has no row.
+model EmailSchedule {
+  kind        EmailKind @id
+  enabled     Boolean   @default(false)
+  updatedAt   DateTime  @updatedAt
+  updatedById String?
+
+  updatedBy   User?     @relation("EmailScheduleUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+}
+
+/// An announcement an admin wrote. The scheduler sends it in batches until every subscribed student has it.
+/// Database CHECK constraints (see migration 20261110090000_email_campaigns): status SENDING | SENT | CANCELLED;
+/// subject 1–120 characters; body 1–5000; button label and URL both set or both empty.
+model EmailBroadcast {
+  id             String          @id @default(cuid())
+  subject        String
+  body           String
+  buttonLabel    String?
+  buttonUrl      String?
+  status         String          @default("SENDING")
+  /// Subscribed students when it was created (for progress only; later sign-ups get it too while it is sending).
+  recipientCount Int             @default(0)
+  createdById    String
+  createdAt      DateTime        @default(now())
+  finishedAt     DateTime?
+
+  createdBy      User            @relation("EmailBroadcastCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([status, createdAt])
+}
+
+/// One automated email to one student. The unique (userId, kind, key) makes every send happen at most once:
+/// key is the campus day for MORNING/REMINDER, the broadcast id for ANNOUNCEMENT, and the order event for ORDER_UPDATE.
+/// ORDER_UPDATE rows are queued inside the order's own transaction (payload holds the title, message and order id)
+/// and sent by the scheduler.
+model EmailDelivery {
+  id                String              @id @default(cuid())
+  userId            String
+  kind              EmailKind
+  key               String
+  status            EmailDeliveryStatus @default(PENDING)
+  payload           Json?
+  attempts          Int                 @default(0)
+  claimToken        String?
+  providerMessageId String?
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  sentAt            DateTime?
+
+  user              User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, kind, key])
+  @@index([kind, key, status])
+  @@index([status, createdAt])
 }

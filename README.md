@@ -86,6 +86,37 @@ A use counts only once its payment succeeds. Several students paying at the same
 
 The migration only adds the `PromoCode` and `PromoRedemption` tables. The code is safe to deploy before it: until the migration is applied, checkout refuses codes with "Promo codes aren't available yet", the admin page explains, and checkout without a code is unchanged.
 
+## Automated email (`20261110090000_email_campaigns`)
+
+Students get four kinds of automated email, sent through Resend (the same `RESEND_API_KEY` and `EMAIL_FROM` as account email):
+
+| Email | When | Who |
+| --- | --- | --- |
+| Good morning message | Ordering days, 30 minutes before ordering opens (7:30am), until 9:30am | Every subscribed student |
+| Order reminder | Ordering days, 90 minutes before closing (3:30pm), until 4:45pm | Subscribed students who haven't ordered that day |
+| Announcements | Written and sent by an admin at `/admin/emails` | Everyone with news and offers on |
+| Order updates | When an order is confirmed, assigned, sourced, out for delivery, delivered or refunded (the same updates as the in-app bell) | The order's student |
+
+The two scheduled emails follow `ORDERING_HOURS` and `ORDERING_DAYS`.
+
+Only active students with a **confirmed** email address get these emails. Each kind is on by default and can be switched off in Settings → "Emails from PackAM". Every email carries a footer link to stop it and RFC 8058 one-tap `List-Unsubscribe` headers. Unsubscribe links are signed with a key derived from `AUTH_SECRET` and need no sign-in. Without `AUTH_SECRET`, nothing is sent.
+
+Admins have an on/off switch for the good-morning email, the reminder and order updates, plus "Send test to me" for each, and can compose, test and stop announcements. Every change is audited.
+
+The migration seeds the good-morning email and the reminder **off**. Send yourself a test, then turn them on. Order updates are seeded on.
+
+**How sending works:**
+
+- The scheduler runs inside the existing 5-minute `/api/internal/fulfilment/run-due` call, after its response, so it can never delay dispatch.
+- Each run sends at most 300 emails, in Resend batches of up to 100. Order updates go first, then announcements, then the scheduled emails.
+- Every email is one `EmailDelivery` row, unique per student, kind and day (or announcement, or order event), so nothing is sent twice.
+- A failed provider call is retried on the next runs, up to 3 times.
+- A scheduled email still waiting when its window ends is skipped.
+
+**Resend's free plan allows 100 emails a day.** Two scheduled emails per student per weekday outgrow it beyond about 50 students. Upgrade the Resend plan before switching the scheduled emails on for a larger student base.
+
+Before the migration, no automated email is sent, the admin page explains why, and Settings shows the old notification text.
+
 ## Student requests and operations
 
 Students can request an item at `/product-requests` or from search. Admins use `/admin` for live database counts and `/admin/orders`, `/admin/requests`, `/admin/payments`, `/admin/vendors`, `/admin/runners`, and `/admin/exceptions` to review current work. `/admin/delivery-tiers` sets the fee and on/off switch of each marketplace and food delivery speed (Cruise Mode, Sharp Sharp, Oya Now!); delivery windows and descriptions are fixed, at least one speed always stays on, and every change is written to the audit log. Printing keeps its own fixed delivery fee. Until migration `20261101150000_delivery_tiers` is applied the page explains this and refuses edits, and checkout offers Cruise Mode only. Lists are capped or paginated to keep queries bounded. Runner delivery starts only after the assigned runner's order is in `SOURCING_PRODUCT` and every ordered unit has been sourced or approved; the runner then records `OUT_FOR_DELIVERY` and `DELIVERED` through the existing order transition service.
