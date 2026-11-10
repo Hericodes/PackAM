@@ -8,7 +8,7 @@ import { isSchemaBehindCode } from "../db-errors";
 import { formatCampusClock, orderingHoursFromEnv, type OrderingHours } from "../ordering-hours";
 import { shortReference } from "../student-copy";
 import { EMAIL_BATCH_LIMIT, canDeliverTo, isEmailConfigured, sendEmailBatch, type BatchEmailMessage } from "./index";
-import { announcementEmail, morningEmail, orderUpdateEmail, reminderEmail, type AutomatedFooter, type EmailContent } from "./templates";
+import { announcementEmail, confirmedName, morningEmail, orderUpdateEmail, reminderEmail, type AutomatedFooter, type EmailContent } from "./templates";
 import { signUnsubscribeToken, unsubscribeSecretConfigured, type EmailScope } from "./unsubscribe";
 import { EMAIL_KIND_SCOPE, EMAIL_SCOPE_LABELS, bodyParagraphs, campusDayKey, campusDayStart, inSendWindow, morningMessage, type EmailKindCode, type ScheduledKind } from "./campaign-rules";
 import { emailTablesReady, noteEmailSchemaMissing, type OrderUpdatePayload } from "./campaign-store";
@@ -22,9 +22,11 @@ import { emailTablesReady, noteEmailSchemaMissing, type OrderUpdatePayload } fro
  *   4. the order reminder, inside its window on ordering days, if switched on, to students who haven't ordered today.
  *
  * Every email is one EmailDelivery row, unique per (student, kind, key), claimed with FOR UPDATE SKIP LOCKED before it
- * is sent, so overlapping runs never send the same email twice. Recipients are active students with a confirmed
- * address whose preference for that kind is on (checked again just before sending). A failed provider call is retried
- * on the next runs (up to 3 tries); a row stuck mid-send is marked failed rather than risk a second copy.
+ * is sent, so overlapping runs never send the same email twice. Recipients are all active students (confirmed address
+ * or not) whose preference for that kind is on (checked again just before sending). A student is greeted by name only
+ * once their address is confirmed: until then the name is whatever whoever made the account typed, and the inbox may be
+ * a stranger's. A failed provider call is retried on the next runs (up to 3 tries); a row stuck mid-send is marked
+ * failed rather than risk a second copy.
  */
 
 const MAX_EMAILS_PER_RUN = 300;
@@ -114,13 +116,12 @@ async function runScheduled(kind: ScheduledKind, enabled: boolean, budget: numbe
   return sendClaimed(kind, key, budget, { now, hours });
 }
 
-/** Who should get `kind`: active students with a confirmed address, that kind on, and no email for this key yet. */
+/** Who should get `kind`: every active student (confirmed address or not) with that kind on and no email for this key yet. */
 function audienceWhere(kind: Exclude<EmailKindCode, "ORDER_UPDATE">, key: string, now: Date): Prisma.UserWhereInput {
   const scope = EMAIL_KIND_SCOPE[kind];
   return {
     role: "STUDENT",
     status: "ACTIVE",
-    emailVerifiedAt: { not: null },
     OR: [{ emailPreference: { is: null } }, { emailPreference: { is: { [scope]: true } } }],
     emailDeliveries: { none: { kind, key } },
     // The reminder only goes to students who haven't ordered today.
@@ -168,8 +169,8 @@ async function sendClaimed(kind: EmailKindCode, key: string | null, limit: numbe
   for (const row of claimed) {
     const user = byId.get(row.userId);
     const preference = (user?.emailPreference as Record<string, boolean> | null | undefined)?.[scope];
-    const content = user && user.role === "STUDENT" && user.status === "ACTIVE" && user.emailVerifiedAt && preference !== false && canDeliverTo(user.email)
-      ? renderCampaignEmail(kind, { id: user.id, firstName: user.firstName }, { ...context, payload: row.payload })
+    const content = user && user.role === "STUDENT" && user.status === "ACTIVE" && preference !== false && canDeliverTo(user.email)
+      ? renderCampaignEmail(kind, { id: user.id, firstName: confirmedName(user) }, { ...context, payload: row.payload })
       : null;
     if (!user || !content) { skip.push(row.id); continue; }
     ready.push({ deliveryId: row.id, attempts: row.attempts, message: { to: user.email, ...content.email, headers: content.headers } });

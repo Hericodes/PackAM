@@ -151,7 +151,7 @@ export function setEmailSchedule(adminId: string, kind: SwitchableKind, enabled:
 export function createBroadcast(adminId: string, input: BroadcastInput): Promise<ActionResult> {
   return guarded("admin announce", async () => {
     const recipientCount = await countAudience("ANNOUNCEMENT", "preview-audience");
-    if (!recipientCount) return { status: 409, body: { error: "No student can receive announcements yet (none with a confirmed email has them switched on). Nothing was sent.", code: "NO_RECIPIENTS" } };
+    if (!recipientCount) return { status: 409, body: { error: "No student can receive announcements yet (no active student has them switched on). Nothing was sent.", code: "NO_RECIPIENTS" } };
     const broadcast = await db.$transaction(async (tx) => {
       const created = await tx.emailBroadcast.create({ data: { ...input, recipientCount, createdById: adminId, status: "SENDING" }, select: { id: true, subject: true, recipientCount: true } });
       await writeAuditLog(tx, { actorId: adminId, action: "EMAIL_BROADCAST_CREATED", resource: "EmailBroadcast", resourceId: created.id, newState: { subject: input.subject, recipientCount, hasButton: Boolean(input.buttonUrl) } });

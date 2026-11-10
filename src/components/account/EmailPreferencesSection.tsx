@@ -8,9 +8,9 @@ type Preferences = Record<EmailScope, boolean>;
 
 /**
  * Settings → Emails (students): one switch per kind of automated email. Each switch saves on its own; the server
- * answers with the stored values. Unconfirmed addresses get nothing, so they're told to confirm first.
+ * answers with the stored values. They apply whether or not the address is confirmed.
  */
-export function EmailPreferencesSection({ initial, emailVerified }: { initial: Preferences; emailVerified: boolean }) {
+export function EmailPreferencesSection({ initial }: { initial: Preferences }) {
   const [preferences, setPreferences] = useState(initial);
   const [busy, setBusy] = useState<EmailScope | null>(null);
   const [error, setError] = useState("");
@@ -36,7 +36,6 @@ export function EmailPreferencesSection({ initial, emailVerified }: { initial: P
 
   return (
     <SettingsSection id="emails" icon="mail" title="Emails from PackAM" description="Choose what PackAM emails you about. Every email also has a link to stop it.">
-      {!emailVerified && <p className="mb-3 rounded-xl bg-[#fff3d6] px-3 py-2 text-sm font-semibold text-[#6b4700]">Confirm your email address (above) to start getting these emails.</p>}
       <ul className="divide-y divide-black/5">
         {EMAIL_SCOPES.map((scope) => {
           const label = EMAIL_SCOPE_LABELS[scope];

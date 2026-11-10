@@ -128,7 +128,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
               />
               <DevicesSection email={loaded.account.email} />
               <NotificationsSection role={role} emailChoices={emailChoices?.ready ?? false} />
-              {role === "STUDENT" && emailChoices?.ready && <EmailPreferencesSection initial={emailChoices.preferences} emailVerified={loaded.account.emailVerified} />}
+              {role === "STUDENT" && emailChoices?.ready && <EmailPreferencesSection initial={emailChoices.preferences} />}
               {role === "STUDENT" && <DeleteAccountSection email={loaded.account.email} />}
             </div>
           </>

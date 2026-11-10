@@ -145,8 +145,8 @@ export type BatchEmailMessage = Pick<EmailMessage, "to" | "subject" | "text" | "
 export type BatchSendResult = { status: "sent" | "not-configured" | "failed"; providerIds: (string | null)[] };
 
 /**
- * Automated email to students' own confirmed addresses (the caller only passes confirmed, deliverable addresses), up to
- * EMAIL_BATCH_LIMIT in one provider call. All or nothing: "failed" means none of them should be counted as sent and
+ * Automated email to students' own account addresses (the caller only passes valid, deliverable addresses, at most one
+ * email per student per kind and key, each with an unsubscribe link), up to EMAIL_BATCH_LIMIT in one provider call. All or nothing: "failed" means none of them should be counted as sent and
  * the caller may retry them. `idempotencyKey` makes a retried call with the same key a no-op at Resend for 24 hours.
  * Never throws, and never logs an address, subject or body.
  */

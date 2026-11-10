@@ -38,7 +38,7 @@ export function EmailCampaignManager({ editable, switches, announcementAudience,
     <>
       <section aria-labelledby="email-automatic" className="mt-8">
         <h2 id="email-automatic" className="text-xl font-black">Automatic emails</h2>
-        <p className="mt-1 text-sm text-black/60">Sent by the scheduler every 5 minutes, in batches. Only students with a confirmed email who haven’t turned that email off get it.</p>
+        <p className="mt-1 text-sm text-black/60">Sent by the scheduler every 5 minutes, in batches. Every active student gets it (confirmed email or not) unless they’ve turned that email off.</p>
         <ul className="mt-3 grid gap-3">{switches.map((item) => <SwitchCard key={item.kind} item={item} editable={editable} />)}</ul>
       </section>
       <AnnouncementComposer editable={editable} audience={announcementAudience} />
@@ -146,7 +146,7 @@ function AnnouncementComposer({ editable, audience }: { editable: boolean; audie
   return (
     <form onSubmit={(event) => void run("send", event)} noValidate aria-labelledby="email-compose" className="mt-10 rounded-2xl bg-white p-4 sm:p-6">
       <h2 id="email-compose" className="text-xl font-black">Send an announcement</h2>
-      <p className="mt-1 text-sm text-black/60">Goes to the {audience.toLocaleString("en-NG")} {audience === 1 ? "student" : "students"} with a confirmed email who have news and offers on. Send yourself a test first.</p>
+      <p className="mt-1 text-sm text-black/60">Goes to the {audience.toLocaleString("en-NG")} {audience === 1 ? "student" : "students"} who have news and offers on. Send yourself a test first.</p>
       <div className="mt-4 grid gap-4">
         <div>
           <label htmlFor="announce-subject" className="mb-1 block text-sm font-black">Subject</label>

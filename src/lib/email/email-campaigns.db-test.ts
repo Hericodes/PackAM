@@ -1,6 +1,7 @@
 /**
  * Automated email against a disposable database, with the in-memory outbox (no real mail):
- * - the good-morning email reaches subscribed students with a confirmed address, once a day, inside its window only;
+ * - the good-morning email reaches every subscribed student (confirmed address or not; names only once confirmed),
+ *   once a day, inside its window only;
  * - the reminder skips students who ordered today; announcements reach everyone subscribed once, then finish;
  * - an order's status change queues an order update that the scheduler sends;
  * - one-tap and page unsubscribes, Settings switches, and retries after a failed provider call.
@@ -95,7 +96,7 @@ async function runAt(iso: string) {
 
 const sentTo = (address: string) => app.email.testOutbox().filter((message) => message.to === address);
 
-test("the good-morning email goes once a day, inside its window, only to subscribed students with a confirmed email", { skip }, async () => {
+test("the good-morning email goes once a day, inside its window, to every subscribed student, confirmed email or not", { skip }, async () => {
   const subscribed = await confirmedStudent();
   const optedOut = await confirmedStudent();
   await app.db.emailPreference.create({ data: { userId: optedOut.userId, morning: false } });
@@ -117,7 +118,11 @@ test("the good-morning email goes once a day, inside its window, only to subscri
   assert.match(morning.text, /We’re taking orders today from 8am to 5pm\./);
   assert.match(morning.headers?.["List-Unsubscribe"] ?? "", /^<http:\/\/packam\.test\/api\/email\/unsubscribe\?t=/);
   assert.equal(morning.headers?.["List-Unsubscribe-Post"], "List-Unsubscribe=One-Click");
-  for (const address of [optedOut.email, unconfirmedEmail, runnerEmail]) assert.equal(sentTo(address).length, 0, address);
+  assert.match(morning.text, /^Hi Test/, "a confirmed address is greeted by name");
+  const [unconfirmedMorning] = sentTo(unconfirmedEmail);
+  assert.ok(unconfirmedMorning, "an unconfirmed student gets it too");
+  assert.match(unconfirmedMorning.text, /^Hi there,/, "but not by the name the account typed");
+  for (const address of [optedOut.email, runnerEmail]) assert.equal(sentTo(address).length, 0, address);
   assert.equal(await app.db.emailDelivery.count({ where: { userId: subscribed.userId, kind: "MORNING", key: "2026-11-09", status: "SENT" } }), 1);
 
   await runAt("2026-11-09T08:30:00");
