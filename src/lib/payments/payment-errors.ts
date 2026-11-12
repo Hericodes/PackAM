@@ -127,6 +127,8 @@ export type RevisedCheckout = {
   /** Naira the promo code takes off the items at the new prices, and the code. Absent when no code was used. */
   discount?: number;
   promoCode?: string;
+  /** Naira of the student's cashback this checkout would use now. Absent when none is used. */
+  cashback?: number;
   lines: Array<{ cartItemId: string; name: string; quantity: number; unitPrice: number; total: number }>;
 };
 

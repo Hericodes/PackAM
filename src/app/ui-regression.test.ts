@@ -88,7 +88,11 @@ test("checkout sends only the chosen speed and what the student reviewed, and ne
   const client = source("../components/checkout/CheckoutClient.tsx");
   // The server prices the speed and decides the promo discount; the browser never sends a fee, discount, amount or
   // total to charge (only the code itself, and the total it showed for comparison).
-  assert.ok(client.includes("body: JSON.stringify({ cart: section, deliveryLocationId: selectedLocation.id, deliveryInstructions, deliveryTier: selectedTier, reviewedTotal, reviewedDeliveryFee, ...(promoInUse ? { promoCode: promoInUse } : {}) })"), "the payment request body");
+  assert.ok(client.includes("body: JSON.stringify({ cart: section, deliveryLocationId: selectedLocation!.id, deliveryInstructions, deliveryTier: selectedTier, reviewedTotal, reviewedDeliveryFee, ...(promoInUse ? { promoCode: promoInUse } : {}), ...(cashbackUsed > 0 ? { useCashback: true } : {}) })"), "the payment request body");
+  assert.doesNotMatch(client, /cashback(Amount|Used): cashbackUsed/, "only the choice to use cashback is sent, never an amount");
+  // An admin ordering for a student sends the same things, plus who and where: never an amount to charge.
+  assert.ok(client.includes('fetch("/api/admin/orders/place"'), "admins place orders for students through their own route");
+  assert.ok(client.includes("body: JSON.stringify({ cart: section, studentId: student.id, ...(adminDelivery.locationId ? { locationId: adminDelivery.locationId } : { address: adminDelivery.address, label: adminDelivery.label }), deliveryInstructions, deliveryTier: selectedTier, reviewedTotal, reviewedDeliveryFee, ...(promoInUse ? { promoCode: promoInUse } : {}) })"), "the admin request body");
   assert.doesNotMatch(client, /discount: discount|reviewedDiscount/, "no discount amount is sent");
   for (const text of ["deliveryTier: selectedTier", "reviewedDeliveryFee", "paymentAttemptStorageKey(", '"DELIVERY_TIER_UNAVAILABLE"', '"CHECKOUT_CHANGED"', '"INVALID_DELIVERY_TIER"', "handlePayment(confirmed, confirmedFee)"]) {
     assert.ok(client.includes(text), text);
@@ -129,11 +133,13 @@ test("delivery prices outside checkout come from the speeds on sale, never the o
   assert.deepEqual(files.filter((file) => source(`../${file}`).includes("CHECKOUT_DELIVERY_FEE")).sort(), ["lib/checkout-pricing.ts", "lib/delivery-tiers.ts"]);
 });
 
-test("the homepage leads with Food, then offers Order Stuff and Printing, and no Student Verification", () => {
+test("the homepage shows Food, Order Stuff and Printing together (Food first and biggest), and no Student Verification", () => {
   const page = source("./page.tsx");
   const render = page.slice(page.indexOf("export default async function HomePage"));
-  assert.ok(render.indexOf("<FoodHero") > 0 && render.indexOf("<FoodHero") < render.indexOf("MORE_SERVICES.map"), "the food card comes first");
-  assert.match(page, /href="\/food" className=/, "the food card's main button goes to Food");
+  const services = render.slice(render.indexOf('aria-label="PackAM services"'));
+  assert.ok(services.indexOf("<FoodHero") > 0 && services.indexOf("<FoodHero") < services.indexOf("MORE_SERVICES.map"), "the food tile comes first");
+  assert.ok(services.indexOf("MORE_SERVICES.map") < services.indexOf("</ul>"), "Order Stuff and Printing are in the same grid as Food, not below the fold");
+  assert.match(page, /function FoodHero[\s\S]*?<Link\s+href="\/food"/, "the food tile goes to Food");
   const order = [/id: "order"[^}]*href: "\/search"/, /id: "printing"[^}]*href: "\/printing"/].map((pattern) => page.search(pattern));
   assert.ok(order.every((at, i) => at > 0 && (i === 0 || at > order[i - 1])), `services in order: ${order}`);
   assert.doesNotMatch(page, /Student Verification/);

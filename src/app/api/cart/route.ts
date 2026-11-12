@@ -44,7 +44,8 @@ export async function GET() {
       );
     }
 
-    if (session.user.role !== "STUDENT") {
+    // Students, and admins building an order for a student (checkout asks who it is for).
+    if (session.user.role !== "STUDENT" && session.user.role !== "ADMIN") {
       return Response.json(
         { error: "Only students can access the cart." },
         { status: 403 },
@@ -79,7 +80,8 @@ export async function POST(request: Request) {
       );
     }
 
-    if (session.user.role !== "STUDENT") {
+    // Students, and admins building an order for a student (checkout asks who it is for).
+    if (session.user.role !== "STUDENT" && session.user.role !== "ADMIN") {
       return Response.json(
         { error: "Only students can add items to a cart." },
         { status: 403 },
@@ -154,7 +156,8 @@ export async function PATCH(request: Request) {
       );
     }
 
-    if (session.user.role !== "STUDENT") {
+    // Students, and admins building an order for a student (checkout asks who it is for).
+    if (session.user.role !== "STUDENT" && session.user.role !== "ADMIN") {
       return Response.json(
         { error: "Only students can update the cart." },
         { status: 403 },
@@ -249,7 +252,8 @@ export async function DELETE(request: Request) {
       );
     }
 
-    if (session.user.role !== "STUDENT") {
+    // Students, and admins building an order for a student (checkout asks who it is for).
+    if (session.user.role !== "STUDENT" && session.user.role !== "ADMIN") {
       return Response.json(
         { error: "Only students can modify the cart." },
         { status: 403 },

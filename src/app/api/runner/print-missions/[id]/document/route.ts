@@ -1,6 +1,7 @@
 import { auth } from "../../../../../../auth";
 import { consumeRateLimit } from "../../../../../../lib/rate-limit";
 import { authorizePrintDocumentAccess, PrintMissionError } from "../../../../../../lib/printing/runner-service";
+import { canDeliver } from "../../../../../../lib/orders/runner-offer-policy";
 
 export const runtime = "nodejs";
 type Context = { params: Promise<{ id: string }> };
@@ -18,7 +19,7 @@ const privateHeaders = {
 export async function GET(_request: Request, context: Context) {
   const session = await auth();
   if (!session?.user) return Response.json({ error: "Sign in to continue." }, { status: 401, headers: privateHeaders });
-  if (session.user.role !== "RUNNER") return Response.json({ error: "Runner access required." }, { status: 403, headers: privateHeaders });
+  if (!canDeliver(session.user.role)) return Response.json({ error: "Runner access required." }, { status: 403, headers: privateHeaders });
   const rate = await consumeRateLimit(`runner-print-document:${session.user.id}`, 10, 10 * 60_000);
   if (!rate.allowed) {
     return Response.json({ error: "Too many downloads. Try again shortly." }, { status: 429, headers: { ...privateHeaders, "Retry-After": String(rate.retryAfterSeconds) } });

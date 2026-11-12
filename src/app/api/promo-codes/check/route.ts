@@ -19,7 +19,7 @@ export const runtime = "nodejs";
 export async function POST(request: Request) {
   const session = await auth();
   if (!session?.user) return Response.json({ error: "Sign in to use a promo code." }, { status: 401 });
-  if (session.user.role !== "STUDENT") return Response.json({ error: "Only students can use promo codes." }, { status: 403 });
+  if (session.user.role !== "STUDENT" && session.user.role !== "ADMIN") return Response.json({ error: "Only students can use promo codes." }, { status: 403 });
   const rate = await consumeRateLimit(`promo-check:${session.user.id}`, 10, 10 * 60 * 1000);
   if (!rate.allowed) {
     return Response.json({ error: "Too many promo code tries. Wait a few minutes, then try again." }, { status: 429, headers: { "Retry-After": String(rate.retryAfterSeconds) } });
@@ -36,11 +36,19 @@ export async function POST(request: Request) {
   const requested = rawSection === undefined ? undefined : parseCartSection(rawSection);
   if (requested === null) return Response.json({ error: "Refresh checkout, then try the code again." }, { status: 400 });
 
+  // An admin ordering for a student: the code is checked against that student (their uses and limits), on the admin's cart.
+  const forStudent = session.user.role === "ADMIN" && body && typeof body === "object" && "studentId" in body ? (body as { studentId?: unknown }).studentId : undefined;
+  if (session.user.role === "ADMIN" && (typeof forStudent !== "string" || !forStudent || forStudent.length > 100)) return Response.json({ error: "Choose the student first, then apply the code." }, { status: 400 });
+  const promoUserId = session.user.role === "ADMIN" ? forStudent as string : session.user.id;
+
   try {
+    if (session.user.role === "ADMIN" && !(await db.user.findFirst({ where: { id: promoUserId, role: "STUDENT", status: "ACTIVE" }, select: { id: true } }))) {
+      return Response.json({ error: "That student account isn’t active any more." }, { status: 404 });
+    }
     let cart = await priceCart(db, session.user.id, requested ?? "stuff");
     if (requested === undefined && !cart.lines.length) cart = await priceCart(db, session.user.id, "food");
     if (!cart.lines.length) return Response.json({ error: "Add something to your cart first." }, { status: 409 });
-    const promo = await resolveCheckoutPromo(db, code, session.user.id, cart.subtotal);
+    const promo = await resolveCheckoutPromo(db, code, promoUserId, cart.subtotal);
     return Response.json({ promo: { code: promo.code, label: promo.label, discount: promo.discount, rule: promo.rule } }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     if (error instanceof PromoCodeRejectedError) return Response.json({ error: error.message, code: "PROMO_REJECTED", reason: error.reason }, { status: 409 });

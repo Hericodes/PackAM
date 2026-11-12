@@ -32,6 +32,8 @@ import { assertDeliverableLocation } from "../service-area";
 import { PROMO_MESSAGES, PromoCodeRejectedError, normalizePromoCode, promoFromSnapshot, snapshotHasPromo, snapshotPromoCode, type SnapshotPromo } from "../promo/promo-rules";
 import { recordPromoRedemption, resolveCheckoutPromo } from "../promo/promo-store";
 import { parseCartSection, type CartSection } from "../food/cart-context";
+import { cashbackBalance, cashbackTablesReady, recordCashbackSpend } from "../cashback/cashback-store";
+import { cashbackFromSnapshot, cashbackToUse } from "../cashback/cashback-rules";
 
 type SnapshotItem = {
   cartItemId: string;
@@ -75,6 +77,13 @@ type CheckoutSnapshot = {
    * subtotal + deliveryFee - promo.discount. Absent when no code was used and on attempts from before promo codes.
    */
   promo?: SnapshotPromo;
+  /** Set when an admin placed this order for the student (their own cart, the student's address and payment). */
+  placedByAdminId?: string;
+  /**
+   * Naira of the student's cashback this checkout used (off the items, after any promo code). The amount charged is
+   * subtotal + deliveryFee - promo discount - cashback. Absent when none was used, and before cashback existed.
+   */
+  cashback?: { amount: number };
 } & Partial<SnapshotDeliveryTierFields>;
 
 export type VerifiedProviderPayment = {
@@ -104,7 +113,9 @@ function resumable(attempt: Prisma.PaymentGetPayload<{ select: typeof ATTEMPT_WI
 }
 
 /**
- * Creates a PENDING attempt from the authenticated student's current database cart.
+ * Creates a PENDING attempt from the authenticated student's current database cart. An admin can also place an order
+ * for a student (`checkout.onBehalfOf`): the admin's own cart is checked out, but the attempt, the order, the address,
+ * any promo code and the payment are the student's; the admin's cart lines are cleared straight away.
  * The provider must be selected by server code, never copied from browser input. Only the delivery
  * speed comes from the browser: its fee is the speed's current price, read in the same transaction.
  */
@@ -124,12 +135,22 @@ export async function createPaymentAttempt(
    * and later removed; the other cart is untouched. Left out (a checkout tab opened before the carts were separate),
    * it is the one cart that has items.
    */
-  checkout: { section?: CartSection } = {},
+  checkout: { section?: CartSection; onBehalfOf?: { studentId: string } } = {},
+  /**
+   * The student chose to use their cashback: as much of their balance as covers the items after any promo code is
+   * taken off, worked out here from their balance right now. Never for an order an admin places for a student.
+   */
+  cashback: { use?: boolean } = {},
 ) {
   const session = await auth();
-  if (!session?.user || session.user.role !== "STUDENT") {
-    throw new Error("A student session is required to start checkout payment.");
+  const onBehalf = checkout.onBehalfOf;
+  if (!session?.user || session.user.role !== (onBehalf ? "ADMIN" : "STUDENT")) {
+    throw new Error(onBehalf ? "An admin session is required to order for a student." : "A student session is required to start checkout payment.");
   }
+  // Who pays and gets the order (the student), and whose cart is checked out (theirs, or the admin's own).
+  const payerId = onBehalf ? onBehalf.studentId : session.user.id;
+  const cartOwnerId = session.user.id;
+  if (onBehalf && (typeof payerId !== "string" || !payerId || payerId === cartOwnerId)) throw new Error("Choose the student this order is for.");
 
   const key = idempotencyKey.trim();
   if (!key || key.length > 128) {
@@ -160,7 +181,7 @@ export async function createPaymentAttempt(
       const existing = await tx.payment.findUnique({
         where: {
           userId_idempotencyKey: {
-            userId: session.user.id,
+            userId: payerId,
             idempotencyKey: key,
           },
         },
@@ -173,15 +194,15 @@ export async function createPaymentAttempt(
       assertOrderingOpen();
 
       const student = await tx.user.findFirst({
-        where: { id: session.user.id, role: "STUDENT", status: "ACTIVE" },
+        where: { id: payerId, role: "STUDENT", status: "ACTIVE" },
         select: { id: true },
       });
       if (!student) throw new Error("This student account is not active.");
 
-      const section = checkout.section ?? await onlyCartWithItems(tx, student.id);
+      const section = checkout.section ?? await onlyCartWithItems(tx, cartOwnerId);
       // Prices, availability and open shops, all from the database right now (the delivery fee follows below).
       const [cart, location] = await Promise.all([
-        priceCart(tx, student.id, section),
+        priceCart(tx, cartOwnerId, section),
         tx.savedLocation.findFirst({
           where: { id: deliveryLocationId, userId: student.id },
           select: { id: true, label: true, address: true, instructions: true, latitude: true, longitude: true },
@@ -222,8 +243,13 @@ export async function createPaymentAttempt(
       // refused with the reason). Read on its own in a savepoint; it comes off the items only, never the delivery fee.
       const appliedPromo = promoCode ? await resolveCheckoutPromo(tx, promoCode, student.id, subtotal) : null;
       const discount = appliedPromo?.discount ?? 0;
-      const amount = subtotal + deliveryFee - discount;
-      if (!Number.isSafeInteger(amount) || amount <= 0 || discount > subtotal) {
+      // Cashback the student chose to use: their balance right now (read in this serializable transaction, so two
+      // checkouts can't spend the same naira), up to the items left after the promo code. Never the delivery fee.
+      const cashbackUsed = cashback.use === true && !onBehalf && await cashbackTablesReady(tx)
+        ? cashbackToUse(await cashbackBalance(tx, student.id), subtotal - discount)
+        : 0;
+      const amount = subtotal + deliveryFee - discount - cashbackUsed;
+      if (!Number.isSafeInteger(amount) || amount <= 0 || discount + cashbackUsed > subtotal) {
         throw new Error("The checkout amount is invalid.");
       }
       // Never charge a total or a delivery fee the student hasn't seen: show them the new breakdown, for the speed
@@ -240,6 +266,7 @@ export async function createPaymentAttempt(
           deliveryEtaMinMinutes: quote.etaMinMinutes,
           deliveryEtaMaxMinutes: quote.etaMaxMinutes,
           ...(appliedPromo ? { discount, promoCode: appliedPromo.code } : {}),
+          ...(cashbackUsed ? { cashback: cashbackUsed } : {}),
           lines: cart.lines.map((line) => ({ cartItemId: line.cartItemId, name: line.details?.kind === "PLATE" ? `Plate: ${describeDetails(line.details)}` : line.details?.kind === "VARIANT" ? `${line.name} (${describeOptions(line.details.options)})` : line.name, quantity: line.quantity, unitPrice: line.unitPrice, total: line.unitPrice * line.quantity })),
         });
       }
@@ -259,6 +286,8 @@ export async function createPaymentAttempt(
         deliveryLocationLabel: location.label,
         ...(location.latitude !== null && location.longitude !== null ? { deliveryLatitude: location.latitude, deliveryLongitude: location.longitude } : {}),
         ...(appliedPromo ? { promo: { promoCodeId: appliedPromo.promoCodeId, code: appliedPromo.code, discount } } : {}),
+        ...(onBehalf ? { placedByAdminId: session.user.id } : {}),
+        ...(cashbackUsed ? { cashback: { amount: cashbackUsed } } : {}),
       };
 
       const created = await tx.payment.create({
@@ -276,6 +305,11 @@ export async function createPaymentAttempt(
       });
       // The code's use, in this same transaction: it counts once this payment succeeds.
       if (appliedPromo) await recordPromoRedemption(tx, { promoCodeId: appliedPromo.promoCodeId, userId: student.id, paymentId: created.id, discount });
+      // The cashback used, in this same transaction: it comes back by itself if this payment doesn't go through.
+      if (cashbackUsed) await recordCashbackSpend(tx, { userId: student.id, paymentId: created.id, amount: cashbackUsed });
+      // Ordering for a student: the lines leave the admin's cart now (the snapshot holds the order), so the admin can
+      // build the next student's order straight away.
+      if (onBehalf) await removeCapturedCartItems(tx, snapshot);
       return created;
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }), { attempts: 4, baseDelayMs: 25 });
   } catch (error) {
@@ -284,7 +318,7 @@ export async function createPaymentAttempt(
       const existing = await db.payment.findUnique({
         where: {
           userId_idempotencyKey: {
-            userId: session.user.id,
+            userId: payerId,
             idempotencyKey: key,
           },
         },
@@ -378,6 +412,10 @@ function parseSnapshot(value: Prisma.JsonValue | null): CheckoutSnapshot {
   if (snapshotHasPromo(raw) && !promo) {
     throw new PaymentFinalizationMismatchError("Payment attempt contains an invalid promo code.");
   }
+  const cashback = cashbackFromSnapshot(raw);
+  if (cashback === null || (promo?.discount ?? 0) + cashback > subtotal) {
+    throw new PaymentFinalizationMismatchError("Payment attempt contains an invalid cashback amount.");
+  }
 
   return {
     cartId: raw.cartId,
@@ -389,6 +427,7 @@ function parseSnapshot(value: Prisma.JsonValue | null): CheckoutSnapshot {
     deliveryAddress: raw.deliveryAddress,
     deliveryInstructions: raw.deliveryInstructions,
     ...(promo ? { promo } : {}),
+    ...(cashback ? { cashback: { amount: cashback } } : {}),
   };
 }
 
@@ -506,7 +545,7 @@ export async function completeVerifiedPayment(verified: VerifiedProviderPayment)
 
     const snapshot = parseSnapshot(attempt.checkoutSnapshot);
     // The order keeps the full items subtotal and delivery fee; its total is what was paid (less any promo discount).
-    if (attempt.amount !== snapshot.subtotal + snapshot.deliveryFee - (snapshot.promo?.discount ?? 0)) {
+    if (attempt.amount !== snapshot.subtotal + snapshot.deliveryFee - (snapshot.promo?.discount ?? 0) - (snapshot.cashback?.amount ?? 0)) {
       throw new PaymentFinalizationMismatchError("Payment amount does not match the saved checkout snapshot.");
     }
     finalizationStarted = true;

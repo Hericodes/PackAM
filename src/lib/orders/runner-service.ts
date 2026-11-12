@@ -16,12 +16,13 @@ import { startRefundWorkflow } from "./refunds";
 import { transitionOrderInTransaction } from "./transition";
 import { hasCompleteSourcing, hasUnresolvedUnavailableItems } from "./sourcing-completion";
 import { createNotification, notifyAdmins } from "../notifications";
+import { RUNNER_ACCOUNT } from "./runner-offer-policy";
 
 export async function setRunnerAvailability(userId: string, available: boolean) {
   // Idempotent, so a conflict with a concurrent offer or dispatch pass is simply run again.
   return retrySerializable(() => db.$transaction(async (tx) => {
     const runner = await tx.runnerProfile.findFirst({
-      where: { userId, isVerified: true, user: { role: "RUNNER", status: "ACTIVE" } },
+      where: { userId, isVerified: true, user: RUNNER_ACCOUNT },
       select: { id: true },
     });
     if (!runner) throw new Error("Your runner profile is not active and verified.");
@@ -37,7 +38,7 @@ export async function acceptRunnerMission(userId: string, orderId: string) {
   // Competing runners conflict under Serializable; retrying lets exactly one win and the rest see why.
   return retrySerializable(() => db.$transaction(async (tx) => {
     const runner = await tx.runnerProfile.findFirst({
-      where: { userId, isAvailable: true, isVerified: true, user: { role: "RUNNER", status: "ACTIVE" } },
+      where: { userId, isAvailable: true, isVerified: true, user: RUNNER_ACCOUNT },
       select: { id: true, userId: true },
     });
     if (!runner) throw new Error("You need to be verified and available to accept a mission.");
@@ -101,7 +102,7 @@ export async function acceptRunnerMission(userId: string, orderId: string) {
 export async function declineRunnerMission(userId: string, orderId: string) {
   return retrySerializable(() => db.$transaction(async (tx) => {
     const runner = await tx.runnerProfile.findFirst({
-      where: { userId, isVerified: true, user: { role: "RUNNER", status: "ACTIVE" } },
+      where: { userId, isVerified: true, user: RUNNER_ACCOUNT },
       select: { id: true },
     });
     if (!runner) throw new Error("Your runner profile is not active and verified.");
@@ -352,7 +353,7 @@ export async function markOrderDelivered(userId: string, orderId: string) {
 
 async function getAssignedOrder(tx: Prisma.TransactionClient, userId: string, orderId: string) {
   const runner = await tx.runnerProfile.findFirst({
-    where: { userId, isVerified: true, user: { role: "RUNNER", status: "ACTIVE" } },
+    where: { userId, isVerified: true, user: RUNNER_ACCOUNT },
     select: { id: true, userId: true },
   });
   if (!runner) throw new Error("Your runner profile is not active and verified.");

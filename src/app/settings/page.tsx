@@ -7,6 +7,8 @@ import { EmailChangeNotice } from "../../components/account/EmailChangeNotice";
 import { EmailSection } from "../../components/account/EmailSection";
 import { NotificationsSection } from "../../components/account/NotificationsSection";
 import { EmailPreferencesSection } from "../../components/account/EmailPreferencesSection";
+import { CashbackSection } from "../../components/account/CashbackSection";
+import { readCashbackSettings, readStudentCashback } from "../../lib/cashback/cashback-store";
 import { readEmailPreferences } from "../../lib/email/campaign-store";
 import { PasswordSection } from "../../components/account/PasswordSection";
 import { ProfileSection } from "../../components/account/ProfileSection";
@@ -72,6 +74,9 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
   const emailAvailable = loaded.kind === "ready" && emailLinksAvailable();
   // Students' automated email choices; null for other roles. Not ready before the email migration.
   const emailChoices = role === "STUDENT" && loaded.kind === "ready" ? await readEmailPreferences(db, userId) : null;
+  // Students' cashback balance and history, with the current earning rules. Not shown before the cashback migration.
+  const cashback = role === "STUDENT" && loaded.kind === "ready" ? await readStudentCashback(db, userId) : null;
+  const cashbackRules = cashback?.ready ? await readCashbackSettings(db).catch(() => null) : null;
 
   return (
     <main className="pk-theme-auth min-h-svh pb-[max(4rem,env(safe-area-inset-bottom))]">
@@ -104,6 +109,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
           <>
             {emailStatus && <EmailChangeNotice status={emailStatus} email={loaded.account.email} />}
             <div className="mt-6 space-y-4 sm:space-y-5">
+              {cashback?.ready && <CashbackSection balance={cashback.balance} entries={cashback.entries} earning={cashbackRules ?? { enabled: false, ratePercent: 0, welcomeBonus: 0 }} />}
               <ProfileSection
                 firstName={loaded.account.firstName}
                 lastName={loaded.account.lastName}

@@ -4,6 +4,7 @@ import { OrderStatus, Prisma } from "@prisma/client";
 import { canTransitionOrder } from "./state-machine";
 import { createNotification } from "../notifications";
 import { queueOrderUpdateEmail } from "../email/campaign-store";
+import { creditCashbackOnDelivery } from "../cashback/cashback-store";
 
 const studentEvents: Partial<Record<OrderStatus, { type: "ORDER" | "PAYMENT" | "DELIVERY"; title: string; message: (total: number) => string }>> = {
   PAYMENT_CONFIRMED: { type: "PAYMENT", title: "Order confirmed", message: () => "Order don enter! 🫡 Make we sort you out." },
@@ -29,7 +30,7 @@ export async function transitionOrderInTransaction(
 ) {
   const order = await tx.order.findUnique({
     where: { id: input.orderId },
-    select: { id: true, status: true, userId: true, total: true },
+    select: { id: true, status: true, userId: true, total: true, deliveryFee: true },
   });
   if (!order) throw new Error("Order not found.");
   if (!canTransitionOrder(order.status, input.toStatus)) {
@@ -55,6 +56,11 @@ export async function transitionOrderInTransaction(
     await createNotification(tx, { userId: order.userId, orderId: order.id, type: event.type, title: event.title, message, idempotencyKey: `order-event:${order.id}:${input.toStatus}` });
     // The same update by email, queued in this transaction and sent by the scheduler. It can never fail the order.
     await queueOrderUpdateEmail(tx, { userId: order.userId, orderId: order.id, title: event.title, message });
+  }
+  // Delivered: cashback on what the student paid for the items (after promo codes and cashback used), in a savepoint
+  // that can never fail the delivery. Nothing when cashback is switched off or not set up yet.
+  if (input.toStatus === "DELIVERED") {
+    await creditCashbackOnDelivery(tx, { userId: order.userId, source: "order", id: order.id, itemsPaid: order.total - order.deliveryFee });
   }
   return { previousStatus: order.status, status: input.toStatus };
 }

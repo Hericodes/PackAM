@@ -12,10 +12,14 @@ function deliveryView(row: OrderDeliveryTierRow | undefined) {
   return { tier: delivery.tier, label: delivery.label, urgent: delivery.urgent, eta: delivery.etaShort, dueAt: delivery.dueAt?.toISOString() ?? null };
 }
 
-export async function GET() {
+/**
+ * The runner board. A runner (or an admin in runner mode) gets their own offers and deliveries. An admin asking for
+ * `?view=all` gets every runner's open offers and deliveries instead (operations view, read-only).
+ */
+export async function GET(request: Request) {
   const session = await auth();
   if (!session?.user || !["RUNNER", "ADMIN"].includes(session.user.role)) return Response.json({ error: "Runner access required." }, { status: 403 });
-  if (session.user.role === "ADMIN") {
+  if (session.user.role === "ADMIN" && new URL(request.url).searchParams.get("view") === "all") {
     const assignments = await db.runnerAssignment.findMany({
       where: { orderId: { not: null }, status: { in: ["OFFERED", "ACCEPTED"] }, order: { status: { in: ["FINDING_RUNNER", "RUNNER_ASSIGNED", "SOURCING_PRODUCT", "OUT_FOR_DELIVERY"] } } },
       orderBy: { offeredAt: "desc" }, take: 100,
@@ -37,6 +41,8 @@ export async function GET() {
     where: { userId: session.user.id, isVerified: true, user: { status: "ACTIVE" } },
     select: { id: true },
   });
+  // An admin who hasn't switched on runner mode yet has nothing to show (going available sets them up).
+  if (!runner && session.user.role === "ADMIN") return Response.json({ missions: [], printMissions: [] });
   if (!runner) return Response.json({ error: "Your runner profile is not active and verified." }, { status: 403 });
 
   const assignments = await db.runnerAssignment.findMany({

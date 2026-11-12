@@ -1,12 +1,13 @@
 import { auth } from "../../../../../auth";
 import { acceptRunnerMission, declineRunnerMission, markOrderDelivered, reportDeliveryIssue, reportSourcing, startOrderDelivery } from "../../../../../lib/orders/runner-service";
+import { canDeliver } from "../../../../../lib/orders/runner-offer-policy";
 
 type Context = { params: Promise<{ id: string }> };
 
 export async function POST(request: Request, context: Context) {
   const session = await auth();
   if (!session?.user) return Response.json({ error: "Sign in to continue." }, { status: 401 });
-  if (session.user.role !== "RUNNER") return Response.json({ error: "Runner access required." }, { status: 403 });
+  if (!canDeliver(session.user.role)) return Response.json({ error: "Runner access required." }, { status: 403 });
   const { id: orderId } = await context.params;
   try {
     const body = await request.json();

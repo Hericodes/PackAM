@@ -44,6 +44,15 @@ export async function ensureManualCheckout(reference: string): Promise<string> {
 }
 
 /**
+ * An admin placed this order for a student: it waits for the student's transfer with no 30-minute expiry (the student
+ * may need a while), and shows with the transfers admins confirm on the Payments page, reminders included.
+ */
+export async function awaitStudentTransfer(reference: string) {
+  await db.payment.updateMany({ where: { transactionReference: reference, provider: PaymentProvider.MANUAL, status: "PENDING", transferClaimedAt: null }, data: { transferClaimedAt: new Date() } });
+  return db.payment.findUnique({ where: { transactionReference: reference }, select: { transferCode: true, amount: true } });
+}
+
+/**
  * Closes one unclaimed attempt past its deadline: FAILED, no order, cart untouched, the student told. The WHERE
  * repeats every condition, so a claim or an admin confirmation landing at the same moment wins or loses cleanly.
  */

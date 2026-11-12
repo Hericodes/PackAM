@@ -8,6 +8,7 @@ import {
   reportPrintMissionIssue,
 } from "../../../../../lib/printing/runner-service";
 import { isPrintMissionIssueAction, isPrintMissionStepAction } from "../../../../../lib/printing/runner-mission-policy";
+import { canDeliver } from "../../../../../lib/orders/runner-offer-policy";
 
 type Context = { params: Promise<{ id: string }> };
 
@@ -20,7 +21,7 @@ function errorResponse(error: unknown, label: string) {
 export async function GET(_request: Request, context: Context) {
   const session = await auth();
   if (!session?.user) return Response.json({ error: "Sign in to continue." }, { status: 401 });
-  if (session.user.role !== "RUNNER") return Response.json({ error: "Runner access required." }, { status: 403 });
+  if (!canDeliver(session.user.role)) return Response.json({ error: "Runner access required." }, { status: 403 });
   const { id } = await context.params;
   try {
     return Response.json({ mission: await getRunnerPrintMission(session.user.id, id) }, { headers: { "Cache-Control": "no-store" } });
@@ -32,7 +33,7 @@ export async function GET(_request: Request, context: Context) {
 export async function POST(request: Request, context: Context) {
   const session = await auth();
   if (!session?.user) return Response.json({ error: "Sign in to continue." }, { status: 401 });
-  if (session.user.role !== "RUNNER") return Response.json({ error: "Runner access required." }, { status: 403 });
+  if (!canDeliver(session.user.role)) return Response.json({ error: "Runner access required." }, { status: 403 });
   const rate = await consumeRateLimit(`runner-print-action:${session.user.id}`, 30, 60_000);
   if (!rate.allowed) {
     return Response.json({ error: "Too many updates. Try again shortly." }, { status: 429, headers: { "Retry-After": String(rate.retryAfterSeconds) } });

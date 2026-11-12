@@ -9,13 +9,18 @@ export default async function RunnerLayout({
 }: {
   children: React.ReactNode;
 }) {
-  await requireRole("RUNNER");
+  // Admins come here in runner mode ("Deliver orders"), so they get a way back to the dashboard.
+  const session = await requireRole("RUNNER");
+  const isAdmin = session.user.role === "ADMIN";
 
   return (
     <div className="pk-theme-ops">
       <header className="border-b border-black/5 bg-white/90 backdrop-blur">
         <div className="packam-container flex items-center justify-between py-3">
-          <Link href="/runner" className="font-black">PackAM Runner</Link>
+          <div className="flex items-center gap-3">
+            <Link href="/runner" className="font-black">PackAM Runner</Link>
+            {isAdmin && <Link href="/admin" className="rounded-full bg-black/5 px-3 py-1.5 text-xs font-bold text-black/70 transition hover:bg-black/10 hover:text-black">← Admin</Link>}
+          </div>
           <div className="flex items-center gap-1">
             <NotificationBell />
             {/* Name, email, password and devices: the Settings page every role shares. */}

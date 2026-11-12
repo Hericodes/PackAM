@@ -6,7 +6,8 @@ import { signOut } from "next-auth/react";
 import { useEffect, useRef, useState } from "react";
 import { PackAMLogo } from "../brand/PackAMLogo";
 import { Icon } from "../ui/Icon";
-import { ADMIN_NAV, isAdminNavActive } from "./admin-nav";
+import { adminNavFor, isAdminNavActive } from "./admin-nav";
+import type { AdminLevel } from "../../lib/admin/admin-levels";
 
 const COLLAPSED_KEY = "packam:admin-sidebar-collapsed";
 
@@ -21,10 +22,10 @@ function useUnreadCount() {
 }
 
 /** The link list, shared by the sidebar and the drawer. In icon-only mode labels become the accessible name and tooltip. */
-function NavLinks({ pathname, iconOnly = false, onNavigate }: { pathname: string; iconOnly?: boolean; onNavigate?: () => void }) {
+function NavLinks({ level, pathname, iconOnly = false, onNavigate }: { level: AdminLevel; pathname: string; iconOnly?: boolean; onNavigate?: () => void }) {
   return (
     <>
-      {ADMIN_NAV.map((group, index) => (
+      {adminNavFor(level).map((group, index) => (
         <div key={group.label ?? index} className={index ? "mt-5" : ""}>
           {group.label && (iconOnly
             ? <div aria-hidden="true" className="mx-auto mb-2 h-px w-6 bg-black/10" />
@@ -103,7 +104,8 @@ function Brand({ compact = false }: { compact?: boolean }) {
  * Admin layout: a sticky sidebar on desktop (collapsible to icons, remembered in this browser) and a top bar
  * with a slide-out drawer on phones and tablets. The page content never sits under either.
  */
-export function AdminShell({ name, children }: { name: string; children: React.ReactNode }) {
+/** `level`: the super admin sees every page; a normal admin's menu leaves out Finance, Analytics, the Audit log and Admins. */
+export function AdminShell({ name, level = "super", children }: { name: string; level?: AdminLevel; children: React.ReactNode }) {
   const pathname = usePathname();
   const unread = useUnreadCount();
   const [collapsed, setCollapsed] = useState(false);
@@ -159,7 +161,7 @@ export function AdminShell({ name, children }: { name: string; children: React.R
           </button>
         </div>
         <nav aria-label="Admin" className={`min-h-0 flex-1 overflow-y-auto pb-4 ${collapsed ? "px-2" : "px-3"}`}>
-          <NavLinks pathname={pathname} iconOnly={collapsed} />
+          <NavLinks level={level} pathname={pathname} iconOnly={collapsed} />
         </nav>
         <div className={`border-t border-black/[0.06] py-3 ${collapsed ? "px-2" : "px-3"}`}>
           <AccountControls name={name} unread={unread} pathname={pathname} iconOnly={collapsed} />
@@ -197,7 +199,7 @@ export function AdminShell({ name, children }: { name: string; children: React.R
               </button>
             </div>
             <nav aria-label="Admin" className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-4">
-              <NavLinks pathname={pathname} onNavigate={closeDrawer} />
+              <NavLinks level={level} pathname={pathname} onNavigate={closeDrawer} />
             </nav>
             <div className="border-t border-black/[0.06] px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3">
               <AccountControls name={name} unread={unread} pathname={pathname} onNavigate={closeDrawer} />

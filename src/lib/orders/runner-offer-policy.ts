@@ -1,7 +1,17 @@
+/** Accounts that can deliver: runners, and admins who switched on runner mode ("Deliver orders"). */
+export const RUNNER_CAPABLE_ROLES = ["RUNNER", "ADMIN"] as const;
+
+export function canDeliver(role: string | null | undefined) {
+  return role === "RUNNER" || role === "ADMIN";
+}
+
+/** The account behind a runner profile that may take missions: a runner or an admin, and active. */
+export const RUNNER_ACCOUNT = { role: { in: ["RUNNER" as const, "ADMIN" as const] }, status: "ACTIVE" as const };
+
 export const eligibleAvailableRunnerWhere = {
   isAvailable: true,
   isVerified: true,
-  user: { role: "RUNNER" as const, status: "ACTIVE" as const },
+  user: RUNNER_ACCOUNT,
 };
 
 /** Eligible runners with no accepted, unfinished mission (orders or print jobs): who may take an urgent order before it escalates. */
@@ -15,7 +25,7 @@ export function isEligibleAvailableRunner(runner: {
   return (
     runner.isAvailable === true &&
     runner.isVerified === true &&
-    runner.user.role === "RUNNER" &&
+    canDeliver(runner.user.role) &&
     runner.user.status === "ACTIVE"
   );
 }

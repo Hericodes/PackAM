@@ -22,8 +22,10 @@ function MetricGrid({ metrics }: { metrics: Metric[] }) {
   })}</div>;
 }
 
-export default async function AdminHomePage() {
+export default async function AdminHomePage({ searchParams }: { searchParams: Promise<{ restricted?: string }> }) {
   await requireRole("ADMIN");
+  // A normal admin who opened one of the super admin's pages (Finance, Analytics, Audit log, Admins) lands here.
+  const restricted = (await searchParams).restricted === "1";
   const now = new Date(); const localDay = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Lagos" }).format(now); const today = new Date(`${localDay}T00:00:00.000+01:00`); const runnerCutoff = new Date(now.getTime() - getRunnerAcceptanceTimeoutMinutes() * 60_000);
   const [
     todayOrders, findingRunner, assigned, sourcing, outForDelivery, completed, failed, refunds, requests, staleRequests, paymentIssues, openIncidents, waitingPrices, abandoned,
@@ -66,6 +68,7 @@ export default async function AdminHomePage() {
 
   return <main className="min-h-screen"><div className="packam-container py-8">
     <p className="text-xs font-black uppercase tracking-widest text-black/40">Operations · Today</p>
+    {restricted && <p role="status" className="mt-4 rounded-2xl bg-[#fff3d6] px-4 py-3 text-sm font-semibold text-[#6b4700]">That page is only for the super admin. Ask them if you need something from it.</p>}
     <h1 className="mt-2 text-3xl font-black">What needs attention?</h1>
     <p className="mt-1 text-sm text-black/55">{urgent ? `${urgent} ${urgent === 1 ? "area needs" : "areas need"} action.` : "Nothing urgent right now. Campus dey calm 🫡"}</p>
 

@@ -17,6 +17,8 @@ import { openingPhrase, orderingHoursLabel, type OrderingClock } from "../../lib
 import { useOrderingStatus } from "../ordering/useOrderingStatus";
 import { promoDiscount, type PromoRule } from "../../lib/promo/promo-rules";
 import type { CartSection } from "../../lib/food/cart-context";
+import { AdminOrderFor, AdminOrderPlaced, type AdminDelivery, type AdminStudent, type PlacedOrder } from "./AdminOrderFor";
+import { cashbackToUse } from "../../lib/cashback/cashback-rules";
 
 
 type CheckoutItem = {
@@ -50,6 +52,8 @@ type Revised = {
   /** The promo discount at the new prices, and its code. Absent when no code was used. */
   discount?: number;
   promoCode?: string;
+  /** The cashback the order would use now. Absent when none. */
+  cashback?: number;
   lines: Array<{ cartItemId: string; name: string; quantity: number; unitPrice: number; total: number }>;
 };
 
@@ -59,6 +63,10 @@ type AppliedPromo = { code: string; label: string; rule: PromoRule };
 type CheckoutClientProps = {
   /** Which cart this checkout pays for: the shop cart or the food cart. Sent with the promo check and the payment. */
   section?: CartSection;
+  /** An admin's checkout: the order is for a student they choose (who pays), delivered to that student's address. */
+  orderForStudent?: boolean;
+  /** The student's cashback balance (naira). It can pay for items, never delivery; the server works out the amount again. */
+  cashbackBalance?: number;
   items: CheckoutItem[];
   /** Every delivery speed with its server price and window, in display order. */
   tiers: DeliveryTierQuote[];
@@ -76,9 +84,15 @@ type CheckoutClientProps = {
 
 const money = (amount: number) => `₦${amount.toLocaleString()}`;
 
-export function CheckoutClient({ section = "stuff", items: initialItems, tiers, ordering: orderingClock, providerName = "our payment partner", payByTransfer = false, shopName = null, problems = [] }: CheckoutClientProps) {
+export function CheckoutClient({ section = "stuff", orderForStudent = false, cashbackBalance = 0, items: initialItems, tiers, ordering: orderingClock, providerName = "our payment partner", payByTransfer = false, shopName = null, problems = [] }: CheckoutClientProps) {
   const router = useRouter();
-  const { setSummary } = useCartExperience();
+  const { setSummary, refresh: refreshCart } = useCartExperience();
+  // Admin checkout: the student the order is for, where it goes, and the result once placed.
+  const [student, setStudent] = useState<AdminStudent | null>(null);
+  const [adminDelivery, setAdminDelivery] = useState<AdminDelivery | null>(null);
+  const [placed, setPlaced] = useState<PlacedOrder | null>(null);
+  // Cashback is used unless the student switches it off (it only ever comes off the items).
+  const [useCashback, setUseCashback] = useState(true);
   // The server's revised breakdown when prices changed; payment waits for the student to confirm it.
   const [revised, setRevised] = useState<Revised | null>(null);
   const [items, setItems] = useState(initialItems);
@@ -108,7 +122,9 @@ export function CheckoutClient({ section = "stuff", items: initialItems, tiers, 
   const discount = promo ? promoDiscount(promo.rule, subtotal) : 0;
   const promoShortBy = promo && subtotal < promo.rule.minSubtotal ? promo.rule.minSubtotal - subtotal : 0;
   const promoInUse = promo && discount > 0 ? promo.code : null;
-  const total = subtotal + currentDeliveryFee - discount;
+  // The cashback this order would use: as much of the balance as covers the items after the promo code.
+  const cashbackUsed = useCashback && !orderForStudent ? cashbackToUse(cashbackBalance, subtotal - discount) : 0;
+  const total = subtotal + currentDeliveryFee - discount - cashbackUsed;
   // Before 8am and from 5pm everything works except paying. Flips by itself at opening and closing time.
   const ordering = useOrderingStatus(orderingClock);
   const orderingOpen = ordering.open;
@@ -170,10 +186,11 @@ export function CheckoutClient({ section = "stuff", items: initialItems, tiers, 
     event.preventDefault();
     const code = promoDraft.trim();
     if (!code || promoBusy) return;
+    if (orderForStudent && !student) { setPromoError("Choose who the order is for first: codes are checked against their account."); return; }
     setPromoBusy(true);
     setPromoError("");
     try {
-      const response = await fetch("/api/promo-codes/check", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code, cart: section }) });
+      const response = await fetch("/api/promo-codes/check", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code, cart: section, ...(orderForStudent && student ? { studentId: student.id } : {}) }) });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.promo) throw new Error(typeof data.error === "string" ? data.error : "We couldn’t check that code right now. Try again.");
       setPromo({ code: data.promo.code, label: data.promo.label, rule: data.promo.rule });
@@ -210,7 +227,12 @@ export function CheckoutClient({ section = "stuff", items: initialItems, tiers, 
       setError(`Ordering is closed right now. Come back ${opening} to pay; your cart is saved.`);
       return;
     }
-    if (!selectedLocation) {
+    if (orderForStudent && (!student || !adminDelivery)) {
+      setError(student ? "Choose where to deliver." : "Choose who this order is for.");
+      focusStep("checkout-delivery");
+      return;
+    }
+    if (!orderForStudent && !selectedLocation) {
       setError("Choose a delivery location to continue.");
       focusStep("checkout-delivery");
       return;
@@ -229,19 +251,27 @@ export function CheckoutClient({ section = "stuff", items: initialItems, tiers, 
     try {
       // The key covers the exact cart, place, speed, delivery fee and total, so changing any of them (another speed,
       // or a confirmed new price) starts a new attempt instead of reusing one made for different terms.
-      const storageKey = paymentAttemptStorageKey({ locationId: selectedLocation.id, instructions: deliveryInstructions, items, tier: selectedTier, deliveryFee: reviewedDeliveryFee, total: reviewedTotal, promoCode: promoInUse });
+      const placeKey = orderForStudent && student && adminDelivery ? `admin:${student.id}:${adminDelivery.locationId ?? `${adminDelivery.label}|${adminDelivery.address}`}` : selectedLocation?.id ?? "";
+      const storageKey = paymentAttemptStorageKey({ locationId: placeKey, instructions: deliveryInstructions, items, tier: selectedTier, deliveryFee: reviewedDeliveryFee, total: reviewedTotal, promoCode: promoInUse });
       let idempotencyKey = window.sessionStorage.getItem(storageKey);
       if (!idempotencyKey) {
         idempotencyKey = crypto.randomUUID();
         window.sessionStorage.setItem(storageKey, idempotencyKey);
       }
-      const response = await fetch("/api/payments/create", {
+      const response = orderForStudent && student && adminDelivery
+        // An admin ordering for a student: the student pays, and the order is theirs.
+        ? await fetch("/api/admin/orders/place", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Idempotency-Key": idempotencyKey },
+          body: JSON.stringify({ cart: section, studentId: student.id, ...(adminDelivery.locationId ? { locationId: adminDelivery.locationId } : { address: adminDelivery.address, label: adminDelivery.label }), deliveryInstructions, deliveryTier: selectedTier, reviewedTotal, reviewedDeliveryFee, ...(promoInUse ? { promoCode: promoInUse } : {}) }),
+        })
+        : await fetch("/api/payments/create", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "Idempotency-Key": idempotencyKey,
         },
-        body: JSON.stringify({ cart: section, deliveryLocationId: selectedLocation.id, deliveryInstructions, deliveryTier: selectedTier, reviewedTotal, reviewedDeliveryFee, ...(promoInUse ? { promoCode: promoInUse } : {}) }),
+        body: JSON.stringify({ cart: section, deliveryLocationId: selectedLocation!.id, deliveryInstructions, deliveryTier: selectedTier, reviewedTotal, reviewedDeliveryFee, ...(promoInUse ? { promoCode: promoInUse } : {}), ...(cashbackUsed > 0 ? { useCashback: true } : {}) }),
       });
       const data = await response.json();
       if (response.status === 409 && data.code === "PRICE_CHANGED" && data.revised) {
@@ -295,6 +325,7 @@ export function CheckoutClient({ section = "stuff", items: initialItems, tiers, 
         window.sessionStorage.removeItem(storageKey);
         setError(typeof data.error === "string" ? data.error : "This delivery location is outside campus. Choose a location on campus.");
         setSelectedLocation(null);
+        setAdminDelivery(null);
         setPaymentBusy(false);
         focusStep("checkout-delivery");
         return;
@@ -302,6 +333,17 @@ export function CheckoutClient({ section = "stuff", items: initialItems, tiers, 
       if (response.status === 409 && data.code === "CART_NOT_PAYABLE") {
         window.sessionStorage.removeItem(storageKey);
         router.refresh();
+      }
+      if (orderForStudent) {
+        if (!response.ok || !data.placed) throw new Error(data.error || "We couldn’t place that order. Please try again.");
+        // Placed: the lines left this admin's cart; show what to send the student.
+        window.sessionStorage.removeItem(storageKey);
+        setPlaced(data.placed as PlacedOrder);
+        setItems([]);
+        setPaymentBusy(false);
+        void refreshCart();
+        window.scrollTo({ top: 0, behavior: "smooth" });
+        return;
       }
       if (!response.ok || typeof data.cashierUrl !== "string") {
         throw new Error(data.error || "We couldn’t start your payment. Please try again.");
@@ -317,11 +359,22 @@ export function CheckoutClient({ section = "stuff", items: initialItems, tiers, 
   const paymentButton = (
     <button type="button" onClick={() => void handlePayment()} disabled={!items.length || !orderingOpen || paymentBusy || busyItem !== null || problems.length > 0 || revised !== null || deliveryProblem !== null} aria-busy={paymentBusy} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-black px-5 text-sm font-black text-white transition hover:bg-[#262626] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black disabled:cursor-not-allowed disabled:opacity-40">
       {paymentBusy ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-r-transparent" aria-hidden="true" /> : <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#feb80a] text-black"><Icon name="arrowRight" className="h-3 w-3" strokeWidth={3} /></span>}
-      {!orderingOpen ? `Ordering opens ${opening}` : paymentBusy ? (payByTransfer ? "Getting account number…" : `Opening ${providerName}…`) : payByTransfer ? `Get account number · ${money(total)}` : `Pay ${money(total)}`}
+      {!orderingOpen ? `Ordering opens ${opening}` : orderForStudent ? (paymentBusy ? "Placing order…" : student ? `Place order for ${student.name.split(" ")[0]} · ${money(total)}` : `Place order · ${money(total)}`) : paymentBusy ? (payByTransfer ? "Getting account number…" : `Opening ${providerName}…`) : payByTransfer ? `Get account number · ${money(total)}` : `Pay ${money(total)}`}
     </button>
   );
 
-  const deliveringTo = selectedLocation ? (
+  const deliveringTo = orderForStudent ? (
+    student && adminDelivery ? (
+      <div className="rounded-2xl bg-[#fff8df] p-3.5 text-sm">
+        <p className="text-xs font-black uppercase tracking-wider text-[#875a00]">Order for</p>
+        <p className="mt-1 break-words font-black">{student.name}</p>
+        <p className="break-words leading-5 text-black/70">{adminDelivery.label ? `${adminDelivery.label} · ` : ""}{adminDelivery.address}</p>
+        <p className="mt-1.5 text-xs font-semibold text-black/55">{student.name.split(" ")[0]} pays. You’ll get the details to send them.</p>
+      </div>
+    ) : (
+      <p className="rounded-2xl border border-dashed border-[#a15c00]/40 bg-[#fff3d6] p-3.5 text-sm font-semibold text-[#6b4700]">Choose who the order is for and where it goes.</p>
+    )
+  ) : selectedLocation ? (
     <div className="rounded-2xl bg-[#fff8df] p-3.5 text-sm">
       <p className="text-xs font-black uppercase tracking-wider text-[#875a00]">Delivering to</p>
       <p className="mt-1 break-words font-black">{selectedLocation.label}</p>
@@ -341,9 +394,12 @@ export function CheckoutClient({ section = "stuff", items: initialItems, tiers, 
         <dd className="shrink-0 font-bold">{deliveryProblem ? (tiers.some((tier) => tier.available) ? "Choose a speed" : "Not available") : money(currentDeliveryFee)}</dd>
       </div>
       {discount > 0 && promo && <div className="flex justify-between gap-3 text-[#16803c]"><dt>Promo · <span className="font-mono font-bold">{promo.code}</span></dt><dd className="shrink-0 font-bold">−{money(discount)}</dd></div>}
+      {cashbackUsed > 0 && <div className="flex justify-between gap-3 text-[#16803c]"><dt>Cashback</dt><dd className="shrink-0 font-bold">−{money(cashbackUsed)}</dd></div>}
       <div className="flex items-baseline justify-between border-t border-black/10 pt-3"><dt className="font-black">Total</dt><dd className="text-xl font-black">{money(total)}</dd></div>
     </dl>
   );
+
+  if (placed) return <AdminOrderPlaced placed={placed} browseHref={section === "food" ? "/food" : "/search"} />;
 
   return (
     <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start lg:gap-6">
@@ -352,17 +408,21 @@ export function CheckoutClient({ section = "stuff", items: initialItems, tiers, 
           <div className="mb-4 flex items-center gap-3">
             <span className="flex h-8 w-8 items-center justify-center rounded-full bg-black text-sm font-black text-[#feb80a]" aria-hidden="true">1</span>
             <div>
-              <h2 id="checkout-delivery-heading" className="text-lg font-black">Delivery</h2>
-              <p className="text-xs text-black/55">Where make your runner bring am?</p>
+              <h2 id="checkout-delivery-heading" className="text-lg font-black">{orderForStudent ? "Who and where" : "Delivery"}</h2>
+              <p className="text-xs text-black/55">{orderForStudent ? "The student this order is for, and where it goes." : "Where make your runner bring am?"}</p>
             </div>
           </div>
+          {orderForStudent ? (
+            <AdminOrderFor student={student} onStudent={(next) => { setStudent(next); setPromo(null); setError(""); }} delivery={adminDelivery} onDelivery={(next) => { setAdminDelivery(next); setError(""); }} disabled={paymentBusy} />
+          ) : (
           <CheckoutLocationStep
             confirmed={selectedLocation}
             onConfirm={(location) => { setSelectedLocation(location); setDeliveryInstructions(location.instructions ?? ""); setError(""); }}
             onChange={() => setSelectedLocation(null)}
             onContinue={() => focusStep("checkout-speed")}
           />
-          {selectedLocation && <div className="mt-5">
+          )}
+          {(orderForStudent ? adminDelivery : selectedLocation) && <div className="mt-5">
             <label htmlFor="checkout-delivery-instructions" className="block text-sm font-black">Instructions for this order <span className="font-medium text-black/50">(optional)</span></label>
             <textarea id="checkout-delivery-instructions" value={deliveryInstructions} onChange={(event) => setDeliveryInstructions(event.target.value.slice(0, 500))} maxLength={500} rows={2} placeholder="e.g. Call me when you reach the hostel gate" aria-describedby="checkout-delivery-instructions-count" className="mt-2 min-h-20 w-full rounded-xl border border-black/15 bg-white px-4 py-3 text-base outline-none transition placeholder:text-black/45 focus:border-black focus:shadow-[0_0_0_3px_rgba(254,184,10,0.45)]" />
             <p id="checkout-delivery-instructions-count" className="mt-1 text-right text-xs text-black/50">{deliveryInstructions.length}/500</p>
@@ -458,6 +518,23 @@ export function CheckoutClient({ section = "stuff", items: initialItems, tiers, 
           <p className="mt-2 text-xs text-black/55">Promo codes come off your items. Delivery is always paid.</p>
         </section>
 
+        {/* Cashback: the student's balance can pay for items (never delivery). The server works out the amount again. */}
+        {!orderForStudent && cashbackBalance > 0 && (
+          <section aria-labelledby="checkout-cashback-heading" className="pk-card p-4 sm:p-6">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h2 id="checkout-cashback-heading" className="text-lg font-black">Cashback 🎉</h2>
+                <p className="mt-0.5 text-sm text-black/65">You have {money(cashbackBalance)}.{cashbackUsed > 0 ? ` Using ${money(cashbackUsed)} on this order.` : ""}</p>
+              </div>
+              <label className="flex shrink-0 cursor-pointer items-center gap-2 text-sm font-bold">
+                <input type="checkbox" checked={useCashback} onChange={(event) => setUseCashback(event.target.checked)} disabled={paymentBusy || revised !== null} className="h-5 w-5 accent-black" />
+                Use it
+              </label>
+            </div>
+            <p className="mt-2 text-xs text-black/55">Cashback comes off your items. Delivery is always paid.</p>
+          </section>
+        )}
+
         {/* Mobile summary (the pay button lives in the sticky bar below). */}
         <section aria-label="Order summary" className="pk-card space-y-4 p-4 lg:hidden">
           {totals}
@@ -498,6 +575,7 @@ export function CheckoutClient({ section = "stuff", items: initialItems, tiers, 
               ))}
               <div className="flex justify-between gap-3 border-t border-black/10 pt-2"><dt className="text-black/60">Delivery{revised.deliveryTierLabel ? ` · ${revised.deliveryTierLabel}` : ""}</dt><dd className="shrink-0 font-bold">{money(revised.deliveryFee)}</dd></div>
               {revised.discount ? <div className="flex justify-between gap-3 text-[#16803c]"><dt>Promo{revised.promoCode ? ` · ${revised.promoCode}` : ""}</dt><dd className="shrink-0 font-bold">−{money(revised.discount)}</dd></div> : null}
+              {revised.cashback ? <div className="flex justify-between gap-3 text-[#16803c]"><dt>Cashback</dt><dd className="shrink-0 font-bold">−{money(revised.cashback)}</dd></div> : null}
               <div className="flex items-baseline justify-between"><dt className="font-black">New total</dt><dd className="text-xl font-black">{money(revised.total)}</dd></div>
             </dl>
             <div className="mt-4 grid gap-2">

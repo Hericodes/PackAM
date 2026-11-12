@@ -2,6 +2,7 @@ import "server-only";
 
 import { PrintJobStatus, Prisma } from "@prisma/client";
 import { createNotification } from "../notifications";
+import { creditCashbackOnDelivery } from "../cashback/cashback-store";
 import { canTransitionPrintJob } from "./status-machine";
 
 const events: Partial<Record<PrintJobStatus, { type: "ORDER" | "PAYMENT" | "DELIVERY"; title: string; message: string }>> = {
@@ -31,7 +32,7 @@ export async function transitionPrintJobInTransaction(
 ) {
   const job = await tx.printJob.findUnique({
     where: { id: input.printJobId },
-    select: { id: true, status: true, userId: true, orderId: true },
+    select: { id: true, status: true, userId: true, orderId: true, printSubtotal: true, total: true, deliveryFee: true },
   });
   if (!job) throw new Error("Print job not found.");
   if (!canTransitionPrintJob(job.status, input.toStatus)) {
@@ -63,6 +64,11 @@ export async function transitionPrintJobInTransaction(
       message: event.message,
       idempotencyKey: `print-job:${job.id}:${input.toStatus}`,
     });
+  }
+  // Delivered: cashback on the printing itself (never delivery), in a savepoint that can never fail the delivery.
+  if (input.toStatus === "DELIVERED") {
+    const itemsPaid = job.printSubtotal ?? ((job.total ?? 0) - (job.deliveryFee ?? 0));
+    await creditCashbackOnDelivery(tx, { userId: job.userId, source: "print", id: job.id, itemsPaid });
   }
   if (["DELIVERED", "CANCELLED", "REFUNDED", "FAILED"].includes(input.toStatus)) {
     const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);

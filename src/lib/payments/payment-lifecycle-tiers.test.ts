@@ -46,7 +46,12 @@ test("checkout prices the chosen speed inside its retried serializable transacti
   const promo = create.indexOf("await resolveCheckoutPromo(tx, promoCode, student.id, subtotal)");
   assert.ok(promo > promiseAllEnd && promo > create.indexOf("throw new CartNotPayableError"), "after the cart, never inside the Promise.all");
   assert.ok(promo < create.indexOf("throw new PriceChangedError"), "the discount is part of the total the student reviewed");
-  assert.match(create, /const amount = subtotal \+ deliveryFee - discount;/, "the discount comes off the items; delivery is charged in full");
+  assert.match(create, /const amount = subtotal \+ deliveryFee - discount - cashbackUsed;/, "the discount and cashback come off the items; delivery is charged in full");
+  // Cashback: the balance is read in this same serializable transaction (so two checkouts can't spend the same naira),
+  // capped at the items left after the promo code, and its use recorded right after the payment row, in the same transaction.
+  assert.match(create, /cashbackToUse\(await cashbackBalance\(tx, student\.id\), subtotal - discount\)/);
+  assert.ok(create.indexOf("await recordCashbackSpend(tx,") > create.indexOf("tx.payment.create"), "recorded after the payment row exists");
+  assert.match(create, /cashback\.use === true && !onBehalf/, "never for an order an admin places for a student");
   const recorded = create.indexOf("await recordPromoRedemption(tx, {");
   assert.ok(recorded > create.indexOf("tx.payment.create"), "the use points at the payment just created");
 });

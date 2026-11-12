@@ -32,6 +32,10 @@ export function notificationHref(item: NotificationEntry, role: NotificationRole
   }
   if (item.relatedType === "PRODUCT_REQUEST") return role === "ADMIN" ? "/admin/requests" : "/product-requests";
   if (item.relatedType === "SUPPORT_CASE") return role === "ADMIN" ? "/admin/support" : "/support";
+  // Students: cashback they earned lives in Settings.
+  if (item.relatedType === "CASHBACK") return role === "STUDENT" ? "/settings#cashback" : null;
+  // Students: an order an admin placed for them, waiting for their payment (relatedId is the payment reference).
+  if (role === "STUDENT" && item.relatedType === "PAYMENT" && item.relatedId) return `/checkout/payment-result?reference=${encodeURIComponent(item.relatedId)}`;
   // Admins: bank transfers to confirm, payment problems and payment-PIN alerts all live on the Payments page.
   if (role === "ADMIN" && (item.type === "PAYMENT" || item.relatedType === "USER")) return "/admin/payments";
   // Students: a payment that didn't go through leaves the cart as it was.
@@ -43,6 +47,8 @@ export function notificationHref(item: NotificationEntry, role: NotificationRole
 export function notificationActionLabel(href: string | null) {
   if (!href) return null;
   if (href.includes("/orders/") || href.includes("/missions/")) return "Open order";
+  if (href.startsWith("/checkout/payment-result")) return "Pay for your order";
+  if (href === "/settings#cashback") return "See your cashback";
   if (href.includes("print")) return "Open print job";
   if (href.includes("requests")) return "View request";
   if (href.includes("support")) return "Open support";

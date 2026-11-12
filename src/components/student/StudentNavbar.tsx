@@ -62,7 +62,7 @@ export async function StudentNavbar() {
           </Link>
           <InstallAppButton />
           {user && <NotificationBell />}
-          {role === "STUDENT" && <StudentCartButton />}
+          {(role === "STUDENT" || role === "ADMIN") && <StudentCartButton />}
           {!user && (
             <div className="hidden items-center gap-1.5 md:flex">
               <Link href="/login" className="inline-flex min-h-11 items-center gap-2 rounded-full px-3.5 text-sm font-bold transition hover:bg-black/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black">

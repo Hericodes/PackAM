@@ -54,6 +54,8 @@ export async function POST(request: Request) {
   const rawSection = body && typeof body === "object" && "cart" in body ? (body as { cart?: unknown }).cart : undefined;
   const section = rawSection === undefined ? undefined : parseCartSection(rawSection);
   if (section === null) return Response.json({ error: "Refresh checkout, then pay." }, { status: 400 });
+  // "Use my cashback": only the choice is sent; how much is worked out on the server from the balance.
+  const useCashback = body && typeof body === "object" && "useCashback" in body ? (body as { useCashback?: unknown }).useCashback === true : false;
 
   // Bank transfer with no account set up: refuse before anything is created, so no student is sent to a blank account.
   const transferAccount = manualTransferAccount(process.env);
@@ -63,7 +65,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const attempt = await createPaymentAttempt(checkoutProvider(), deliveryLocationId, idempotencyKey, typeof deliveryInstructions === "string" ? deliveryInstructions.trim() || null : undefined, reviewedTotal, { tier: delivery.tier, reviewedDeliveryFee: delivery.reviewedDeliveryFee }, { code: typeof promoCode === "string" ? promoCode : null }, { section });
+    const attempt = await createPaymentAttempt(checkoutProvider(), deliveryLocationId, idempotencyKey, typeof deliveryInstructions === "string" ? deliveryInstructions.trim() || null : undefined, reviewedTotal, { tier: delivery.tier, reviewedDeliveryFee: delivery.reviewedDeliveryFee }, { code: typeof promoCode === "string" ? promoCode : null }, { section }, { use: useCashback });
     if (attempt.status === "SUCCESS" || attempt.status === "FAILED") {
       return Response.json({ error: "Start a new payment attempt from checkout." }, { status: 409 });
     }

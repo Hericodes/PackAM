@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
   buildMarketplaceMissionOffers,
   buildPrintMissionOffers,
+  canDeliver,
   canOfferFindingOrder,
   canOfferFindingPrintJob,
   eligibleAvailableRunnerWhere,
@@ -145,5 +146,16 @@ test("marketplace runner offering still uses Order-backed assignments", () => {
 test("urgent orders before escalation go only to eligible runners with no accepted mission", () => {
   // Existing tables only (RunnerAssignment), so it works the same with or without the delivery-tier migration.
   assert.deepEqual(idleEligibleAvailableRunnerWhere, { ...eligibleAvailableRunnerWhere, assignments: { none: { status: "ACCEPTED" } } });
-  assert.deepEqual(eligibleAvailableRunnerWhere, { isAvailable: true, isVerified: true, user: { role: "RUNNER", status: "ACTIVE" } }, "the shared filter is unchanged");
+  // Runners, and admins in runner mode ("Deliver orders"), both active, available and verified.
+  assert.deepEqual(eligibleAvailableRunnerWhere, { isAvailable: true, isVerified: true, user: { role: { in: ["RUNNER", "ADMIN"] }, status: "ACTIVE" } });
+});
+
+test("admins in runner mode get offers like runners; students never do", () => {
+  const runner = (role: string) => ({ isAvailable: true, isVerified: true, user: { role, status: "ACTIVE" } });
+  assert.equal(isEligibleAvailableRunner(runner("RUNNER")), true);
+  assert.equal(isEligibleAvailableRunner(runner("ADMIN")), true);
+  assert.equal(isEligibleAvailableRunner(runner("STUDENT")), false);
+  assert.equal(isEligibleAvailableRunner({ ...runner("ADMIN"), isAvailable: false }), false, "only while they're available");
+  assert.equal(canDeliver("ADMIN"), true);
+  assert.equal(canDeliver("STUDENT"), false);
 });

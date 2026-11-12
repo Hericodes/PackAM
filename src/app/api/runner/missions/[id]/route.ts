@@ -5,12 +5,13 @@ import { db } from "../../../../../lib/db";
 import { deliveryPointFromSnapshot, mapsLink } from "../../../../../lib/delivery-location";
 import { loadOrderDeliveryTiers, runnerMissionLoad } from "../../../../../lib/delivery-tier-store";
 import { decideTierAcceptance, describeOrderDelivery, idleRunnerRuleApplies } from "../../../../../lib/delivery-tiers";
+import { canDeliver } from "../../../../../lib/orders/runner-offer-policy";
 
 type Context = { params: Promise<{ id: string }> };
 
 export async function GET(_request: Request, context: Context) {
   const session = await auth();
-  if (!session?.user || session.user.role !== "RUNNER") return Response.json({ error: "Runner access required." }, { status: 403 });
+  if (!session?.user || !canDeliver(session.user.role)) return Response.json({ error: "Runner access required." }, { status: 403 });
   const { id: orderId } = await context.params;
   const runner = await db.runnerProfile.findFirst({ where: { userId: session.user.id, isVerified: true, user: { status: "ACTIVE" } }, select: { id: true } });
   if (!runner) return Response.json({ error: "Your runner profile is not active and verified." }, { status: 403 });

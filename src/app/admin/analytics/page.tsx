@@ -1,11 +1,11 @@
-import { requireRole } from "../../../lib/auth-guard";
+import { requireSuperAdminPage } from "../../../lib/admin/admin-access";
 import { campusDay } from "../../../lib/analytics/range";
 import { AnalyticsDashboard } from "../../../components/admin/analytics/AnalyticsDashboard";
 
 type Props = { searchParams: Promise<{ range?: string; from?: string; to?: string }> };
 
 export default async function AdminAnalyticsPage({ searchParams }: Props) {
-  await requireRole("ADMIN");
+  await requireSuperAdminPage("/admin/analytics");
   const params = await searchParams;
   const initial = params.from && params.to ? { from: params.from, to: params.to } : { range: params.range ?? "30d" };
   return (

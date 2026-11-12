@@ -78,7 +78,7 @@ export function RunnerMissionBoard({ adminView = false }: { adminView?: boolean 
         setMissions([]); setPrintMissions([]); setError("");
         return;
       }
-      const missionResponse = await fetch("/api/runner/missions", { cache: "no-store" });
+      const missionResponse = await fetch(adminView ? "/api/runner/missions?view=all" : "/api/runner/missions", { cache: "no-store" });
       const m = await missionResponse.json();
       if (!missionResponse.ok) throw new Error(m.error || "Unable to load missions.");
       setMissions(m.missions); setPrintMissions(m.printMissions ?? []); setError(""); setUpdatedAt(new Date());
@@ -88,7 +88,7 @@ export function RunnerMissionBoard({ adminView = false }: { adminView?: boolean 
       setLoaded(true);
       setRefreshing(false);
     }
-  }, []);
+  }, [adminView]);
 
   // Offers go to every available runner and the first to accept wins, so keep the board fresh.
   useEffect(() => {

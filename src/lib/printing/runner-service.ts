@@ -22,6 +22,7 @@ import {
   type PrintMissionIssueAction,
   type PrintMissionStepAction,
 } from "./runner-mission-policy";
+import { RUNNER_ACCOUNT } from "../orders/runner-offer-policy";
 
 type Tx = Prisma.TransactionClient;
 
@@ -53,7 +54,7 @@ async function serializable<T>(work: (tx: Tx) => Promise<T>, staleMessage: strin
 
 async function activeRunner(tx: Tx, userId: string) {
   const runner = await tx.runnerProfile.findFirst({
-    where: { userId, isVerified: true, user: { role: "RUNNER", status: "ACTIVE" } },
+    where: { userId, isVerified: true, user: RUNNER_ACCOUNT },
     select: { id: true, userId: true, isAvailable: true },
   });
   if (!runner) throw new PrintMissionError("Your runner profile is not active and verified.", 403);
@@ -355,7 +356,7 @@ export async function listActivePrintMissionsForAdmin() {
 
 export async function getRunnerPrintMission(userId: string, printJobId: string) {
   const runner = await db.runnerProfile.findFirst({
-    where: { userId, isVerified: true, user: { role: "RUNNER", status: "ACTIVE" } },
+    where: { userId, isVerified: true, user: RUNNER_ACCOUNT },
     select: { id: true },
   });
   if (!runner) throw new PrintMissionError("Your runner profile is not active and verified.", 403);

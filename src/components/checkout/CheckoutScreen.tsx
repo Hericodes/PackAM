@@ -12,6 +12,7 @@ import { checkoutProvider } from "../../lib/payments/gateways";
 import { orderingClock } from "../../lib/ordering-hours";
 import { providerName } from "../../lib/payments/provider-selection";
 import { CHECKOUT_PATH, type CartSection } from "../../lib/food/cart-context";
+import { readCashbackBalance } from "../../lib/cashback/cashback-store";
 
 /** Where "Keep browsing" goes from each checkout. */
 const BROWSE_PATH: Record<CartSection, string> = { stuff: "/search", food: "/food" };
@@ -43,13 +44,17 @@ async function findUnconfirmedPayment(userId: string, section: CartSection) {
  */
 export async function CheckoutScreen({ section }: { section: CartSection }) {
   const session = await requireRole("STUDENT", CHECKOUT_PATH[section]);
-  const [cart, unconfirmedPayment, tierQuotes] = await Promise.all([
+  // An admin's checkout places the order for a student they choose (src/app/api/admin/orders/place).
+  const orderForStudent = session.user.role === "ADMIN";
+  const [cart, unconfirmedPayment, tierQuotes, cashbackBalance] = await Promise.all([
     // Every price here is the server's: product prices, and plates priced as base + soup + extras.
     priceCart(db, session.user.id, section),
-    findUnconfirmedPayment(session.user.id, section),
+    orderForStudent ? null : findUnconfirmedPayment(session.user.id, section),
     // Every delivery speed with its current server price and window, read fresh for each visit (never cached).
     // Before the delivery-tier migration this is Cruise Mode only, at ₦200.
     readDeliveryTierQuotes(db),
+    // The student's cashback (none for an admin's order for a student, and none before the cashback migration).
+    orderForStudent ? null : readCashbackBalance(db, session.user.id),
   ]);
   // Delivery always starts from the phone's live location, so saved locations aren't loaded here.
 
@@ -61,9 +66,9 @@ export async function CheckoutScreen({ section }: { section: CartSection }) {
       <div className="packam-container pt-5 sm:pt-10">
         <Link href={BROWSE_PATH[section]} className="inline-flex min-h-11 items-center text-sm font-bold text-black/55 transition hover:text-black focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-black">{section === "food" ? "← Back to Food" : "← Keep shopping"}</Link>
         <div className="mt-4 max-w-2xl">
-          <p className="pk-eyebrow">{section === "food" ? "🍲 Food checkout" : "🛒 Shop checkout"}</p>
+          <p className="pk-eyebrow">{orderForStudent ? "Admin · order for a student" : section === "food" ? "🍲 Food checkout" : "🛒 Shop checkout"}</p>
           <h1 className="pk-page-title mt-2">{section === "food" ? (shopName ? `Your food from ${shopName}` : "Your food order") : "Checkout"}</h1>
-          <p className="pk-muted mt-2 text-sm leading-6">Choose where to deliver and how fast, check your {section === "food" ? "food" : "items"}, then pay securely with {payWith}. You’ll see the full total, including delivery, before paying.</p>
+          <p className="pk-muted mt-2 text-sm leading-6">{orderForStudent ? "Choose the student and where it goes, pick a delivery speed, then place the order. The student pays, and the order shows on their account." : <>Choose where to deliver and how fast, check your {section === "food" ? "food" : "items"}, then pay securely with {payWith}. You’ll see the full total, including delivery, before paying.</>}</p>
         </div>
         {unconfirmedPayment?.transactionReference && (
           <section role="status" className="mt-5 max-w-2xl rounded-2xl border border-[#e8c238] bg-[#fff8df] p-4 text-sm leading-6">
@@ -75,6 +80,8 @@ export async function CheckoutScreen({ section }: { section: CartSection }) {
         <div className="mt-5 sm:mt-7">
           <CheckoutClient
             section={section}
+            orderForStudent={orderForStudent}
+            cashbackBalance={cashbackBalance ?? 0}
             providerName={payWith}
             payByTransfer={checkoutProvider() === "MANUAL"}
             items={cart.lines.map((line) => ({

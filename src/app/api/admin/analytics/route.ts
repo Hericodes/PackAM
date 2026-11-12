@@ -1,4 +1,4 @@
-import { auth } from "../../../../auth";
+import { adminApiAccess } from "../../../../lib/admin/admin-access";
 import { isSchemaBehindCode, schemaBehindCodeResponse } from "../../../../lib/db-errors";
 import { loadAnalytics, type AnalyticsData } from "../../../../lib/analytics/queries";
 import { parseRange } from "../../../../lib/analytics/range";
@@ -13,9 +13,9 @@ const CACHE_MS = 60_000;
 const cache = new Map<string, { at: number; data: AnalyticsData }>();
 
 export async function GET(request: Request) {
-  const session = await auth();
-  if (!session?.user) return Response.json({ error: "Sign in to view analytics." }, { status: 401 });
-  if (session.user.role !== "ADMIN") return Response.json({ error: "Only PackAM admins can view analytics." }, { status: 403 });
+  // Analytics are for the super admin only (src/lib/admin/admin-levels.ts).
+  const allowed = await adminApiAccess({ superOnly: true });
+  if (!allowed.ok) return allowed.response;
 
   const params = new URL(request.url).searchParams;
   const parsed = parseRange({ range: params.get("range"), from: params.get("from"), to: params.get("to") }, new Date());

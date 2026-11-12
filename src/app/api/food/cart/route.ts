@@ -14,7 +14,8 @@ import { isSchemaBehindCode, schemaBehindCodeResponse } from "../../../../lib/db
 export async function POST(request: Request) {
   const session = await auth();
   if (!session?.user) return Response.json({ error: "Log in to order food." }, { status: 401 });
-  if (session.user.role !== "STUDENT") return Response.json({ error: "Only students can order food." }, { status: 403 });
+  // Students, and admins building an order for a student.
+  if (session.user.role !== "STUDENT" && session.user.role !== "ADMIN") return Response.json({ error: "Only students can order food." }, { status: 403 });
 
   let body: { shopId?: unknown; line?: unknown; clearCart?: unknown };
   try { body = await request.json(); } catch { return Response.json({ error: "Invalid request." }, { status: 400 }); }

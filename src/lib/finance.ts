@@ -1,9 +1,9 @@
 export type OrderMoney = { subtotal: number; deliveryFee: number; total: number };
 
 /**
- * Sums orders into product sales, delivery fees, promo discounts and GMV (what customers paid). A promo code comes off
- * the items only, so for every order total = subtotal + deliveryFee - discount, with 0 <= discount <= subtotal; the
- * discount is not stored separately on the order, it is what reconciles the three stored amounts.
+ * Sums orders into product sales, delivery fees, discounts and GMV (what customers paid). Promo codes and cashback
+ * come off the items only, so for every order total = subtotal + deliveryFee - discount, with 0 <= discount <= subtotal;
+ * the discount (promo + cashback) is not stored separately on the order, it is what reconciles the three stored amounts.
  */
 export function summarizeKnownOrderMoney(orders: OrderMoney[]) {
   return orders.reduce((sum, order) => {
@@ -20,7 +20,14 @@ export function summarizeKnownOrderMoney(orders: OrderMoney[]) {
   }, { productSales: 0, deliveryFees: 0, promoDiscounts: 0, gmv: 0 });
 }
 
-/** The promo discount on an order (or on summed orders): items + delivery - what was paid. */
+/** Everything taken off an order's items (promo code and cashback together): items + delivery - what was paid. */
 export function promoDiscountOf(order: OrderMoney) {
   return order.subtotal + order.deliveryFee - order.total;
+}
+
+/** The order's discount split into the promo code's part and the cashback's part (from its payment snapshot). */
+export function splitOrderDiscount(order: OrderMoney, cashbackUsed: number | null) {
+  const total = promoDiscountOf(order);
+  const cashback = Math.max(0, Math.min(total, cashbackUsed ?? 0));
+  return { promo: total - cashback, cashback };
 }

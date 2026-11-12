@@ -1,9 +1,10 @@
 import type { IconName } from "../ui/Icon";
+import { canOpenAdminPath, type AdminLevel } from "../../lib/admin/admin-levels";
 
 /**
  * Every admin destination, grouped by task. The sidebar (desktop) and the drawer (phones) both render this
  * list, so nothing is reachable in one and missing in the other. Each page and API still checks permissions
- * on its own; this is navigation only.
+ * on its own; this is navigation only. Normal admins don't see the super admin's pages (adminNavFor).
  */
 export type AdminNavItem = { href: string; label: string; icon: IconName };
 export type AdminNavGroup = { label: string | null; items: AdminNavItem[] };
@@ -33,16 +34,27 @@ export const ADMIN_NAV: AdminNavGroup[] = [
     { href: "/admin/runners", label: "Runners", icon: "truck" },
     { href: "/admin/delivery-tiers", label: "Delivery tiers", icon: "clock" },
     { href: "/admin/promo-codes", label: "Promo codes", icon: "receipt" },
+    { href: "/admin/cashback", label: "Cashback", icon: "heart" },
     { href: "/admin/emails", label: "Emails", icon: "mail" },
     { href: "/admin/support", label: "Support", icon: "message" },
     { href: "/admin/finance", label: "Finance", icon: "wallet" },
     { href: "/admin/audit", label: "Audit log", icon: "history" },
+    { href: "/admin/admins", label: "Admins", icon: "shieldCheck" },
   ] },
-  { label: "Other views", items: [
-    { href: "/search", label: "Marketplace", icon: "cart" },
-    { href: "/runner", label: "Runner view", icon: "arrowUpRight" },
+  { label: "Do it yourself", items: [
+    // Shop or order food for a student (checkout asks who the order is for).
+    { href: "/food", label: "Order for a student", icon: "cart" },
+    // Runner mode: switch on, get offers, deliver.
+    { href: "/runner", label: "Deliver orders", icon: "truck" },
+    // Every runner's open offers and deliveries.
+    { href: "/runner?view=all", label: "All runner missions", icon: "arrowUpRight" },
   ] },
 ];
+
+/** The menu for an admin of this level: normal admins don't see the super admin's pages; empty groups are dropped. */
+export function adminNavFor(level: AdminLevel, nav: AdminNavGroup[] = ADMIN_NAV): AdminNavGroup[] {
+  return nav.map((group) => ({ ...group, items: group.items.filter((item) => canOpenAdminPath(level, item.href)) })).filter((group) => group.items.length > 0);
+}
 
 /** The current page's item. A section link (#…) is never "current"; its page is. */
 export function isAdminNavActive(href: string, pathname: string) {

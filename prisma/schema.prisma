@@ -283,6 +283,7 @@ model User {
   /// Relation fields only: no column on User. Never include them on existing User queries (see src/lib/email/campaign-store.ts).
   emailPreference       EmailPreference?
   emailDeliveries       EmailDelivery[]
+  cashbackEntries       CashbackEntry[]
   emailBroadcasts       EmailBroadcast[]  @relation("EmailBroadcastCreatedBy")
   emailSchedulesUpdated EmailSchedule[]   @relation("EmailScheduleUpdatedBy")
 
@@ -1541,4 +1542,51 @@ model EmailDelivery {
   @@unique([userId, kind, key])
   @@index([kind, key, status])
   @@index([status, createdAt])
+}
+
+// ============================================================
+// CASHBACK
+// ============================================================
+
+/// The cashback rules: one row (id "default"), changed on Admin → Cashback. Seeded switched off.
+model CashbackSettings {
+  id           String   @id @default("default")
+  /// Whether delivered orders and print jobs earn cashback (balances can always be spent).
+  enabled      Boolean  @default(false)
+  /// Whole percent of what the student paid for the items (after promo codes and cashback used), 0–50.
+  ratePercent  Int      @default(2)
+  /// Naira added once, after a student's first delivered order or print job. 0 = no welcome bonus.
+  welcomeBonus Int      @default(0)
+  updatedById  String?
+  updatedAt    DateTime @updatedAt
+}
+
+enum CashbackKind {
+  EARNED
+  WELCOME
+  ADJUSTMENT
+  SPENT
+}
+
+/// Every change to a student's cashback balance (naira; positive adds, negative takes away). The balance is the sum,
+/// leaving out SPENT rows whose payment didn't go through (failed, cancelled or refunded), so those come back by
+/// themselves. `key` is unique per source, so nothing is ever credited or spent twice.
+model CashbackEntry {
+  id         String       @id @default(cuid())
+  userId     String
+  kind       CashbackKind
+  amount     Int
+  key        String       @unique
+  orderId    String?
+  printJobId String?
+  paymentId  String?
+  /// Admin adjustments: who made it and why.
+  actorId    String?
+  note       String?
+  createdAt  DateTime     @default(now())
+
+  user       User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([paymentId])
 }
