@@ -11,6 +11,7 @@ import { ensureManualCheckout } from "../../../../lib/payments/manual-transfer-s
 import { OrderingClosedError, orderingClosedBody } from "../../../../lib/ordering-hours";
 import { OutsideServiceAreaError } from "../../../../lib/service-area";
 import { PromoCodeRejectedError } from "../../../../lib/promo/promo-rules";
+import { parseCartSection } from "../../../../lib/food/cart-context";
 
 /**
  * Starts (or resumes) payment for the student's current cart. New attempts use the active provider
@@ -49,6 +50,10 @@ export async function POST(request: Request) {
   if (promoCode !== undefined && promoCode !== null && (typeof promoCode !== "string" || promoCode.length > 40)) {
     return Response.json({ error: "That promo code isn’t valid. Remove it and try again.", code: "PROMO_REJECTED" }, { status: 400 });
   }
+  // Which cart this checkout pays for ("stuff" or "food"). Absent from tabs opened before the carts were separate.
+  const rawSection = body && typeof body === "object" && "cart" in body ? (body as { cart?: unknown }).cart : undefined;
+  const section = rawSection === undefined ? undefined : parseCartSection(rawSection);
+  if (section === null) return Response.json({ error: "Refresh checkout, then pay." }, { status: 400 });
 
   // Bank transfer with no account set up: refuse before anything is created, so no student is sent to a blank account.
   const transferAccount = manualTransferAccount(process.env);
@@ -58,7 +63,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const attempt = await createPaymentAttempt(checkoutProvider(), deliveryLocationId, idempotencyKey, typeof deliveryInstructions === "string" ? deliveryInstructions.trim() || null : undefined, reviewedTotal, { tier: delivery.tier, reviewedDeliveryFee: delivery.reviewedDeliveryFee }, { code: typeof promoCode === "string" ? promoCode : null });
+    const attempt = await createPaymentAttempt(checkoutProvider(), deliveryLocationId, idempotencyKey, typeof deliveryInstructions === "string" ? deliveryInstructions.trim() || null : undefined, reviewedTotal, { tier: delivery.tier, reviewedDeliveryFee: delivery.reviewedDeliveryFee }, { code: typeof promoCode === "string" ? promoCode : null }, { section });
     if (attempt.status === "SUCCESS" || attempt.status === "FAILED") {
       return Response.json({ error: "Start a new payment attempt from checkout." }, { status: 409 });
     }

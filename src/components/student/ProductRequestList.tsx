@@ -1,6 +1,8 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import Link from "next/link";
+import { FormEvent, useEffect, useRef, useState } from "react";
+import { looksLikeFood } from "../../lib/food/food-intent";
 
 type ProductRequest = { id: string; requestedName: string; quantity: number; variant: string | null; description: string | null; status: string; createdAt: string; product: { id: string; name: string } | null };
 const statusCopy: Record<string, string> = { PENDING: "Request received.", CHECKING: "We’re checking around for it 👀", AVAILABLE: "Found it!", UNAVAILABLE: "We couldn’t find that one this time.", CANCELLED: "Request cancelled." };
@@ -9,14 +11,26 @@ export function ProductRequestList({ initialProductName = "" }: { initialProduct
   const [requests, setRequests] = useState<ProductRequest[]>([]);
   const [productName, setProductName] = useState(initialProductName); const [quantity, setQuantity] = useState(1); const [variant, setVariant] = useState(""); const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false); const [error, setError] = useState(""); const [success, setSuccess] = useState("");
+  // Food isn't requested: it's ordered from a campus food shop. A food-sounding request points there first; the
+  // student can still send it when it isn't cooked food.
+  const [notFood, setNotFood] = useState(false);
+  const foodPrompt = useRef<HTMLDivElement>(null);
+  const showFoodPrompt = !notFood && looksLikeFood(productName, variant, note);
   useEffect(() => { const timer = window.setTimeout(() => { void fetch("/api/product-requests").then(async (r) => { const data = await r.json(); if (!r.ok) throw new Error(data.error); setRequests(data.requests); }).catch((e) => setError(e.message || "Unable to load requests.")); }, 0); return () => window.clearTimeout(timer); }, []);
   async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setBusy(true); setError(""); setSuccess("");
+    event.preventDefault();
+    if (showFoodPrompt) {
+      setError("This looks like food. Order it from a food shop, or tap “It’s not food” to send your request.");
+      foodPrompt.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      foodPrompt.current?.focus();
+      return;
+    }
+    setBusy(true); setError(""); setSuccess("");
     try {
       const response = await fetch("/api/product-requests", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ productName, quantity, variant, note }) });
       const data = await response.json(); if (!response.ok) throw new Error(data.error || "We couldn’t send that request.");
       setRequests((current) => [{ ...data.request, quantity, variant: variant || null, description: note || null, product: null }, ...current]);
-      setProductName(""); setQuantity(1); setVariant(""); setNote(""); setSuccess("Got it. We’ll check around 👀");
+      setProductName(""); setQuantity(1); setVariant(""); setNote(""); setNotFood(false); setSuccess("Got it. We’ll check around 👀");
     } catch (e) { setError(e instanceof Error ? e.message : "We couldn’t send that request."); } finally { setBusy(false); }
   }
   return (
@@ -40,6 +54,16 @@ export function ProductRequestList({ initialProductName = "" }: { initialProduct
             className="mt-1 min-h-12 w-full rounded-xl border border-black/15 bg-white px-3 text-base font-normal outline-none transition placeholder:text-black/60 focus-visible:border-black focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black"
           />
         </label>
+        {showFoodPrompt && (
+          <div ref={foodPrompt} tabIndex={-1} role="status" className="pk-anim-rise mt-3 rounded-2xl bg-[#1f1300] p-4 text-white outline-none focus-visible:ring-2 focus-visible:ring-[#feb80a]">
+            <p className="text-base font-black">🍲 Looks like food!</p>
+            <p className="mt-1 text-sm leading-6 text-white/80">No need to request it. Order it straight from a campus food shop: pick a shop, choose your food and pay. PackAM brings it to you.</p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Link href="/food" className="inline-flex min-h-11 items-center rounded-full bg-[#feb80a] px-5 text-sm font-black text-black transition hover:bg-[#ffc933] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white">Order food now →</Link>
+              <button type="button" onClick={() => { setNotFood(true); setError(""); }} className="inline-flex min-h-11 items-center rounded-full border border-white/30 px-4 text-sm font-bold text-white transition hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white">It’s not food</button>
+            </div>
+          </div>
+        )}
         <div className="mt-3 grid grid-cols-2 gap-3">
           <label className="min-w-0 text-sm font-bold">
             Quantity

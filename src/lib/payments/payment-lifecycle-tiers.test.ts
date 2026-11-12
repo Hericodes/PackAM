@@ -38,8 +38,8 @@ test("checkout prices the chosen speed inside its retried serializable transacti
   assert.match(create, /reviewedDeliveryFee !== undefined && reviewedDeliveryFee !== deliveryFee/, "PRICE_CHANGED also compares the fee");
   assert.match(create, /\.\.\.snapshotDeliveryTierFields\(quote\)/);
   assert.doesNotMatch(create, /cart\.deliveryFee|CHECKOUT_DELIVERY_FEE/, "no flat fee anywhere in checkout");
-  // A reused idempotency key must be for the same speed and promo code, on both reads of an existing attempt.
-  assert.equal(create.split("return resumable(existing, tier, promoCode)").length, 3);
+  // A reused idempotency key must be for the same speed, promo code and cart, on both reads of an existing attempt.
+  assert.equal(create.split("return resumable(existing, tier, promoCode, checkout.section)").length, 3);
 
   // A promo code is decided again on the server, in a savepoint on this transaction, after the cart and before the
   // payment row; its use is recorded in the same transaction, right after the payment row exists.

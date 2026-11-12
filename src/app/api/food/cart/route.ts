@@ -1,7 +1,7 @@
 import { auth } from "../../../../auth";
 import { db } from "../../../../lib/db";
 import { addToCart, cartConflictResponse } from "../../../../lib/cart-add";
-import { priceCart } from "../../../../lib/cart-pricing";
+import { cartSummary } from "../../../../lib/cart-pricing";
 import { isSellablePrice, priceLine, type FoodGroup, type LineRequest, type MenuItem } from "../../../../lib/food/plate";
 import { listedShopWhere } from "../../../../lib/food/shops";
 import { isSchemaBehindCode, schemaBehindCodeResponse } from "../../../../lib/db-errors";
@@ -41,8 +41,7 @@ export async function POST(request: Request) {
     }, body.clearCart === true);
     if (!result.ok) return "conflict" in result ? cartConflictResponse(result.conflict) : Response.json({ error: result.error }, { status: 400 });
 
-    const cart = await priceCart(db, session.user.id);
-    return Response.json({ added: { name: priced.line.name, unitPrice: priced.line.unitPrice, quantity: priced.line.quantity }, cleared: result.cleared, summary: { count: cart.count, subtotal: cart.subtotal } });
+    return Response.json({ added: { name: priced.line.name, unitPrice: priced.line.unitPrice, quantity: priced.line.quantity }, cleared: result.cleared, summary: await cartSummary(db, session.user.id) });
   } catch (error) {
     if (isSchemaBehindCode(error)) return schemaBehindCodeResponse(error, "POST /api/food/cart");
     console.error("FOOD CART ERROR:", error instanceof Error ? error.name : "Unknown error");

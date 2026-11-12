@@ -24,8 +24,10 @@ export type CartAddResult = { ok: true; cleared: boolean } | { ok: false; confli
 
 /**
  * Adds one line to the student's cart, in one serializable transaction:
- * - a cart holds Order Stuff or food from one shop; anything else is a conflict, never merged;
- * - the cart is emptied only when the student explicitly chose to clear it (`clearCart`);
+ * - Order Stuff and food are separate carts (see cart-context.ts), so they never conflict; the food cart holds one
+ *   shop, and food from another shop is a conflict, never merged;
+ * - the food cart is emptied only when the student explicitly chose to clear it (`clearCart`); the shop cart is
+ *   never touched by that;
  * - an identical line (same product and, for plates, the same choices) gets its quantity raised, up to 99;
  *   a different plate on the same base becomes its own line.
  * Validation of the product or plate itself happens before this, on the server.
@@ -33,12 +35,12 @@ export type CartAddResult = { ok: true; cleared: boolean } | { ok: false; confli
 export async function addToCart(userId: string, addition: CartAddition, clearCart: boolean): Promise<CartAddResult> {
   return retrySerializable(() => db.$transaction(async (tx) => {
     const cart = await tx.cart.upsert({ where: { userId }, create: { userId }, update: {}, select: { id: true } });
-    const items = await tx.cartItem.findMany({ where: { cartId: cart.id }, select: { product: { select: { shopId: true, shop: { select: { name: true } } } } } });
-    const conflict = addConflict(cartContext(items), addition.shop ? { shopId: addition.shop.id, shopName: addition.shop.name } : null);
+    const foodItems = await tx.cartItem.findMany({ where: { cartId: cart.id, product: { shopId: { not: null } } }, select: { product: { select: { shopId: true, shop: { select: { name: true } } } } } });
+    const conflict = addConflict(cartContext(foodItems), addition.shop ? { shopId: addition.shop.id, shopName: addition.shop.name } : null);
     let cleared = false;
     if (conflict) {
       if (!clearCart) return { ok: false as const, conflict };
-      await tx.cartItem.deleteMany({ where: { cartId: cart.id } });
+      await tx.cartItem.deleteMany({ where: { cartId: cart.id, product: { shopId: { not: null } } } });
       cleared = true;
     }
 

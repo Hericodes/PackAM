@@ -253,7 +253,7 @@ export function FoodMenu({ shop, menu, delivery }: { shop: Shop; menu: PublicMen
       </header>
 
       {closed && <p role="status" className="mt-3 rounded-2xl bg-[#fff3d6] px-4 py-3 text-sm font-semibold text-[#6b4700]">{shop.name} is closed right now. You can look at the menu, but orders open when the shop does.</p>}
-      {added && <p role="status" className="pk-anim-rise mt-3 flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-[#e9f8ee] px-4 py-3 text-sm font-semibold text-[#16803c]"><span>✓ {added}</span><Link href="/checkout" className="font-black text-black underline underline-offset-4">Go to checkout</Link></p>}
+      {added && <p role="status" className="pk-anim-rise mt-3 flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-[#e9f8ee] px-4 py-3 text-sm font-semibold text-[#16803c]"><span>✓ {added}</span><Link href="/checkout/food" className="font-black text-black underline underline-offset-4">Go to food checkout</Link></p>}
       {error && <p role="alert" className="mt-3 rounded-2xl bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{error}</p>}
 
       {menu.length === 0 ? (

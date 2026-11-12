@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { DEFAULT_PACK_FEE, MAX_DISTINCT_BASES, MAX_EXTRA_QUANTITY, MAX_PACK_FEE, isValidPackFee, describeDetails, hasExtraLimit, portionUnit, foodPriceLabel, isSellablePrice, parseLineDetails, plateConfigKey, priceLine, soupRule, storedLineRequest, type MenuItem } from "./plate";
-import { addConflict, cartContext, isMixedCart } from "./cart-context";
+import { CHECKOUT_PATH, addConflict, cartContext, inSection, isMixedCart, parseCartSection, sectionOf } from "./cart-context";
 
 // A shop's menu as an admin might configure it. Names and prices are test fixtures, not real data.
 const menu: MenuItem[] = [
@@ -95,7 +95,7 @@ test("frozen details round-trip; anything else is rejected", () => {
   for (const bad of [null, "plate", { kind: "PLATE" }, { kind: "OTHER" }, [1]]) assert.equal(parseLineDetails(bad), null);
 });
 
-test("cart boundaries: Order Stuff or one food shop, never mixed, never silently merged", () => {
+test("separate carts: a shop cart and a food cart (one shop), each with its own checkout, never silently merged", () => {
   const stuff = { product: { shopId: null } };
   const fromA = { product: { shopId: "shop-a", shop: { name: "Mama A" } } };
   const fromB = { product: { shopId: "shop-b", shop: { name: "Mama B" } } };
@@ -103,17 +103,25 @@ test("cart boundaries: Order Stuff or one food shop, never mixed, never silently
   assert.deepEqual(cartContext([stuff]), { kind: "stuff" });
   assert.deepEqual(cartContext([fromA]), { kind: "food", shopId: "shop-a", shopName: "Mama A" });
 
+  // Each cart is its own lines: the shop cart Order Stuff, the food cart food.
+  assert.equal(sectionOf(stuff.product), "stuff");
+  assert.equal(sectionOf(fromA.product), "food");
+  assert.deepEqual(inSection([stuff, fromA, fromB], "food"), [fromA, fromB]);
+  assert.deepEqual(inSection([stuff, fromA], "stuff"), [stuff]);
+  assert.deepEqual(CHECKOUT_PATH, { stuff: "/checkout", food: "/checkout/food" });
+  assert.equal(parseCartSection("food"), "food");
+  assert.equal(parseCartSection("FOOD"), null);
+  assert.equal(parseCartSection(undefined), null);
+
   const shopA = { shopId: "shop-a", shopName: "Mama A" };
   const shopB = { shopId: "shop-b", shopName: "Mama B" };
+  // `addConflict` is given the food cart only.
   assert.equal(addConflict({ kind: "empty" }, shopA), null);
   assert.equal(addConflict({ kind: "empty" }, null), null);
   assert.equal(addConflict(cartContext([fromA]), shopA), null, "more from the same shop");
-  assert.equal(addConflict(cartContext([stuff]), null), null, "more Order Stuff");
-  assert.match(addConflict(cartContext([fromA]), shopB)!.message, /food from Mama A.*One food order comes from one shop/);
-  assert.match(addConflict(cartContext([stuff]), shopA)!.message, /Order Stuff.*clear your cart to order from Mama A/);
-  assert.match(addConflict(cartContext([fromA]), null)!.message, /food from Mama A.*checked out separately/);
+  assert.equal(addConflict(cartContext([fromA]), null), null, "Order Stuff goes to the shop cart, whatever the food cart holds");
+  assert.match(addConflict(cartContext([fromA]), shopB)!.message, /food cart has food from Mama A.*One food order comes from one shop.*clear your food cart to order from Mama B/);
   assert.equal(isMixedCart([fromA, fromB]), true);
-  assert.equal(isMixedCart([fromA, stuff]), true);
   assert.equal(isMixedCart([fromA, fromA]), false);
 });
 

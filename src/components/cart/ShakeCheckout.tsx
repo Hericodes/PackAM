@@ -44,7 +44,8 @@ function rememberInformation() {
   }
 }
 
-export function ShakeCheckout() {
+/** `href`: the checkout for the cart this page fills (food pages the food checkout, shop pages the shop checkout). */
+export function ShakeCheckout({ href = "/checkout" }: { href?: string }) {
   const [isAvailable, setIsAvailable] = useState(false);
   const [showInformation, setShowInformation] = useState(false);
   const [isArmed, setIsArmed] = useState(false);
@@ -181,7 +182,7 @@ export function ShakeCheckout() {
 
           <div className="mt-3 flex flex-wrap gap-2">
             <Link
-              href="/checkout"
+              href={href}
               className="inline-flex min-h-11 w-full items-center justify-center whitespace-nowrap rounded-xl bg-black px-4 text-sm font-bold text-white transition hover:bg-black/85 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black sm:w-auto"
             >
               Go to Checkout

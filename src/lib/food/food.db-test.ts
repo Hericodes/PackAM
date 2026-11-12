@@ -185,7 +185,7 @@ test("plates are priced on the server; identical plates merge, different plates 
   assert.equal((await cartLines(student.userId)).length, 3, "refused additions changed nothing");
 });
 
-test("Food and Order Stuff never share a cart, and the cart is cleared only when the student chooses", { skip }, async () => {
+test("a food cart and a shop cart side by side; the food cart holds one shop and is cleared only when the student chooses", { skip }, async () => {
   const admin = await createTestUser("ADMIN");
   const a = await buildShop(admin, "Shop A");
   const b = await buildShop(admin, "Shop B");
@@ -193,23 +193,28 @@ test("Food and Order Stuff never share a cart, and the cart is cleared only when
   const student = await createTestUser("STUDENT");
 
   assert.equal((await addFood(student, a.shopId, { kind: "MEAL", productId: a.ids.meal, quantity: 1 })).status, 200);
+  signInAs(student);
+  const stuff = await callRoute(app.cart.POST, { method: "POST", body: { productId: pen.id, quantity: 1 } });
+  assert.equal(stuff.status, 200, "Order Stuff goes to the shop cart, next to the food cart");
+  const split = stuff.json.summary as { food: { count: number }; stuff: { count: number } };
+  assert.equal(split.food.count, 1);
+  assert.equal(split.stuff.count, 1);
+
   const otherShop = await addFood(student, b.shopId, { kind: "MEAL", productId: b.ids.meal, quantity: 1 });
   assert.equal(otherShop.status, 409);
   assert.equal(otherShop.json.code, "CART_CONTEXT");
   assert.match(String(otherShop.json.error), /One food order comes from one shop/);
-  signInAs(student);
-  const stuff = await callRoute(app.cart.POST, { method: "POST", body: { productId: pen.id, quantity: 1 } });
-  assert.equal(stuff.status, 409, "Order Stuff can't join a food cart");
-  assert.deepEqual((await cartLines(student.userId)).map((line) => line.productId), [a.ids.meal], "nothing was merged or removed");
+  assert.deepEqual((await cartLines(student.userId)).map((line) => line.productId).sort(), [a.ids.meal, pen.id].sort(), "nothing was merged or removed");
 
-  // The student explicitly chooses to clear the cart and switch.
-  signInAs(student);
-  const switched = await callRoute(app.cart.POST, { method: "POST", body: { productId: pen.id, quantity: 1, clearCart: true } });
+  // The student explicitly chooses to clear the food cart and switch shops: the shop cart stays.
+  const switched = await addFood(student, b.shopId, { kind: "MEAL", productId: b.ids.meal, quantity: 1 }, true);
   assert.equal(switched.status, 200);
-  assert.deepEqual((await cartLines(student.userId)).map((line) => line.productId), [pen.id]);
-  const backToFood = await addFood(student, a.shopId, { kind: "MEAL", productId: a.ids.meal, quantity: 1 });
-  assert.equal(backToFood.status, 409, "food can't join an Order Stuff cart either");
-  assert.deepEqual((await cartLines(student.userId)).map((line) => line.productId), [pen.id]);
+  assert.deepEqual((await cartLines(student.userId)).map((line) => line.productId).sort(), [b.ids.meal, pen.id].sort());
+
+  // Each cart is priced on its own.
+  const { priceCart } = await import("../cart-pricing");
+  assert.deepEqual((await priceCart(app.db, student.userId, "food")).lines.map((line) => line.productId), [b.ids.meal]);
+  assert.deepEqual((await priceCart(app.db, student.userId, "stuff")).lines.map((line) => line.productId), [pen.id]);
 });
 
 test("closed shops and changed menus are checked again at payment; a changed total needs confirmation", { skip }, async () => {
@@ -360,7 +365,7 @@ test("mixed plates: several items by the spoon, stored and re-priced exactly, me
 
   // Re-priced from the stored rows, as checkout does.
   const { priceCart } = await import("../cart-pricing");
-  const priced = await priceCart(app.db, student.userId);
+  const priced = await priceCart(app.db, student.userId, "food");
   assert.deepEqual(priced.lines.map((line) => [line.unitPrice, line.quantity, line.problem]), [[2150, 2, null]]);
   assert.equal(priced.lines[0].details?.kind === "PLATE" && describeDetails(priced.lines[0].details), "White rice \u00d72 + Beans + Meat \u00d73");
 
@@ -394,14 +399,14 @@ test("takeaway pack: a new shop starts at \u20a6300, one pack per plate and meal
   assert.equal((meal.json as { added: { unitPrice: number } }).added.unitPrice, 1500 + 300);
 
   const { priceCart } = await import("../cart-pricing");
-  const before = await priceCart(app.db, student.userId);
+  const before = await priceCart(app.db, student.userId, "food");
   assert.equal(before.subtotal, 2 * 1600 + 1800, "two plates and a meal: three packs");
   assert.ok(before.lines.every((line) => line.details && "pack" in line.details && line.details.pack?.price === 300));
 
   // The admin changes the pack price: the cart is priced again (checkout then asks the student to confirm).
   signInAs(admin);
   assert.equal((await callRoute(app.shop.PATCH, { method: "PATCH", params: { id: shopId }, body: { foodPackFee: 200 } })).status, 200);
-  const after = await priceCart(app.db, student.userId);
+  const after = await priceCart(app.db, student.userId, "food");
   assert.equal(after.subtotal, 2 * 1500 + 1700);
   assert.equal(await app.db.auditLog.count({ where: { actorId: admin.userId, resourceId: shopId, newState: { path: ["foodPackFee"], equals: 200 } } }), 1, "audited");
 });

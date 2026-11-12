@@ -31,6 +31,7 @@ import { assertOrderingOpen } from "../ordering-hours";
 import { assertDeliverableLocation } from "../service-area";
 import { PROMO_MESSAGES, PromoCodeRejectedError, normalizePromoCode, promoFromSnapshot, snapshotHasPromo, snapshotPromoCode, type SnapshotPromo } from "../promo/promo-rules";
 import { recordPromoRedemption, resolveCheckoutPromo } from "../promo/promo-store";
+import { parseCartSection, type CartSection } from "../food/cart-context";
 
 type SnapshotItem = {
   cartItemId: string;
@@ -94,9 +95,11 @@ const ATTEMPT_WITH_SNAPSHOT = { ...ATTEMPT_FIELDS, checkoutSnapshot: true } as c
  * An existing attempt is resumed only for the speed it was created with (none recorded = Cruise Mode) and the same
  * promo code (or none), so one key can never be reused for a different total.
  */
-function resumable(attempt: Prisma.PaymentGetPayload<{ select: typeof ATTEMPT_WITH_SNAPSHOT }>, tier: DeliveryTierCode, promoCode: string | null) {
+function resumable(attempt: Prisma.PaymentGetPayload<{ select: typeof ATTEMPT_WITH_SNAPSHOT }>, tier: DeliveryTierCode, promoCode: string | null, section: CartSection | undefined) {
   if (snapshotTierForReuse(attempt.checkoutSnapshot) !== tier) throw new CheckoutAttemptMismatchError();
   if (snapshotPromoCode(attempt.checkoutSnapshot) !== promoCode) throw new CheckoutAttemptMismatchError();
+  // Nor for the other cart: a food checkout's key never resumes a shop-cart attempt, or the other way round.
+  if (section !== undefined && snapshotSection(attempt.checkoutSnapshot) !== section) throw new CheckoutAttemptMismatchError();
   return { id: attempt.id, transactionReference: attempt.transactionReference, provider: attempt.provider, status: attempt.status, amount: attempt.amount, currency: attempt.currency, orderId: attempt.orderId };
 }
 
@@ -116,6 +119,12 @@ export async function createPaymentAttempt(
   delivery: { tier?: DeliveryTierCode; reviewedDeliveryFee?: number } = {},
   /** A promo code the student applied (shop and food checkout). Checked again here; it comes off the items only. */
   promo: { code?: string | null } = {},
+  /**
+   * Which cart to pay for: "stuff" (/checkout) or "food" (/checkout/food). Only that cart's lines are priced, charged
+   * and later removed; the other cart is untouched. Left out (a checkout tab opened before the carts were separate),
+   * it is the one cart that has items.
+   */
+  checkout: { section?: CartSection } = {},
 ) {
   const session = await auth();
   if (!session?.user || session.user.role !== "STUDENT") {
@@ -142,6 +151,7 @@ export async function createPaymentAttempt(
   // A code that isn't even well-formed is refused before anything is read.
   const promoCode = promo.code === undefined || promo.code === null || promo.code === "" ? null : normalizePromoCode(promo.code);
   if (promo.code && !promoCode) throw new PromoCodeRejectedError("INVALID", PROMO_MESSAGES.INVALID);
+  if (checkout.section !== undefined && !parseCartSection(checkout.section)) throw new Error("Choose which cart to check out.");
 
   try {
     // Retried on a serialization conflict (e.g. an admin changing a delivery price at the same moment): each retry
@@ -157,7 +167,7 @@ export async function createPaymentAttempt(
         select: ATTEMPT_WITH_SNAPSHOT,
       });
       // Before any pricing, so an attempt started while its speed was on sale can still be resumed after it's turned off.
-      if (existing) return resumable(existing, tier, promoCode);
+      if (existing) return resumable(existing, tier, promoCode, checkout.section);
       // Outside ordering hours (8am–5pm campus time) no new attempt is created. Resuming one started in time
       // (above) still works, so a student who opened the payment page at 4:59pm can finish paying.
       assertOrderingOpen();
@@ -168,9 +178,10 @@ export async function createPaymentAttempt(
       });
       if (!student) throw new Error("This student account is not active.");
 
+      const section = checkout.section ?? await onlyCartWithItems(tx, student.id);
       // Prices, availability and open shops, all from the database right now (the delivery fee follows below).
       const [cart, location] = await Promise.all([
-        priceCart(tx, student.id),
+        priceCart(tx, student.id, section),
         tx.savedLocation.findFirst({
           where: { id: deliveryLocationId, userId: student.id },
           select: { id: true, label: true, address: true, instructions: true, latitude: true, longitude: true },
@@ -279,10 +290,29 @@ export async function createPaymentAttempt(
         },
         select: ATTEMPT_WITH_SNAPSHOT,
       });
-      if (existing) return resumable(existing, tier, promoCode);
+      if (existing) return resumable(existing, tier, promoCode, checkout.section);
     }
     throw error;
   }
+}
+
+/** Which cart an attempt paid for: food snapshots name their shop; Order Stuff ones don't. */
+function snapshotSection(snapshot: Prisma.JsonValue | null): CartSection {
+  const shopId = snapshot && typeof snapshot === "object" && !Array.isArray(snapshot) ? (snapshot as Prisma.JsonObject).shopId : undefined;
+  return typeof shopId === "string" && shopId ? "food" : "stuff";
+}
+
+/**
+ * For a checkout that didn't say which cart (opened before the carts were separate): the one cart with items. With
+ * both filled the student must pick, so nothing is charged for the wrong one.
+ */
+async function onlyCartWithItems(tx: Prisma.TransactionClient, userId: string): Promise<CartSection> {
+  const [food, stuff] = await Promise.all([
+    tx.cartItem.count({ where: { cart: { userId }, product: { shopId: { not: null } } } }),
+    tx.cartItem.count({ where: { cart: { userId }, product: { shopId: null } } }),
+  ]);
+  if (food && stuff) throw new CartNotPayableError(["You have a food cart and a shop cart. Refresh checkout and pay for one at a time."]);
+  return food ? "food" : "stuff";
 }
 
 function parseSnapshot(value: Prisma.JsonValue | null): CheckoutSnapshot {

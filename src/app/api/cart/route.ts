@@ -1,7 +1,7 @@
 import { auth } from "../../../auth";
 import { db } from "../../../lib/db";
 import { studentCatalogueProductWhere } from "../../../lib/products/catalogue";
-import { priceCart } from "../../../lib/cart-pricing";
+import { cartSummary } from "../../../lib/cart-pricing";
 import { addToCart, cartConflictResponse } from "../../../lib/cart-add";
 import { isSchemaBehindCode, schemaBehindCodeResponse } from "../../../lib/db-errors";
 import { variantConfigKey } from "../../../lib/products/variants";
@@ -28,10 +28,9 @@ async function getStudentCart(userId: string) {
   });
 }
 
-/** Count and subtotal priced on the server (plates include their soup and extras). */
-async function getCartSummary(userId: string) {
-  const priced = await priceCart(db, userId);
-  return { count: priced.count, subtotal: priced.subtotal };
+/** Each cart's count and subtotal (food and Order Stuff), priced on the server (plates include their soup and extras). */
+function getCartSummary(userId: string) {
+  return cartSummary(db, userId);
 }
 
 export async function GET() {
@@ -128,7 +127,7 @@ export async function POST(request: Request) {
       line = { configKey: variantConfigKey(variant.id), variantId: variant.id, stockLimit: variant.stockQuantity };
     }
 
-    // Food and Order Stuff are separate checkouts. The cart is cleared only when the student chose to.
+    // Order Stuff has its own cart, so adding here never touches the food cart.
     const result = await addToCart(session.user.id, { shop: null, productId, extras: [], quantity, ...line }, body?.clearCart === true);
     if (!result.ok) return "conflict" in result ? cartConflictResponse(result.conflict) : Response.json({ error: result.error }, { status: 400 });
 

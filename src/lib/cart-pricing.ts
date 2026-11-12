@@ -1,7 +1,7 @@
 import "server-only";
 
 import type { Prisma } from "@prisma/client";
-import { cartContext, isMixedCart, type CartContext } from "./food/cart-context";
+import { cartContext, inSection, isMixedCart, type CartContext, type CartSection } from "./food/cart-context";
 import { isSellablePrice, priceLine, storedLineRequest, type FoodGroup, type FoodRole, type LineDetails, type MenuItem } from "./food/plate";
 import { isDedicatedWorkflowCategory } from "./products/catalogue";
 import { stockShortfall, type VariantDetails } from "./products/variants";
@@ -32,6 +32,8 @@ export type PricedCartLine = {
  */
 export type PricedCart = {
   cartId: string | null;
+  /** Which cart this is: Order Stuff or food (see food/cart-context.ts). */
+  section: CartSection;
   context: CartContext;
   /** The food shop, when the cart is a food order. */
   shop: { id: string; name: string; isOpen: boolean } | null;
@@ -42,15 +44,16 @@ export type PricedCart = {
   problems: string[];
 };
 
-const EMPTY: PricedCart = { cartId: null, context: { kind: "empty" }, shop: null, lines: [], subtotal: 0, count: 0, problems: [] };
+const EMPTY: Omit<PricedCart, "section"> = { cartId: null, context: { kind: "empty" }, shop: null, lines: [], subtotal: 0, count: 0, problems: [] };
 
 
 /**
- * Prices the student's cart from the database as it is right now. Order Stuff lines use the product's
- * current price; food lines are re-priced against the shop's current menu (base + soup + extras).
- * Nothing the browser sent is used. Lines that can't be bought are reported, never silently dropped.
+ * Prices one of the student's carts (`section`: Order Stuff or food) from the database as it is right now. Order
+ * Stuff lines use the product's current price; food lines are re-priced against the shop's current menu (base + soup
+ * + extras). Nothing the browser sent is used. Lines that can't be bought are reported, never silently dropped. The
+ * other cart's lines are left out entirely: they are neither priced nor charged.
  */
-export async function priceCart(reader: Reader, userId: string): Promise<PricedCart> {
+export async function priceCart(reader: Reader, userId: string, section: CartSection): Promise<PricedCart> {
   const cart = await reader.cart.findUnique({
     where: { userId },
     select: {
@@ -66,11 +69,12 @@ export async function priceCart(reader: Reader, userId: string): Promise<PricedC
       },
     },
   });
-  if (!cart?.items.length) return { ...EMPTY, cartId: cart?.id ?? null };
+  const cartItems = cart ? inSection(cart.items, section) : [];
+  if (!cart || !cartItems.length) return { ...EMPTY, section, cartId: cart?.id ?? null };
 
-  const context = cartContext(cart.items);
+  const context = cartContext(cartItems);
   const problems: string[] = [];
-  if (isMixedCart(cart.items)) problems.push("Your cart mixes food with other items or with another shop. Remove items so it holds one kind of order.");
+  if (isMixedCart(cartItems)) problems.push("Your food cart has food from more than one shop. Remove items so it holds food from one shop.");
 
   // Food: the shop and its whole current menu, read once.
   let shop: PricedCart["shop"] = null;
@@ -91,7 +95,7 @@ export async function priceCart(reader: Reader, userId: string): Promise<PricedC
     }));
   }
 
-  const lines = cart.items.map((item): PricedCartLine => {
+  const lines = cartItems.map((item): PricedCartLine => {
     const base = { cartItemId: item.id, productId: item.productId, name: item.product.name, imageUrl: item.variant?.imageUrl ?? item.product.imageUrl, category: item.product.category.name, quantity: item.quantity, configKey: item.configKey, variantId: item.variantId };
     if (item.product.shopId) {
       if (context.kind === "food" && item.product.shopId !== context.shopId) {
@@ -129,11 +133,34 @@ export async function priceCart(reader: Reader, userId: string): Promise<PricedC
   const subtotal = lines.reduce((sum, line) => sum + line.total, 0);
   return {
     cartId: cart.id,
+    section,
     context,
     shop,
     lines,
     subtotal,
     count: lines.reduce((sum, line) => sum + line.quantity, 0),
     problems: [...new Set(problems)],
+  };
+}
+
+/**
+ * The cart badge and floating checkout buttons: each cart's item count and subtotal, priced on the server. The
+ * top-level count and subtotal are both carts together (the navbar badge).
+ */
+export type CartSummary = {
+  count: number;
+  subtotal: number;
+  food: { count: number; subtotal: number; shopName: string | null };
+  stuff: { count: number; subtotal: number };
+};
+
+export async function cartSummary(reader: Reader, userId: string): Promise<CartSummary> {
+  const food = await priceCart(reader, userId, "food");
+  const stuff = await priceCart(reader, userId, "stuff");
+  return {
+    count: food.count + stuff.count,
+    subtotal: food.subtotal + stuff.subtotal,
+    food: { count: food.count, subtotal: food.subtotal, shopName: food.context.kind === "food" ? food.shop?.name ?? food.context.shopName : null },
+    stuff: { count: stuff.count, subtotal: stuff.subtotal },
   };
 }

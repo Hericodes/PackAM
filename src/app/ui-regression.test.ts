@@ -88,7 +88,7 @@ test("checkout sends only the chosen speed and what the student reviewed, and ne
   const client = source("../components/checkout/CheckoutClient.tsx");
   // The server prices the speed and decides the promo discount; the browser never sends a fee, discount, amount or
   // total to charge (only the code itself, and the total it showed for comparison).
-  assert.ok(client.includes("body: JSON.stringify({ deliveryLocationId: selectedLocation.id, deliveryInstructions, deliveryTier: selectedTier, reviewedTotal, reviewedDeliveryFee, ...(promoInUse ? { promoCode: promoInUse } : {}) })"), "the payment request body");
+  assert.ok(client.includes("body: JSON.stringify({ cart: section, deliveryLocationId: selectedLocation.id, deliveryInstructions, deliveryTier: selectedTier, reviewedTotal, reviewedDeliveryFee, ...(promoInUse ? { promoCode: promoInUse } : {}) })"), "the payment request body");
   assert.doesNotMatch(client, /discount: discount|reviewedDiscount/, "no discount amount is sent");
   for (const text of ["deliveryTier: selectedTier", "reviewedDeliveryFee", "paymentAttemptStorageKey(", '"DELIVERY_TIER_UNAVAILABLE"', '"CHECKOUT_CHANGED"', '"INVALID_DELIVERY_TIER"', "handlePayment(confirmed, confirmedFee)"]) {
     assert.ok(client.includes(text), text);
@@ -102,7 +102,9 @@ test("checkout sends only the chosen speed and what the student reviewed, and ne
     assert.match(file, /^"use client";/, path);
     assert.doesNotMatch(file, /delivery-tier-store|lib\/db"|from "@prisma\/client"|server-only/, path);
   }
-  const page = source("./(student)/checkout/page.tsx");
+  // Both checkouts (shop and food) render the shared CheckoutScreen.
+  for (const path of ["./(student)/checkout/page.tsx", "./(student)/checkout/food/page.tsx"]) assert.match(source(path), /<CheckoutScreen section="(stuff|food)" \/>/, path);
+  const page = source("../components/checkout/CheckoutScreen.tsx");
   assert.match(page, /readDeliveryTierQuotes\(db\)/);
   assert.match(page, /tiers=\{tierQuotes\.quotes\}/);
   assert.doesNotMatch(page, /cart\.deliveryFee|deliveryFee=/, "delivery fees come from the speed quotes, not the cart");
@@ -111,7 +113,7 @@ test("checkout sends only the chosen speed and what the student reviewed, and ne
 test("delivery prices outside checkout come from the speeds on sale, never the old flat fee", () => {
   assert.doesNotMatch(source("./(student)/products/[id]/page.tsx"), /flat per order|STUDENT_DELIVERY_FEE/);
   assert.doesNotMatch(source("../lib/products/catalogue.ts"), /STUDENT_DELIVERY_FEE/);
-  for (const path of ["./food/page.tsx", "./food/[shop]/page.tsx", "../components/food/FoodMenu.tsx", "./(student)/checkout/page.tsx", "../lib/cart-pricing.ts", "./(student)/products/[id]/page.tsx"]) {
+  for (const path of ["./food/page.tsx", "./food/[shop]/page.tsx", "../components/food/FoodMenu.tsx", "../components/checkout/CheckoutScreen.tsx", "../lib/cart-pricing.ts", "./(student)/products/[id]/page.tsx"]) {
     assert.doesNotMatch(source(path), /CHECKOUT_DELIVERY_FEE/, path);
   }
   for (const path of ["./food/page.tsx", "./food/[shop]/page.tsx", "./(student)/products/[id]/page.tsx"]) {
@@ -127,9 +129,12 @@ test("delivery prices outside checkout come from the speeds on sale, never the o
   assert.deepEqual(files.filter((file) => source(`../${file}`).includes("CHECKOUT_DELIVERY_FEE")).sort(), ["lib/checkout-pricing.ts", "lib/delivery-tiers.ts"]);
 });
 
-test("the homepage offers Order Stuff, Food and Printing, in that order, and no Student Verification", () => {
+test("the homepage leads with Food, then offers Order Stuff and Printing, and no Student Verification", () => {
   const page = source("./page.tsx");
-  const order = [/id: "order"[^}]*href: "\/search"/, /id: "food"[^}]*href: "\/food"/, /id: "printing"[^}]*href: "\/printing"/].map((pattern) => page.search(pattern));
+  const render = page.slice(page.indexOf("export default async function HomePage"));
+  assert.ok(render.indexOf("<FoodHero") > 0 && render.indexOf("<FoodHero") < render.indexOf("MORE_SERVICES.map"), "the food card comes first");
+  assert.match(page, /href="\/food" className=/, "the food card's main button goes to Food");
+  const order = [/id: "order"[^}]*href: "\/search"/, /id: "printing"[^}]*href: "\/printing"/].map((pattern) => page.search(pattern));
   assert.ok(order.every((at, i) => at > 0 && (i === 0 || at > order[i - 1])), `services in order: ${order}`);
   assert.doesNotMatch(page, /Student Verification/);
 });

@@ -6,6 +6,7 @@ import { ProductCard } from "./ProductCard";
 import { categoryDisplay } from "../../lib/products/category-display";
 import { appendPage, marketplaceHref, type MarketplacePage } from "../../lib/products/marketplace";
 import type { ProductCardData } from "../../lib/products/card";
+import { looksLikeFood } from "../../lib/food/food-intent";
 
 type Category = { name: string; slug: string; subcategories?: Array<{ name: string; slug: string }> };
 type Scope = { category: string; sub: string; label: string };
@@ -147,12 +148,24 @@ export function LiveSearch({
           type="search"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search food, stationery, chargers…"
+          placeholder="Search provisions, stationery, chargers…"
           aria-controls="search-results"
           className="pk-input min-h-11 min-w-0 flex-1 sm:min-h-12"
         />
         <button type="submit" className="pk-btn pk-btn-primary shrink-0 px-4 sm:min-h-[52px] sm:px-6 sm:text-[0.9375rem]">Search</button>
       </form>
+
+      {/* Cooked food isn't in the shop: it's ordered from a campus food shop. */}
+      {searching && looksLikeFood(query) && (
+        <Link href="/food" className="pk-anim-rise mt-3 flex items-center gap-3 rounded-2xl bg-[#1f1300] p-3.5 text-white transition hover:bg-[#2c1c00] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black sm:p-4">
+          <span aria-hidden="true" className="text-3xl">🍲</span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-black sm:text-base">Hungry? Order food from campus food shops</span>
+            <span className="mt-0.5 block text-xs leading-5 text-white/75 sm:text-sm">Pick a shop, choose your food and pay. PackAM brings it to you.</span>
+          </span>
+          <span className="shrink-0 rounded-full bg-[#feb80a] px-3 py-2 text-xs font-black text-black sm:px-4 sm:text-sm">Go to Food →</span>
+        </Link>
+      )}
 
       <div role="group" aria-label="Filter by category" className="-mx-4 mt-2.5 flex gap-1.5 overflow-x-auto px-4 pb-1 [scrollbar-width:none] sm:mx-0 sm:mt-4 sm:flex-wrap sm:gap-2 sm:px-0 sm:pb-2 [&::-webkit-scrollbar]:hidden">
         <button type="button" onClick={() => setFilter("")} aria-pressed={!category} className="pk-chip min-h-9 shrink-0 px-3.5 text-[0.8125rem] sm:min-h-10 sm:px-4 sm:text-sm">All</button>

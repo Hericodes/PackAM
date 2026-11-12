@@ -4,6 +4,7 @@ import { priceCart } from "../../../../lib/cart-pricing";
 import { consumeRateLimit } from "../../../../lib/rate-limit";
 import { PromoCodeRejectedError } from "../../../../lib/promo/promo-rules";
 import { resolveCheckoutPromo } from "../../../../lib/promo/promo-store";
+import { parseCartSection } from "../../../../lib/food/cart-context";
 
 export const runtime = "nodejs";
 
@@ -29,8 +30,15 @@ export async function POST(request: Request) {
   const code = body && typeof body === "object" && "code" in body ? (body as { code?: unknown }).code : undefined;
   if (typeof code !== "string" || !code.trim() || code.length > 40) return Response.json({ error: "Enter a promo code." }, { status: 400 });
 
+  // The cart being checked out: "stuff" or "food" (absent from tabs opened before the carts were separate: Order
+  // Stuff unless only the food cart has items).
+  const rawSection = body && typeof body === "object" && "cart" in body ? (body as { cart?: unknown }).cart : undefined;
+  const requested = rawSection === undefined ? undefined : parseCartSection(rawSection);
+  if (requested === null) return Response.json({ error: "Refresh checkout, then try the code again." }, { status: 400 });
+
   try {
-    const cart = await priceCart(db, session.user.id);
+    let cart = await priceCart(db, session.user.id, requested ?? "stuff");
+    if (requested === undefined && !cart.lines.length) cart = await priceCart(db, session.user.id, "food");
     if (!cart.lines.length) return Response.json({ error: "Add something to your cart first." }, { status: 409 });
     const promo = await resolveCheckoutPromo(db, code, session.user.id, cart.subtotal);
     return Response.json({ promo: { code: promo.code, label: promo.label, discount: promo.discount, rule: promo.rule } }, { headers: { "Cache-Control": "no-store" } });

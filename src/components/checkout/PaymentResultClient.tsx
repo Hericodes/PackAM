@@ -209,7 +209,7 @@ export function PaymentResultClient({ reference }: { reference: string }) {
       {noticeLine}
       {confirmingCancel ? cancelControls : (
         <div className="mt-7 flex flex-col items-center justify-center gap-2 sm:flex-row">
-          {actions.canRetry && <Link href="/checkout" className={primaryLink}>Try Again</Link>}
+          {actions.canRetry && <Link href="/cart" className={primaryLink}>Try Again</Link>}
           {cancelControls}
         </div>
       )}

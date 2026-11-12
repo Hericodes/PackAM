@@ -16,6 +16,7 @@ import { deliveryTierProblem, initialDeliveryTier, paymentAttemptStorageKey } fr
 import { openingPhrase, orderingHoursLabel, type OrderingClock } from "../../lib/ordering-hours";
 import { useOrderingStatus } from "../ordering/useOrderingStatus";
 import { promoDiscount, type PromoRule } from "../../lib/promo/promo-rules";
+import type { CartSection } from "../../lib/food/cart-context";
 
 
 type CheckoutItem = {
@@ -56,6 +57,8 @@ type Revised = {
 type AppliedPromo = { code: string; label: string; rule: PromoRule };
 
 type CheckoutClientProps = {
+  /** Which cart this checkout pays for: the shop cart or the food cart. Sent with the promo check and the payment. */
+  section?: CartSection;
   items: CheckoutItem[];
   /** Every delivery speed with its server price and window, in display order. */
   tiers: DeliveryTierQuote[];
@@ -73,7 +76,7 @@ type CheckoutClientProps = {
 
 const money = (amount: number) => `₦${amount.toLocaleString()}`;
 
-export function CheckoutClient({ items: initialItems, tiers, ordering: orderingClock, providerName = "our payment partner", payByTransfer = false, shopName = null, problems = [] }: CheckoutClientProps) {
+export function CheckoutClient({ section = "stuff", items: initialItems, tiers, ordering: orderingClock, providerName = "our payment partner", payByTransfer = false, shopName = null, problems = [] }: CheckoutClientProps) {
   const router = useRouter();
   const { setSummary } = useCartExperience();
   // The server's revised breakdown when prices changed; payment waits for the student to confirm it.
@@ -170,7 +173,7 @@ export function CheckoutClient({ items: initialItems, tiers, ordering: orderingC
     setPromoBusy(true);
     setPromoError("");
     try {
-      const response = await fetch("/api/promo-codes/check", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code }) });
+      const response = await fetch("/api/promo-codes/check", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code, cart: section }) });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.promo) throw new Error(typeof data.error === "string" ? data.error : "We couldn’t check that code right now. Try again.");
       setPromo({ code: data.promo.code, label: data.promo.label, rule: data.promo.rule });
@@ -238,7 +241,7 @@ export function CheckoutClient({ items: initialItems, tiers, ordering: orderingC
           "Content-Type": "application/json",
           "Idempotency-Key": idempotencyKey,
         },
-        body: JSON.stringify({ deliveryLocationId: selectedLocation.id, deliveryInstructions, deliveryTier: selectedTier, reviewedTotal, reviewedDeliveryFee, ...(promoInUse ? { promoCode: promoInUse } : {}) }),
+        body: JSON.stringify({ cart: section, deliveryLocationId: selectedLocation.id, deliveryInstructions, deliveryTier: selectedTier, reviewedTotal, reviewedDeliveryFee, ...(promoInUse ? { promoCode: promoInUse } : {}) }),
       });
       const data = await response.json();
       if (response.status === 409 && data.code === "PRICE_CHANGED" && data.revised) {
@@ -399,7 +402,7 @@ export function CheckoutClient({ items: initialItems, tiers, ordering: orderingC
           )}
           {items.length === 0 ? (
             <div className="mt-4 rounded-2xl bg-[#fff8df] p-5 text-sm text-black/70">
-              You never pick anything o 😂 Your cart dey do fasting. <Link className="font-black text-black underline" href="/search">Find something</Link>
+              You never pick anything o 😂 Your cart dey do fasting. <Link className="font-black text-black underline" href={section === "food" ? "/food" : "/search"}>{section === "food" ? "Find food" : "Find something"}</Link>
             </div>
           ) : (
             <div className="mt-3 divide-y divide-black/5">
